@@ -1,0 +1,47 @@
+/*
+ * This file defines the visual appearance of the editor pages,
+ * mimicking standard A4 paper dimensions and providing a clean layout.
+ */
+
+/* Defines the A4 paper size and layout */
+.a4-paper {
+    width: 210mm;
+    min-height: 297mm;
+    /* Using min-height allows the page to grow if needed, though our logic should prevent it */
+    height: 297mm;
+    box-sizing: border-box;
+  }
+  
+  /*
+   * The content area within the page.
+   * We set its height to be the full height of the parent minus padding.
+   * This is crucial for accurately detecting when content overflows.
+   */
+  .page-content {
+    /* A4 height (297mm) - top padding (3rem) - bottom padding (3rem) */
+    height: calc(297mm - 6rem);
+    overflow-y: hidden; /* Hide the scrollbar, overflow is handled by JS */
+  }
+  
+  /*
+   * The prose class from Tailwind Typography provides nice default styling
+   * for text content like paragraphs, headings, etc.
+   */
+  .prose {
+    max-width: none; /* Override the max-width of the prose class */
+  }
+  
+  /* Ensure paragraphs have consistent margin for better line-by-line feel */
+  .prose p {
+    margin-top: 0.5em;
+    margin-bottom: 0.5em;
+  }
+  
+  /* Style for the page number displayed below each page */
+  .page-number {
+    margin-top: -1.5rem; /* Pull the number up slightly */
+    margin-bottom: 2rem; /* Add space before the next page */
+  }
+
+  
+  

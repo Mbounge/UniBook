@@ -1,0 +1,43 @@
+/* src/styles/page-view.css */
+
+.page-view {
+    position: relative;
+    width: 100%;
+    max-width: 8.5in;
+    height: 11in;
+    overflow: hidden; /* This visually hides the overflow from the user */
+    
+    margin-left: auto;
+    margin-right: auto;
+    box-shadow: 0 0 20px rgba(0, 0, 0, 0.08);
+    border: 1px solid #e2e8f0;
+    border-radius: 4px;
+    margin-top: 2rem;
+    margin-bottom: 2rem;
+    padding: 1in;
+    outline: none;
+}
+  
+/* --- THIS IS THE CRITICAL FIX --- */
+.page-view .page-content-view {
+    /* We force this inner container to have a strict boundary. */
+    /* Its height is 100% of its parent's content area (9 inches). */
+    /* Now, when content INSIDE this div grows, this div's `scrollHeight` */
+    /* will become greater than its `clientHeight`, which is what we need to detect overflow. */
+    height: 100%;
+    overflow: hidden; /* Add this to enforce the boundary strictly */
+}
+  
+.page-view .page-content-view .ProseMirror {
+    /* The editor itself should fill this container */
+    height: 100%;
+    background-color: transparent;
+    padding: 0;
+    border: none;
+    box-shadow: none;
+    min-height: auto;
+}
+  
+.ProseMirror:focus {
+    outline: none;
+}

@@ -1,0 +1,99 @@
+/* src/styles/editor.css */
+
+/* Corrected selectors to target elements directly inside .page-view */
+.page-view h1,
+.page-view h2,
+.page-view h3,
+.page-view h4,
+.page-view h5,
+.page-view h6 {
+  font-family: var(--font-heading);
+  color: var(--color-primary);
+}
+
+.page-view p,
+.page-view ul,
+.page-view ol,
+.page-view li {
+  font-family: var(--font-body);
+  color: var(--color-secondary);
+}
+
+.page-view h1 { font-size: 2.5em; line-height: 1.2; }
+.page-view h2 { font-size: 2em; line-height: 1.25; }
+.page-view h3 { font-size: 1.5em; line-height: 1.3; }
+.page-view p { margin-top: 1em; margin-bottom: 1em; line-height: 1.7; }
+
+.page-view a {
+  color: var(--color-accent);
+  text-decoration: none;
+  transition: all 0.2s ease-in-out;
+  border-bottom: 1px solid transparent;
+}
+
+.page-view a:hover {
+  border-bottom: 1px solid var(--color-accent);
+}
+
+.page-view ul,
+.page-view ol {
+  padding-left: 1.5rem;
+  margin-top: 1em;
+  margin-bottom: 1em;
+}
+
+.page-view li > p {
+  margin-top: 0.25em;
+  margin-bottom: 0.25em;
+}
+
+.page-view blockquote {
+  margin-left: 1rem;
+  padding-left: 1rem;
+  border-left: 3px solid var(--color-primary);
+  color: var(--color-primary);
+  font-style: italic;
+}
+
+.page-view pre {
+  background: #f1f5f9;
+  color: #020617;
+  font-family: 'Inconsolata', monospace;
+  padding: 1rem;
+  border-radius: 0.5rem;
+  white-space: pre-wrap;
+}
+
+.page-view code {
+  background: #f1f5f9;
+  padding: 0.2em 0.4em;
+  border-radius: 4px;
+  font-size: 0.9em;
+}
+
+.page-view pre code {
+  background: none;
+  padding: 0;
+  border-radius: 0;
+  font-size: 1em;
+}
+
+.page-view table {
+  width: 100%;
+  border-collapse: collapse;
+  margin-top: 2em;
+  margin-bottom: 2em;
+}
+
+.page-view th,
+.page-view td {
+  border: 1px solid #e2e8f0;
+  padding: 0.75rem 1rem;
+  vertical-align: top;
+}
+
+.page-view th {
+  font-weight: bold;
+  background-color: #f8fafc;
+  color: var(--color-primary);
+}

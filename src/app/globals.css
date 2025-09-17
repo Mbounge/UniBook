@@ -1,26 +1,586 @@
+/* src/app/globals.css */
+
 @import "tailwindcss";
 
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
+  --background: 240 5% 96%; /* A light gray like Tailwind's gray-100 */
+  --foreground: 240 10% 3.9%; /* A dark gray for text */
+
+  --card: 0 0% 100%; /* White */
+  --card-foreground: 240 10% 3.9%;
+
+  --popover: 0 0% 100%;
+  --popover-foreground: 240 10% 3.9%;
+
+  --primary: 262.1 83.3% 57.8%;
+  --primary-foreground: 0 0% 100%;
+
+  --secondary: 240 4.8% 95.9%;
+  --secondary-foreground: 240 5.9% 10%;
+
+  --muted: 240 4.8% 95.9%;
+  --muted-foreground: 240 3.8% 46.1%;
+
+  --accent: 240 4.8% 95.9%;
+  --accent-foreground: 240 5.9% 10%;
+
+  --destructive: 0 84.2% 60.2%;
+  --destructive-foreground: 0 0% 100%;
+
+  --border: 240 5.9% 90%;
+  --input: 240 5.9% 90%;
+  --ring: 262.1 83.3% 57.8%;
+
+  --radius: 0.5rem;
 }
 
 @theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
+  --color-background: hsl(var(--background));
+  --color-foreground: hsl(var(--foreground));
   --font-sans: var(--font-geist-sans);
   --font-mono: var(--font-geist-mono);
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
+body {
+  background: hsl(var(--background));
+  color: hsl(var(--foreground));
+}
+
+/* ---
+  EDITOR STYLES
+--- */
+
+/* --- NEW: Chapter-based Layout --- */
+.page-container {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 3rem 0;
+  background-color: #eef2f7; /* A slightly darker background for contrast */
+}
+
+.page {
+  background: white;
+  width: 8.5in;
+  min-height: 11in; /* Chapters are at least this tall, but can grow */
+  box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+  margin-bottom: 3rem; /* Space between chapters */
+  position: relative;
+  overflow: visible; /* Allow content to determine the height */
+  border-bottom: 1px solid #d1d5db; /* Visual separator for chapters */
+}
+
+.page-content {
+  padding: 1in; /* Standard document margins */
+  width: 100%;
+  height: 100%;
+  outline: none;
+  font-family: 'Inter', sans-serif;
+  font-size: 14pt;
+  line-height: 1.5;
+}
+
+/* --- General Content Styling (Largely Unchanged) --- */
+
+/* Placeholder styling */
+[contenteditable]:empty:before {
+  content: attr(data-placeholder);
+  color: #9ca3af;
+  pointer-events: none;
+  font-style: italic;
+}
+
+[contenteditable]:not(:empty):before {
+  display: none;
+}
+
+/* Typographic Scale for Headings */
+.page-content h1 {
+  font-size: 2.25rem;  /* 36px */
+  line-height: 2.5rem;
+  font-weight: 700;
+  margin-top: 1.5rem;
+  margin-bottom: 0.5rem;
+}
+
+.page-content h2 {
+  font-size: 1.875rem; /* 30px */
+  line-height: 2.25rem;
+  font-weight: 600;
+  margin-top: 1.5rem;
+  margin-bottom: 0.5rem;
+}
+
+.page-content h3 {
+  font-size: 1.5rem;   /* 24px */
+  line-height: 2rem;
+  font-weight: 600;
+  margin-top: 1.5rem;
+  margin-bottom: 0.5rem;
+}
+
+.page-content h4 {
+  font-size: 1.25rem;  /* 20px */
+  line-height: 1.75rem;
+  font-weight: 600;
+  margin-top: 1.5rem;
+  margin-bottom: 0.5rem;
+}
+
+.page-content p {
+  margin-bottom: 1.25rem; /* Or 1rem, 1.5rem, etc. to match your desired spacing */
+}
+
+/* List Styling */
+.page-content ul, .page-content ol {
+  padding-left: 1.5rem;
+  margin-top: 0.5rem;
+  margin-bottom: 0.5rem;
+}
+
+.page-content li {
+  padding-left: 0.5rem;
+  margin-bottom: 0.25rem;
+  list-style-position: inside;
+}
+
+.page-content ul { list-style-type: disc; }
+.page-content ol { list-style-type: decimal; }
+
+/* Code Block & Table Styling */
+.page-content pre {
+  background: #f1f5f9;
+  color: #334155;
+  font-family: 'Courier New', Courier, monospace;
+  padding: 1rem;
+  border-radius: 0.5rem;
+  border: 1px solid #e2e8f0;
+  white-space: pre-wrap;
+  margin: 1rem 0;
+}
+
+.page-content table {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 1rem 0;
+  table-layout: fixed;
+}
+
+.page-content th, .page-content td {
+  border: 1px solid #ccc;
+  padding: 8px;
+  vertical-align: top;
+  position: relative;
+}
+
+.page-content th {
+  font-weight: bold;
+  background-color: #f1f5f9;
+  text-align: left;
+}
+
+.page-content .selectedCell:after {
+  content: "";
+  position: absolute;
+  left: 0; right: 0; top: 0; bottom: 0;
+  background: rgba(59, 130, 246, 0.2);
+  pointer-events: none;
+}
+
+/* --- Image Wrapper & Resizer Styling (Unchanged) --- */
+.image-wrapper {
+  position: relative;
+  box-sizing: border-box;
+  overflow: visible;
+  padding: 0 !important;
+  border: none !important;
+  background: transparent !important;
+}
+
+.image-wrapper[data-float="left"] {
+  float: left !important;
+  margin: 8px 16px 8px 0 !important;
+  max-width: 45%;
+}
+
+.image-wrapper[data-float="right"] {
+  float: right !important;
+  margin: 8px 0 8px 16px !important;
+  max-width: 45%;
+}
+
+.image-wrapper[data-float="center"] {
+  display: block !important;
+  margin: 12px auto !important;
+  text-align: center;
+  max-width: 80%;
+}
+
+.editor-image {
+  display: block !important;
+  border-radius: 6px;
+  object-fit: contain;
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+  -webkit-user-select: none;
+  -moz-user-select: none;
+  -ms-user-select: none;
+  user-select: none;
+  margin: 0 !important;
+  padding: 0 !important;
+  width: 100%;
+  height: 100%;
+  cursor: pointer;
+}
+
+.editor-image:hover {
+  box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+}
+
+.image-resize-overlay {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  border: 2px solid #4285f4;
+  pointer-events: none;
+  z-index: 10;
+}
+
+/* --- NEW: Template Wrapper & Control Styles --- */
+.template-wrapper {
+  position: relative !important;
+  display: block !important;
+  margin: 16px 0 !important;
+  cursor: pointer !important;
+  border: 2px solid transparent !important;
+  border-radius: 8px !important;
+  transition: all 0.2s ease !important;
+  box-sizing: border-box !important;
+  overflow: visible !important;
+}
+
+.template-wrapper:hover {
+  border-color: #e5e7eb !important;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05) !important;
+}
+
+.template-wrapper.template-selected {
+  border-color: #8b5cf6 !important;
+  box-shadow: 0 0 0 1px rgba(139, 92, 246, 0.1), 0 4px 12px rgba(139, 92, 246, 0.15) !important;
+}
+
+/* Template floating styles */
+.template-wrapper[data-template-float="left"] {
+  float: left !important;
+  margin: 8px 16px 8px 0 !important;
+  max-width: 45% !important;
+}
+
+.template-wrapper[data-template-float="right"] {
+  float: right !important;
+  margin: 8px 0 8px 16px !important;
+  max-width: 45% !important;
+}
+
+.template-wrapper[data-template-float="center"] {
+  display: block !important;
+  margin: 12px auto !important;
+  text-align: center !important;
+  max-width: 80% !important;
+}
+
+/* Template resize overlay */
+.template-resize-overlay {
+  position: absolute !important;
+  top: -2px !important;
+  left: -2px !important;
+  right: -2px !important;
+  bottom: -2px !important;
+  border: 2px solid #8b5cf6 !important;
+  border-radius: 8px !important;
+  pointer-events: none !important;
+  z-index: 10 !important;
+  background: rgba(139, 92, 246, 0.05) !important;
+}
+
+/* Template resize handles */
+.template-resize-handle {
+  position: absolute !important;
+  width: 12px !important;
+  height: 12px !important;
+  background: #8b5cf6 !important;
+  border: 2px solid white !important;
+  border-radius: 50% !important;
+  pointer-events: all !important;
+  z-index: 11 !important;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1) !important;
+  transition: all 0.2s ease !important;
+}
+
+.template-resize-handle:hover {
+  background: #7c3aed !important;
+  transform: scale(1.2) !important;
+}
+
+/* Template drag handle */
+.template-drag-handle {
+  position: absolute !important;
+  top: -6px !important;
+  left: 50% !important;
+  transform: translateX(-50%) !important;
+  width: 24px !important;
+  height: 12px !important;
+  background: #8b5cf6 !important;
+  border: 2px solid white !important;
+  border-radius: 6px !important;
+  pointer-events: all !important;
+  z-index: 11 !important;
+  cursor: move !important;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1) !important;
+  transition: all 0.2s ease !important;
+  display: flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+}
+
+.template-drag-handle:hover {
+  background: #7c3aed !important;
+  transform: translateX(-50%) scale(1.1) !important;
+}
+
+/* Template toolbar */
+.template-toolbar {
+  position: absolute !important;
+  top: -50px !important;
+  right: 0 !important;
+  background: white !important;
+  border-radius: 12px !important;
+  padding: 8px !important;
+  display: flex !important;
+  gap: 4px !important;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15) !important;
+  pointer-events: all !important;
+  z-index: 12 !important;
+  backdrop-filter: blur(8px) !important;
+  border: 1px solid rgba(255, 255, 255, 0.2) !important;
+}
+
+.template-toolbar button {
+  width: 32px !important;
+  height: 32px !important;
+  border: none !important;
+  background: transparent !important;
+  color: #6b7280 !important;
+  border-radius: 8px !important;
+  cursor: pointer !important;
+  display: flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  transition: all 0.2s ease !important;
+}
+
+.template-toolbar button:hover {
+  background: #f3f4f6 !important;
+  color: #374151 !important;
+}
+
+.template-toolbar button[data-template-float].active {
+  background: #8b5cf6 !important;
+  color: white !important;
+}
+
+/* Image toolbar (for consistency) */
+.image-toolbar {
+  position: absolute !important;
+  top: -50px !important;
+  left: 50% !important;
+  transform: translateX(-50%) !important;
+  background: white !important;
+  border-radius: 12px !important;
+  padding: 8px !important;
+  display: flex !important;
+  gap: 4px !important;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15) !important;
+  pointer-events: all !important;
+  z-index: 12 !important;
+  backdrop-filter: blur(8px) !important;
+  border: 1px solid rgba(255, 255, 255, 0.2) !important;
+}
+
+.image-toolbar button {
+  width: 32px !important;
+  height: 32px !important;
+  border: none !important;
+  background: transparent !important;
+  color: #6b7280 !important;
+  border-radius: 8px !important;
+  cursor: pointer !important;
+  display: flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  transition: all 0.2s ease !important;
+}
+
+.image-toolbar button:hover {
+  background: #f3f4f6 !important;
+  color: #374151 !important;
+}
+
+.image-toolbar button[data-float-type].active {
+  background: #3b82f6 !important;
+  color: white !important;
+}
+
+/* Resize handles for images */
+.resize-handle {
+  position: absolute !important;
+  width: 12px !important;
+  height: 12px !important;
+  background: #3b82f6 !important;
+  border: 2px solid white !important;
+  border-radius: 50% !important;
+  pointer-events: all !important;
+  z-index: 11 !important;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1) !important;
+  transition: all 0.2s ease !important;
+}
+
+.resize-handle:hover {
+  background: #2563eb !important;
+  transform: scale(1.2) !important;
+}
+
+/* Specific resize handle positioning */
+.nw-resize { top: -6px !important; left: -6px !important; cursor: nw-resize !important; }
+.n-resize { top: -6px !important; left: 50% !important; transform: translateX(-50%) !important; cursor: n-resize !important; }
+.ne-resize { top: -6px !important; right: -6px !important; cursor: ne-resize !important; }
+.e-resize { top: 50% !important; right: -6px !important; transform: translateY(-50%) !important; cursor: e-resize !important; }
+.se-resize { bottom: -6px !important; right: -6px !important; cursor: se-resize !important; }
+.s-resize { bottom: -6px !important; left: 50% !important; transform: translateX(-50%) !important; cursor: s-resize !important; }
+.sw-resize { bottom: -6px !important; left: -6px !important; cursor: sw-resize !important; }
+.w-resize { top: 50% !important; left: -6px !important; transform: translateY(-50%) !important; cursor: w-resize !important; }
+
+/* Template block content styling */
+.template-block {
+  outline: none !important;
+  position: relative !important;
+}
+
+.template-block:focus {
+  outline: none !important;
+}
+
+/* Ensure template content is editable */
+.template-wrapper .template-block [contenteditable="true"] {
+  outline: none !important;
+  cursor: text !important;
+}
+
+.template-wrapper .template-block [contenteditable="true"]:focus {
+  outline: 2px solid rgba(59, 130, 246, 0.3) !important;
+  outline-offset: 2px !important;
+  border-radius: 4px !important;
+}
+
+.template-wrapper {
+  background: rgba(139, 92, 246, 0.1) !important;
+}
+
+.template-wrapper:hover {
+  background: rgba(139, 92, 246, 0.2) !important;
+}
+
+.template-selected {
+  background: rgba(139, 92, 246, 0.3) !important;
+}
+
+/* --- Print-specific styles --- */
+@media print {
+  body, .page-container {
+    background: transparent !important;
+    margin: 0;
+    padding: 0;
+  }
+  .page {
+    box-shadow: none;
+    margin: 0;
+    border-bottom: none;
+    page-break-after: always; /* Each .page div becomes a printed page */
+  }
+  .no-print {
+    display: none !important;
+  }
+  
+  /* Hide template controls in print */
+  .template-resize-overlay,
+  .template-toolbar,
+  .template-drag-handle,
+  .template-resize-handle,
+  .image-resize-overlay,
+  .image-toolbar,
+  .resize-handle {
+    display: none !important;
+  }
+  
+  /* Reset template wrapper styles for print */
+  .template-wrapper {
+    border: none !important;
+    box-shadow: none !important;
   }
 }
 
-body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+.prose p {
+  margin-bottom: 1em;
 }
+
+.page-content {
+  counter-reset: fig-counter chart-counter;
+}
+
+/* 2. Style the wrappers to behave correctly with captions */
+.image-wrapper, .graph-wrapper {
+  /* This makes the wrapper behave like a table, which is a classic CSS trick 
+     to make the caption respect the width of the element above it. */
+  display: table !important;
+  /* Ensure captions don't inherit strange text-align from parent paragraphs */
+  text-align: left; 
+}
+
+/* 3. Style the figcaption element itself */
+.image-wrapper figcaption, .graph-wrapper figcaption {
+  display: table-caption;
+  caption-side: bottom;
+  margin-top: 0.5rem; /* 8px */
+  padding: 0 0.25rem; /* 4px */
+  text-align: center;
+  font-size: 0.875rem; /* 14px */
+  line-height: 1.4;
+  color: #4b5563; /* gray-600 */
+  outline: none;
+}
+
+/* 4. The magic: Auto-numbering for IMAGES */
+.image-wrapper figcaption::before {
+  counter-increment: fig-counter;
+  content: 'Fig. ' counter(fig-counter) '. ';
+  font-weight: 600;
+  margin-right: 0.5em;
+}
+
+/* 5. The magic: Auto-numbering for GRAPHS */
+.graph-wrapper figcaption::before {
+  counter-increment: chart-counter;
+  content: 'Chart ' counter(chart-counter) '. ';
+  font-weight: 600;
+  margin-right: 0.5em;
+}
+
+/* Add a placeholder for empty captions */
+.image-wrapper figcaption:empty::after, .graph-wrapper figcaption:empty::after {
+  content: 'Add a description...';
+  font-style: italic;
+  color: #9ca3af; /* gray-400 */
+}
+
+
