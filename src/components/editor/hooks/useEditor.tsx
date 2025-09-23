@@ -1,3 +1,5 @@
+//src/components/editor/hooks/useEditor.tsx
+
 'use client';
 
 import React, { useState, useCallback, useRef, useEffect } from 'react';
@@ -5,6 +7,7 @@ import { createRoot, Root } from 'react-dom/client';
 import { MathBlock } from '../MathBlock';
 import { GraphBlock, GraphData } from '../GraphBlock';
 import { useHistory } from './useHistory';
+import { useTextReflow } from './useTextReflow';
 
 export const useEditor = (editorRef: React.RefObject<HTMLDivElement | null>) => {
   const { 
@@ -21,14 +24,16 @@ export const useEditor = (editorRef: React.RefObject<HTMLDivElement | null>) => 
   
   const reactRootsRef = useRef<Map<HTMLElement, Root>>(new Map());
 
+  const saveToHistory = useCallback((force: boolean = false) => {
+    record(force ? 'action' : 'input');
+  }, [record]);
+
+  const { scheduleReflow, immediateReflow } = useTextReflow(editorRef, saveToHistory);
+
   const unmountAllReactComponents = useCallback(() => {
     reactRootsRef.current.forEach((root) => root.unmount());
     reactRootsRef.current.clear();
   }, []);
-
-  const saveToHistory = useCallback((force: boolean = false) => {
-    record(force ? 'action' : 'input');
-  }, [record]);
 
   const mountReactComponent = useCallback((component: React.ReactElement, wrapper: HTMLElement) => {
     const root = createRoot(wrapper);
@@ -43,16 +48,21 @@ export const useEditor = (editorRef: React.RefObject<HTMLDivElement | null>) => 
       if (reactRootsRef.current.has(wrapper)) return;
       const initialTex = wrapper.dataset.tex || '';
       const isInline = wrapper.dataset.inline === 'true';
-      const handleUpdate = (newTex: string) => { wrapper.dataset.tex = newTex; saveToHistory(true); };
+      const handleUpdate = (newTex: string) => { 
+        wrapper.dataset.tex = newTex; 
+        saveToHistory(true);
+        scheduleReflow();
+      };
       const handleRemove = () => {
         const root = reactRootsRef.current.get(wrapper);
         if (root) { root.unmount(); reactRootsRef.current.delete(wrapper); }
         wrapper.remove();
         saveToHistory(true);
+        scheduleReflow();
       };
       mountReactComponent(<MathBlock initialTex={initialTex} isInline={isInline} onUpdate={handleUpdate} onRemove={handleRemove} />, wrapper);
     });
-  }, [mountReactComponent, saveToHistory]);
+  }, [mountReactComponent, saveToHistory, scheduleReflow]);
 
   const rehydrateGraphBlocks = useCallback((container: HTMLElement) => {
     const graphPlaceholders = container.querySelectorAll('.graph-wrapper');
@@ -60,16 +70,21 @@ export const useEditor = (editorRef: React.RefObject<HTMLDivElement | null>) => 
       const wrapper = el as HTMLElement;
       if (reactRootsRef.current.has(wrapper) || !wrapper.dataset.graph) return;
       const initialGraphData = JSON.parse(wrapper.dataset.graph);
-      const handleUpdate = (newGraphData: GraphData) => { wrapper.dataset.graph = JSON.stringify(newGraphData); saveToHistory(true); };
+      const handleUpdate = (newGraphData: GraphData) => { 
+        wrapper.dataset.graph = JSON.stringify(newGraphData); 
+        saveToHistory(true);
+        scheduleReflow();
+      };
       const handleRemove = () => {
         const root = reactRootsRef.current.get(wrapper);
         if (root) { root.unmount(); reactRootsRef.current.delete(wrapper); }
         wrapper.remove();
         saveToHistory(true);
+        scheduleReflow();
       };
       mountReactComponent(<GraphBlock initialGraphData={initialGraphData} onUpdate={handleUpdate} onRemove={handleRemove} />, wrapper);
     });
-  }, [mountReactComponent, saveToHistory]);
+  }, [mountReactComponent, saveToHistory, scheduleReflow]);
 
   const restoreStateFromHistory = useCallback((state: { html: string; startOffset: number; endOffset: number; } | null) => {
     if (state && editorRef.current) {
@@ -78,6 +93,7 @@ export const useEditor = (editorRef: React.RefObject<HTMLDivElement | null>) => 
       rehydrateMathBlocks(editorRef.current);
       rehydrateGraphBlocks(editorRef.current);
       restoreSelection(editorRef.current, state.startOffset, state.endOffset);
+      // Don't trigger reflow when restoring from history
     }
   }, [editorRef, unmountAllReactComponents, rehydrateMathBlocks, rehydrateGraphBlocks, restoreSelection]);
 
@@ -187,8 +203,11 @@ export const useEditor = (editorRef: React.RefObject<HTMLDivElement | null>) => 
     range.collapse(true);
     selection?.removeAllRanges();
     selection?.addRange(range);
-    setTimeout(() => saveToHistory(true), 100);
-  }, [editorRef, saveToHistory]);
+    setTimeout(() => {
+      saveToHistory(true);
+      scheduleReflow();
+    }, 100);
+  }, [editorRef, saveToHistory, scheduleReflow]);
 
   const ensureCursorFriendlyBlocks = (wrapper: HTMLElement, selection: Selection | null) => {
     const isSpecialWrapper = (el: Element | null): boolean => {
@@ -234,7 +253,11 @@ export const useEditor = (editorRef: React.RefObject<HTMLDivElement | null>) => 
     wrapper.dataset.inline = String(isInline);
     wrapper.style.display = isInline ? 'inline-block' : 'block';
     if (!isInline) wrapper.style.margin = '1em 0';
-    const handleUpdate = (newTex: string) => { wrapper.dataset.tex = newTex; saveToHistory(true); };
+    const handleUpdate = (newTex: string) => { 
+      wrapper.dataset.tex = newTex; 
+      saveToHistory(true);
+      scheduleReflow();
+    };
     const handleRemove = () => {
       const root = reactRootsRef.current.get(wrapper);
       if (root) { root.unmount(); reactRootsRef.current.delete(wrapper); }
@@ -242,6 +265,7 @@ export const useEditor = (editorRef: React.RefObject<HTMLDivElement | null>) => 
       if (nextNode && nextNode.nodeType === Node.TEXT_NODE && nextNode.textContent === '\u200B') { nextNode.remove(); }
       wrapper.remove();
       saveToHistory(true);
+      scheduleReflow();
     };
     mountReactComponent(<MathBlock initialTex="" isInline={isInline} onUpdate={handleUpdate} onRemove={handleRemove} />, wrapper);
     const selection = window.getSelection();
@@ -269,8 +293,11 @@ export const useEditor = (editorRef: React.RefObject<HTMLDivElement | null>) => 
         selection?.addRange(newRange);
       }
     }
-    setTimeout(() => saveToHistory(true), 100);
-  }, [saveToHistory, findInsertionTarget, addNewChapter, mountReactComponent]);
+    setTimeout(() => {
+      saveToHistory(true);
+      scheduleReflow();
+    }, 100);
+  }, [saveToHistory, findInsertionTarget, addNewChapter, mountReactComponent, scheduleReflow]);
 
   const insertGraph = useCallback((graphData: GraphData) => {
     saveToHistory(true);
@@ -282,12 +309,17 @@ export const useEditor = (editorRef: React.RefObject<HTMLDivElement | null>) => 
     wrapper.dataset.graph = JSON.stringify(graphData);
     wrapper.style.margin = '1em auto';
     wrapper.style.width = `${graphData.width}px`;
-    const handleUpdate = (newGraphData: GraphData) => { wrapper.dataset.graph = JSON.stringify(newGraphData); saveToHistory(true); };
+    const handleUpdate = (newGraphData: GraphData) => { 
+      wrapper.dataset.graph = JSON.stringify(newGraphData); 
+      saveToHistory(true);
+      scheduleReflow();
+    };
     const handleRemove = () => {
       const root = reactRootsRef.current.get(wrapper);
       if (root) { root.unmount(); reactRootsRef.current.delete(wrapper); }
       wrapper.remove();
       saveToHistory(true);
+      scheduleReflow();
     };
     mountReactComponent(<GraphBlock initialGraphData={graphData} onUpdate={handleUpdate} onRemove={handleRemove} />, wrapper);
     
@@ -310,8 +342,11 @@ export const useEditor = (editorRef: React.RefObject<HTMLDivElement | null>) => 
     }
 
     ensureCursorFriendlyBlocks(wrapper, selection);
-    setTimeout(() => saveToHistory(true), 100);
-  }, [saveToHistory, findInsertionTarget, addNewChapter, mountReactComponent]);
+    setTimeout(() => {
+      saveToHistory(true);
+      scheduleReflow();
+    }, 100);
+  }, [saveToHistory, findInsertionTarget, addNewChapter, mountReactComponent, scheduleReflow]);
 
   const insertImage = useCallback((imageData: any) => {
     saveToHistory(true);
@@ -349,8 +384,11 @@ export const useEditor = (editorRef: React.RefObject<HTMLDivElement | null>) => 
     }
 
     ensureCursorFriendlyBlocks(wrapper, selection);
-    setTimeout(() => saveToHistory(true), 100);
-  }, [saveToHistory, findInsertionTarget, addNewChapter]);
+    setTimeout(() => {
+      saveToHistory(true);
+      scheduleReflow();
+    }, 100);
+  }, [saveToHistory, findInsertionTarget, addNewChapter, scheduleReflow]);
 
   const insertContent = useCallback((htmlBlocks: string[], createChapters: boolean) => {
     if (!editorRef.current) return;
@@ -411,8 +449,11 @@ export const useEditor = (editorRef: React.RefObject<HTMLDivElement | null>) => 
         }
       }
     }
-    setTimeout(() => saveToHistory(true), 100);
-  }, [editorRef, saveToHistory, findInsertionTarget, addNewChapter]);
+    setTimeout(() => {
+      saveToHistory(true);
+      scheduleReflow();
+    }, 100);
+  }, [editorRef, saveToHistory, findInsertionTarget, addNewChapter, scheduleReflow]);
 
   const insertTemplate = useCallback((templateHtml: string) => {
     if (!editorRef.current) return;
@@ -424,9 +465,7 @@ export const useEditor = (editorRef: React.RefObject<HTMLDivElement | null>) => 
       const templateWrapper = document.createElement('div');
       templateWrapper.className = 'template-wrapper';
       templateWrapper.contentEditable = 'false';
-      // --- MODIFICATION START: Removed 'clear: both;' ---
       templateWrapper.style.cssText = `position: relative; display: block; width: fit-content; margin: 16px 0; cursor: pointer; border: 2px solid transparent; border-radius: 8px; transition: all 0.2s ease;`;
-      // --- MODIFICATION END ---
       const tempDiv = document.createElement('div');
       tempDiv.innerHTML = templateHtml;
       tempDiv.querySelectorAll('.template-block').forEach(template => {
@@ -457,8 +496,11 @@ export const useEditor = (editorRef: React.RefObject<HTMLDivElement | null>) => 
       const selection = window.getSelection();
       ensureCursorFriendlyBlocks(templateWrapper, selection);
     }
-    setTimeout(() => saveToHistory(true), 100);
-  }, [editorRef, saveToHistory, findInsertionTarget, addNewChapter]);
+    setTimeout(() => {
+      saveToHistory(true);
+      scheduleReflow();
+    }, 100);
+  }, [editorRef, saveToHistory, findInsertionTarget, addNewChapter, scheduleReflow]);
 
   useEffect(() => {
     return () => {
@@ -482,5 +524,7 @@ export const useEditor = (editorRef: React.RefObject<HTMLDivElement | null>) => 
     rehydrateMathBlocks,
     rehydrateGraphBlocks,
     resetHistory,
+    scheduleReflow,
+    immediateReflow,
   };
 };

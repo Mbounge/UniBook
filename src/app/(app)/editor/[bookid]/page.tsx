@@ -1,3 +1,5 @@
+//src/app/(app)editor/[bookid]/page.tsx
+
 "use client";
 
 import React, { useState, useEffect, useRef } from "react";
@@ -48,15 +50,15 @@ const EditorComponent = () => {
   
   const pageContainerRef = useRef<HTMLDivElement | null>(null);
   
-  // --- MODIFICATION START: Destructure resetHistory ---
   const { 
     undo, redo, canUndo, canRedo, saveToHistory, 
     insertImage, insertContent, insertTemplate, 
     insertMath, rehydrateMathBlocks,
     insertGraph, rehydrateGraphBlocks,
-    resetHistory 
+    resetHistory,
+    scheduleReflow,
+    immediateReflow
   } = useEditor(pageContainerRef);
-  // --- MODIFICATION END ---
 
   const { data: bookData, isLoading: isBookLoading, isError } = useQuery({
     queryKey: ['book', params.bookid],
@@ -79,10 +81,13 @@ const EditorComponent = () => {
       pageContainerRef.current.innerHTML = bookData.content;
       rehydrateMathBlocks(pageContainerRef.current);
       rehydrateGraphBlocks(pageContainerRef.current);
-      setTimeout(() => saveToHistory(true), 100);
+      setTimeout(() => {
+        saveToHistory(true);
+        immediateReflow(); // Trigger initial reflow after content is loaded
+      }, 100);
       setIsContentLoaded(true);
     }
-  }, [bookData, pageContainerRef, isContentLoaded, saveToHistory, rehydrateMathBlocks, rehydrateGraphBlocks]);
+  }, [bookData, pageContainerRef, isContentLoaded, saveToHistory, rehydrateMathBlocks, rehydrateGraphBlocks, immediateReflow]);
 
   useEffect(() => {
     if (showTocPanel || leftPanelContent) {
@@ -281,6 +286,8 @@ const EditorComponent = () => {
             rehydrateGraphBlocks={rehydrateGraphBlocks}
             insertTemplate={insertTemplate}
             resetHistory={resetHistory}
+            scheduleReflow={scheduleReflow}
+            immediateReflow={immediateReflow}
           />
         </div>
 

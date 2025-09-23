@@ -61,6 +61,7 @@
     "dotenv": "^17.2.1",
     "fuse.js": "^7.1.0",
     "katex": "^0.16.22",
+    "lodash": "^4.17.21",
     "lucide-react": "^0.513.0",
     "marked": "^15.0.12",
     "next": "15.3.3",
@@ -74,6 +75,7 @@
     "recharts": "^3.1.2",
     "tailwind-merge": "^3.3.1",
     "tailwindcss-animate": "^1.0.7",
+    "uuid": "^13.0.0",
     "zustand": "^5.0.8"
   },
   "devDependencies": {
