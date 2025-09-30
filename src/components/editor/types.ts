@@ -1,24 +1,29 @@
+export interface EditorLine {
+  id: string;
+  content: string;
+  height: number;
+  type: 'text' | 'image' | 'latex' | 'template';
+  styles?: Record<string, any>;
+}
+
+export interface EditorPage {
+  id: string;
+  lines: EditorLine[];
+  header?: string;
+  footer?: string;
+}
+
+export interface CursorPosition {
+  pageIndex: number;
+  lineIndex: number;
+  charIndex: number;
+}
+
 export interface EditorState {
-    content: string;
-    pages: HTMLElement[];
-    currentPage: number;
-    cursorPosition: number;
-  }
-  
-  export interface ImageElement {
-    id: string;
-    src: string;
-    width: number;
-    height: number;
-    x: number;
-    y: number;
-    alt?: string;
-  }
-  
-  export interface EditorConfig {
-    pageWidth: number;
-    pageHeight: number;
-    margin: number;
-    lineHeight: number;
-    fontSize: number;
-  }
+  pages: EditorPage[];
+  cursor: CursorPosition;
+  selection?: {
+    start: CursorPosition;
+    end: CursorPosition;
+  };
+}

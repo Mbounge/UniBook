@@ -1,5 +1,3 @@
-//src/components/editor/DocumentEditor.tsx 2.0
-
 'use client';
 
 import React, { useCallback, useRef, useEffect, useState, forwardRef, useImperativeHandle } from 'react';
@@ -916,7 +914,6 @@ export const DocumentEditor = forwardRef<DocumentEditorHandle, DocumentEditorPro
     return false;
   }, [insertMath]);
 
-  // RESTORED: Debugging function
   const debugPageHeight = useCallback((pageContent: HTMLElement) => {
     console.log('=== PAGE HEIGHT DIAGNOSTIC ===');
     
@@ -999,125 +996,170 @@ export const DocumentEditor = forwardRef<DocumentEditorHandle, DocumentEditorPro
           return;
       }
       
-      // RESTORED: Enter key handler with console logs
-      // REPLACE the existing Enter key handler in the handleKeyDown function with this improved version:
-
-if (event.key === 'Enter') {
-  const selection = window.getSelection();
-  if (selection && selection.rangeCount > 0) {
-    const range = selection.getRangeAt(0);
-    const pageContent = range.startContainer.nodeType === Node.ELEMENT_NODE 
-      ? (range.startContainer as HTMLElement).closest('.page-content')
-      : range.startContainer.parentElement?.closest('.page-content');
-    
-    if (pageContent) {
-      const availableHeight = 936;
-      const currentHeight = pageContent.getBoundingClientRect().height;
-      const percentageFull = (currentHeight / availableHeight * 100).toFixed(1);
-      
-      console.log(`Page is ${percentageFull}% full (${currentHeight}px / ${availableHeight}px)`);
-      
-      pageContent.setAttribute('data-user-active', 'true');
-      
-      setTimeout(() => {
-        pageContent.removeAttribute('data-user-active');
-      }, 1000);
-      
-      const contentRange = document.createRange();
-      contentRange.selectNodeContents(pageContent);
-      const actualContentHeight = contentRange.getBoundingClientRect().height;
-      
-      const availableContentHeight = availableHeight - 105.6;
-      
-      console.log(`Actual content height: ${actualContentHeight}px, Available content space: ${availableContentHeight}px`);
-      
-      // NEW: Check if cursor is near the end of the page
-      const isCursorNearEnd = () => {
-        const selection = window.getSelection();
-        if (!selection || selection.rangeCount === 0) return false;
-        
-        const range = selection.getRangeAt(0);
-        const pageContentRect = pageContent.getBoundingClientRect();
-        
-        // Get cursor position within the page
-        let cursorY = 0;
-        if (range.getClientRects().length > 0) {
-          cursorY = range.getClientRects()[0].top;
-        } else {
-          // Fallback: use the position of the container element
-          const container = range.startContainer.nodeType === Node.ELEMENT_NODE 
-            ? range.startContainer as HTMLElement
-            : range.startContainer.parentElement;
-          if (container) {
-            cursorY = container.getBoundingClientRect().top;
-          }
-        }
-        
-        // Calculate cursor position relative to page content
-        const relativeY = cursorY - pageContentRect.top;
-        const cursorPercentage = (relativeY / pageContentRect.height) * 100;
-        
-        console.log(`Cursor is at ${cursorPercentage.toFixed(1)}% of page height (${relativeY}px from top)`);
-        
-        // Only consider cursor "near end" if it's in the bottom 20% of the page
-        return cursorPercentage > 93;
-      };
-      
-      if (actualContentHeight > (availableContentHeight * 0.9)) {
-        console.log('Content is over 90% of available space, checking for overflow after Enter...');
-        
-        setTimeout(() => {
-          const newContentRange = document.createRange();
-          newContentRange.selectNodeContents(pageContent);
-          const newActualContentHeight = newContentRange.getBoundingClientRect().height;
-          
-          console.log(`After Enter - actual content height: ${newActualContentHeight}px`);
-          
-          // MODIFIED: Only move to next page if content overflowed AND cursor is near the end
-          if (newActualContentHeight > availableContentHeight && isCursorNearEnd()) {
-            console.log('Content overflowed available space AND cursor is near end, triggering reflow');
-            immediateReflow();
-            
-            setTimeout(() => {
-              const postReflowSelection = window.getSelection();
-              if (postReflowSelection && postReflowSelection.rangeCount > 0) {
-                const postReflowRange = postReflowSelection.getRangeAt(0);
-                const currentPageAfterReflow = postReflowRange.startContainer.nodeType === Node.ELEMENT_NODE 
-                  ? (postReflowRange.startContainer as HTMLElement).closest('.page-content')
-                  : postReflowRange.startContainer.parentElement?.closest('.page-content');
-                
-                if (currentPageAfterReflow === pageContent) {
-                  const finalContentRange = document.createRange();
-                  finalContentRange.selectNodeContents(currentPageAfterReflow);
-                  const finalContentHeight = finalContentRange.getBoundingClientRect().height;
-                  
-                  if (finalContentHeight > availableContentHeight) {
-                    moveCursorToNextPage(currentPageAfterReflow as HTMLElement);
-                  }
-                }
-              }
-            }, 50);
-          } else if (newActualContentHeight > availableContentHeight) {
-            console.log('Content overflowed but cursor is not near end - only running reflow without moving cursor');
-            immediateReflow();
-          } else {
-            console.log('Content did not overflow after Enter');
-          }
-        }, 0);
-      } else {
-        console.log('Content not full enough for overflow check, doing normal Enter behavior');
-      }
-    }
-  }
-  
-  saveToHistory(true);
-  return;
-}
-      
-      if (event.key === 'Backspace') {
+      if (event.key === 'Enter') {
         const selection = window.getSelection();
         if (selection && selection.rangeCount > 0) {
           const range = selection.getRangeAt(0);
+          const pageContent = range.startContainer.nodeType === Node.ELEMENT_NODE 
+            ? (range.startContainer as HTMLElement).closest('.page-content')
+            : range.startContainer.parentElement?.closest('.page-content');
+          
+          if (pageContent) {
+            const availableHeight = 936;
+            const currentHeight = pageContent.getBoundingClientRect().height;
+            const percentageFull = (currentHeight / availableHeight * 100).toFixed(1);
+            
+            console.log(`Page is ${percentageFull}% full (${currentHeight}px / ${availableHeight}px)`);
+            
+            pageContent.setAttribute('data-user-active', 'true');
+            
+            setTimeout(() => {
+              pageContent.removeAttribute('data-user-active');
+            }, 1000);
+            
+            const contentRange = document.createRange();
+            contentRange.selectNodeContents(pageContent);
+            const actualContentHeight = contentRange.getBoundingClientRect().height;
+            
+            const availableContentHeight = availableHeight - 105.6;
+            
+            console.log(`Actual content height: ${actualContentHeight}px, Available content space: ${availableContentHeight}px`);
+            
+            const isCursorNearEnd = () => {
+              const selection = window.getSelection();
+              if (!selection || selection.rangeCount === 0) return false;
+              
+              const range = selection.getRangeAt(0);
+              const pageContentRect = pageContent.getBoundingClientRect();
+              
+              let cursorY = 0;
+              if (range.getClientRects().length > 0) {
+                cursorY = range.getClientRects()[0].top;
+              } else {
+                const container = range.startContainer.nodeType === Node.ELEMENT_NODE 
+                  ? range.startContainer as HTMLElement
+                  : range.startContainer.parentElement;
+                if (container) {
+                  cursorY = container.getBoundingClientRect().top;
+                }
+              }
+              
+              const relativeY = cursorY - pageContentRect.top;
+              const cursorPercentage = (relativeY / pageContentRect.height) * 100;
+              
+              console.log(`Cursor is at ${cursorPercentage.toFixed(1)}% of page height (${relativeY}px from top)`);
+              
+              return cursorPercentage > 93;
+            };
+            
+            if (actualContentHeight > (availableContentHeight * 0.9)) {
+              console.log('Content is over 90% of available space, checking for overflow after Enter...');
+              
+              setTimeout(() => {
+                const newContentRange = document.createRange();
+                newContentRange.selectNodeContents(pageContent);
+                const newActualContentHeight = newContentRange.getBoundingClientRect().height;
+                
+                console.log(`After Enter - actual content height: ${newActualContentHeight}px`);
+                
+                if (newActualContentHeight > availableContentHeight && isCursorNearEnd()) {
+                  console.log('Content overflowed available space AND cursor is near end, triggering reflow');
+                  immediateReflow();
+                  
+                  setTimeout(() => {
+                    const postReflowSelection = window.getSelection();
+                    if (postReflowSelection && postReflowSelection.rangeCount > 0) {
+                      const postReflowRange = postReflowSelection.getRangeAt(0);
+                      const currentPageAfterReflow = postReflowRange.startContainer.nodeType === Node.ELEMENT_NODE 
+                        ? (postReflowRange.startContainer as HTMLElement).closest('.page-content')
+                        : postReflowRange.startContainer.parentElement?.closest('.page-content');
+                      
+                      if (currentPageAfterReflow === pageContent) {
+                        const finalContentRange = document.createRange();
+                        finalContentRange.selectNodeContents(currentPageAfterReflow);
+                        const finalContentHeight = finalContentRange.getBoundingClientRect().height;
+                        
+                        if (finalContentHeight > availableContentHeight) {
+                          moveCursorToNextPage(currentPageAfterReflow as HTMLElement);
+                        }
+                      }
+                    }
+                  }, 50);
+                } else if (newActualContentHeight > availableContentHeight) {
+                  console.log('Content overflowed but cursor is not near end - only running reflow without moving cursor');
+                  immediateReflow();
+                } else {
+                  console.log('Content did not overflow after Enter');
+                }
+              }, 0);
+            } else {
+              console.log('Content not full enough for overflow check, doing normal Enter behavior');
+            }
+          }
+        }
+        
+        saveToHistory(true);
+        return;
+      }
+      
+      if (event.key === 'Backspace') {
+        const selection = window.getSelection();
+        if (selection && selection.rangeCount > 0 && selection.isCollapsed) {
+          const range = selection.getRangeAt(0);
+          const startNode = range.startContainer;
+          
+          if (range.startOffset === 0) {
+            let startElement: HTMLElement | null = null;
+            if (startNode.nodeType === Node.ELEMENT_NODE) {
+              startElement = startNode as HTMLElement;
+            } else {
+              startElement = startNode.parentElement;
+            }
+            const currentParagraph = startElement?.closest('p');
+
+            if (currentParagraph && currentParagraph.dataset.splitPoint === 'end' && currentParagraph.dataset.paragraphId) {
+              event.preventDefault();
+              const paragraphId = currentParagraph.dataset.paragraphId;
+              const previousParagraph = pageContainerRef.current?.querySelector(`p[data-paragraph-id="${paragraphId}"][data-split-point="start"]`) as HTMLElement;
+
+              if (previousParagraph) {
+                const cursorPosition = previousParagraph.textContent?.length || 0;
+
+                while (currentParagraph.firstChild) {
+                  previousParagraph.appendChild(currentParagraph.firstChild);
+                }
+
+                previousParagraph.removeAttribute('data-split-point');
+
+                currentParagraph.remove();
+
+                const newRange = document.createRange();
+                let textNodeForCursor: Node | null = null;
+                let lengthCounter = 0;
+                const walker = document.createTreeWalker(previousParagraph, NodeFilter.SHOW_TEXT);
+                while(walker.nextNode()) {
+                  const node = walker.currentNode;
+                  if (lengthCounter + (node.textContent?.length || 0) >= cursorPosition) {
+                    textNodeForCursor = node;
+                    break;
+                  }
+                  lengthCounter += (node.textContent?.length || 0);
+                }
+                
+                if (textNodeForCursor) {
+                  newRange.setStart(textNodeForCursor, cursorPosition - lengthCounter);
+                  newRange.collapse(true);
+                  selection.removeAllRanges();
+                  selection.addRange(newRange);
+                }
+
+                saveToHistory(true);
+                scheduleReflow();
+                return;
+              }
+            }
+          }
+
           const pageContent = range.startContainer.nodeType === Node.ELEMENT_NODE 
             ? (range.startContainer as HTMLElement).closest('.page-content')
             : range.startContainer.parentElement?.closest('.page-content');
@@ -1141,9 +1183,7 @@ if (event.key === 'Enter') {
               const totalPages = Array.from(pageContainerRef.current?.querySelectorAll('.page') || []).length;
               if (totalPages > 1) {
                 event.preventDefault();
-                
-                const isPageEmpty = !pageContent.textContent?.trim() && pageContent.querySelectorAll('img, .math-wrapper, .graph-wrapper').length === 0;
-
+                const isPageEmpty = !pageContent.textContent?.trim() && pageContainerRef.current?.querySelectorAll('img, .math-wrapper, .graph-wrapper').length === 0;
                 if (isPageEmpty) {
                   if (moveCursorToPreviousPage(pageContent as HTMLElement)) {
                     saveToHistory(true);

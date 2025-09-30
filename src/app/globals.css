@@ -608,3 +608,8 @@ body {
   font-style: italic;
   color: #9ca3af;
 }
+
+p[data-paragraph-id$="-end"] {
+  margin-top: 0 !important;
+  padding-top: 0 !important;
+}
