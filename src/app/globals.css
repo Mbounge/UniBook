@@ -37,7 +37,6 @@ body {
 
 /* EDITOR STYLES */
 
-/* NEW: Improved page-based layout with automatic height adjustment */
 .page-container {
   display: flex;
   flex-direction: column;
@@ -50,13 +49,12 @@ body {
   background: white;
   width: 8.5in;
   min-height: 11in;
-  max-height: none; /* Allow pages to grow beyond 11in if needed */
+  max-height: 11in; /* Allow pages to grow beyond 11in if needed */
   box-shadow: 0 4px 12px rgba(0,0,0,0.1);
   margin-bottom: 3rem;
   position: relative;
   overflow: visible;
   border-bottom: 1px solid #d1d5db;
-  /* NEW: Add transition for smooth height changes during reflow */
   transition: min-height 0.2s ease-out;
 }
 
@@ -69,16 +67,31 @@ body {
   font-size: 14pt;
   line-height: 1.5;
   height: auto;
-  overflow: visible;
+  overflow: hidden;
 }
 
-/* NEW: Visual indicator for page overflow during editing */
+/* This prevents the bottom margin of the last element from being included 
+   in the page's height calculation, stopping premature reflow triggers. */
+.page-content > *:last-child {
+  margin-bottom: 0 !important;
+}
+
+.page-content.overflow-warning::after {
+  content: '';
+  position: absolute;
+  top: 950px; 
+  left: 1in;
+  right: 1in;
+  border-top: 1px dashed rgba(220, 38, 38, 0.6);
+  pointer-events: none;
+  z-index: 1;
+}
+
 .page-content.overflow-warning {
   border-left: 4px solid #f59e0b;
   background: linear-gradient(to right, rgba(245, 158, 11, 0.05) 0%, transparent 20px);
 }
 
-/* Placeholder styling */
 [contenteditable]:empty:before {
   content: attr(data-placeholder);
   color: #9ca3af;
@@ -90,14 +103,12 @@ body {
   display: none;
 }
 
-/* Typographic Scale for Headings */
 .page-content h1 {
   font-size: 2.25rem;
   line-height: 2.5rem;
   font-weight: 700;
   margin-top: 1.5rem;
   margin-bottom: 0.5rem;
-  /* NEW: Prevent headings from being split across pages */
   page-break-inside: avoid;
   break-inside: avoid;
 }
@@ -134,12 +145,10 @@ body {
 
 .page-content p {
   margin-bottom: 1.25rem;
-  /* NEW: Improve text flow behavior */
   orphans: 2;
   widows: 2;
 }
 
-/* List Styling */
 .page-content ul, .page-content ol {
   padding-left: 1.5rem;
   margin-top: 0.5rem;
@@ -155,7 +164,6 @@ body {
 .page-content ul { list-style-type: disc; }
 .page-content ol { list-style-type: decimal; }
 
-/* Code Block & Table Styling */
 .page-content pre {
   background: #f1f5f9;
   color: #334155;
@@ -165,7 +173,6 @@ body {
   border: 1px solid #e2e8f0;
   white-space: pre-wrap;
   margin: 1rem 0;
-  /* NEW: Prevent code blocks from being split */
   page-break-inside: avoid;
   break-inside: avoid;
 }
@@ -175,7 +182,6 @@ body {
   border-collapse: collapse;
   margin: 1rem 0;
   table-layout: fixed;
-  /* NEW: Prevent tables from being split when possible */
   page-break-inside: avoid;
   break-inside: avoid;
 }
@@ -201,7 +207,6 @@ body {
   pointer-events: none;
 }
 
-/* Image Wrapper & Resizer Styling */
 .image-wrapper {
   position: relative;
   box-sizing: border-box;
@@ -209,7 +214,6 @@ body {
   padding: 0 !important;
   border: none !important;
   background: transparent !important;
-  /* NEW: Prevent images from being split across pages */
   page-break-inside: avoid;
   break-inside: avoid;
 }
@@ -264,7 +268,6 @@ body {
   z-index: 10;
 }
 
-/* Template Wrapper & Control Styles */
 .template-wrapper {
   position: relative !important;
   display: block !important;
@@ -275,7 +278,6 @@ body {
   transition: all 0.2s ease !important;
   box-sizing: border-box !important;
   overflow: visible !important;
-  /* NEW: Prevent templates from being split across pages */
   page-break-inside: avoid !important;
   break-inside: avoid !important;
 }
@@ -290,7 +292,6 @@ body {
   box-shadow: 0 0 0 1px rgba(139, 92, 246, 0.1), 0 4px 12px rgba(139, 92, 246, 0.15) !important;
 }
 
-/* Template floating styles */
 .template-wrapper[data-template-float="left"] {
   float: left !important;
   margin: 8px 16px 8px 0 !important;
@@ -310,7 +311,6 @@ body {
   max-width: 80% !important;
 }
 
-/* Template resize overlay */
 .template-resize-overlay {
   position: absolute !important;
   top: -2px !important;
@@ -324,7 +324,6 @@ body {
   background: rgba(139, 92, 246, 0.05) !important;
 }
 
-/* Template resize handles */
 .template-resize-handle {
   position: absolute !important;
   width: 12px !important;
@@ -343,7 +342,6 @@ body {
   transform: scale(1.2) !important;
 }
 
-/* Template drag handle */
 .template-drag-handle {
   position: absolute !important;
   top: -6px !important;
@@ -369,7 +367,6 @@ body {
   transform: translateX(-50%) scale(1.1) !important;
 }
 
-/* Template toolbar */
 .template-toolbar {
   position: absolute !important;
   top: -50px !important;
@@ -410,7 +407,6 @@ body {
   color: white !important;
 }
 
-/* Image toolbar (for consistency) */
 .image-toolbar {
   position: absolute !important;
   top: -50px !important;
@@ -452,7 +448,6 @@ body {
   color: white !important;
 }
 
-/* Resize handles for images */
 .resize-handle {
   position: absolute !important;
   width: 12px !important;
@@ -471,7 +466,6 @@ body {
   transform: scale(1.2) !important;
 }
 
-/* Specific resize handle positioning */
 .nw-resize { top: -6px !important; left: -6px !important; cursor: nw-resize !important; }
 .n-resize { top: -6px !important; left: 50% !important; transform: translateX(-50%) !important; cursor: n-resize !important; }
 .ne-resize { top: -6px !important; right: -6px !important; cursor: ne-resize !important; }
@@ -481,7 +475,6 @@ body {
 .sw-resize { bottom: -6px !important; left: -6px !important; cursor: sw-resize !important; }
 .w-resize { top: 50% !important; left: -6px !important; transform: translateY(-50%) !important; cursor: w-resize !important; }
 
-/* Template block content styling */
 .template-block {
   outline: none !important;
   position: relative !important;
@@ -491,7 +484,6 @@ body {
   outline: none !important;
 }
 
-/* Ensure template content is editable */
 .template-wrapper .template-block [contenteditable="true"] {
   outline: none !important;
   cursor: text !important;
@@ -515,13 +507,11 @@ body {
   background: rgba(139, 92, 246, 0.3) !important;
 }
 
-/* NEW: Math and Graph wrapper styles for reflow */
 .math-wrapper, .graph-wrapper {
   page-break-inside: avoid !important;
   break-inside: avoid !important;
 }
 
-/* Print-specific styles */
 @media print {
   body, .page-container {
     background: transparent !important;
@@ -533,7 +523,6 @@ body {
     margin: 0;
     border-bottom: none;
     page-break-after: always;
-    /* NEW: Ensure proper page sizing in print */
     min-height: 11in;
     max-height: 11in;
   }
@@ -541,7 +530,6 @@ body {
     display: none !important;
   }
   
-  /* Hide template controls in print */
   .template-resize-overlay,
   .template-toolbar,
   .template-drag-handle,
@@ -552,7 +540,6 @@ body {
     display: none !important;
   }
   
-  /* Reset template wrapper styles for print */
   .template-wrapper {
     border: none !important;
     box-shadow: none !important;
@@ -567,13 +554,11 @@ body {
   counter-reset: fig-counter chart-counter;
 }
 
-/* Style the wrappers to behave correctly with captions */
 .image-wrapper, .graph-wrapper {
   display: table !important;
   text-align: left; 
 }
 
-/* Style the figcaption element itself */
 .image-wrapper figcaption, .graph-wrapper figcaption {
   display: table-caption;
   caption-side: bottom;
@@ -586,7 +571,6 @@ body {
   outline: none;
 }
 
-/* Auto-numbering for IMAGES */
 .image-wrapper figcaption::before {
   counter-increment: fig-counter;
   content: 'Fig. ' counter(fig-counter) '. ';
@@ -594,7 +578,6 @@ body {
   margin-right: 0.5em;
 }
 
-/* Auto-numbering for GRAPHS */
 .graph-wrapper figcaption::before {
   counter-increment: chart-counter;
   content: 'Chart ' counter(chart-counter) '. ';
@@ -602,14 +585,8 @@ body {
   margin-right: 0.5em;
 }
 
-/* Add a placeholder for empty captions */
 .image-wrapper figcaption:empty::after, .graph-wrapper figcaption:empty::after {
   content: 'Add a description...';
   font-style: italic;
   color: #9ca3af;
-}
-
-p[data-paragraph-id$="-end"] {
-  margin-top: 0 !important;
-  padding-top: 0 !important;
 }

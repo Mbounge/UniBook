@@ -1,4 +1,4 @@
-//src/app/(app)editor/[bookid]/page.tsx
+//src/app/(app)/editor/[bookid]/page.tsx
 
 "use client";
 
@@ -50,6 +50,7 @@ const EditorComponent = () => {
   
   const pageContainerRef = useRef<HTMLDivElement | null>(null);
   
+  // MODIFIED: Destructure reflowBackwardFromPage from the useEditor hook
   const { 
     undo, redo, canUndo, canRedo, saveToHistory, 
     insertImage, insertContent, insertTemplate, 
@@ -57,7 +58,10 @@ const EditorComponent = () => {
     insertGraph, rehydrateGraphBlocks,
     resetHistory,
     scheduleReflow,
-    immediateReflow
+    immediateReflow,
+    isReflowing,
+    reflowPage,
+    reflowBackwardFromPage
   } = useEditor(pageContainerRef);
 
   const { data: bookData, isLoading: isBookLoading, isError } = useQuery({
@@ -83,7 +87,7 @@ const EditorComponent = () => {
       rehydrateGraphBlocks(pageContainerRef.current);
       setTimeout(() => {
         saveToHistory(true);
-        immediateReflow(); // Trigger initial reflow after content is loaded
+        immediateReflow();
       }, 100);
       setIsContentLoaded(true);
     }
@@ -228,7 +232,6 @@ const EditorComponent = () => {
       </header>
       
       <div className="flex-1 flex overflow-hidden relative">
-        {/* Left Panel */}
         {hasLeftPanel && (
           <div className={`flex-shrink-0 ${leftPanelWidth} transition-all duration-300`}>
             {showTocPanel && (
@@ -261,8 +264,8 @@ const EditorComponent = () => {
           </div>
         )}
         
-        {/* Main Editor */}
         <div className={`flex-1 flex flex-col min-w-0 ${isLeftPanelExpanded ? 'hidden' : ''}`}>
+          {/* MODIFIED: Pass reflowBackwardFromPage down to the DocumentEditor */}
           <DocumentEditor 
             pageContainerRef={pageContainerRef}
             onToggleOutline={handleToggleOutline}
@@ -288,10 +291,12 @@ const EditorComponent = () => {
             resetHistory={resetHistory}
             scheduleReflow={scheduleReflow}
             immediateReflow={immediateReflow}
+            isReflowing={isReflowing}
+            reflowPage={reflowPage}
+            reflowBackwardFromPage={reflowBackwardFromPage}
           />
         </div>
 
-        {/* Content Hub */}
         {!isLeftPanelExpanded && (
           <>
             <ContentHubToggle 

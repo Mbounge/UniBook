@@ -28,7 +28,8 @@ export const useEditor = (editorRef: React.RefObject<HTMLDivElement | null>) => 
     record(force ? 'action' : 'input');
   }, [record]);
 
-  const { scheduleReflow, immediateReflow } = useTextReflow(editorRef, saveToHistory);
+  // MODIFIED: Destructure reflowBackwardFromPage from the hook
+  const { scheduleReflow, immediateReflow, isReflowing, reflowPage, reflowBackwardFromPage } = useTextReflow(editorRef, saveToHistory);
 
   const unmountAllReactComponents = useCallback(() => {
     reactRootsRef.current.forEach((root) => root.unmount());
@@ -93,7 +94,6 @@ export const useEditor = (editorRef: React.RefObject<HTMLDivElement | null>) => 
       rehydrateMathBlocks(editorRef.current);
       rehydrateGraphBlocks(editorRef.current);
       restoreSelection(editorRef.current, state.startOffset, state.endOffset);
-      // Don't trigger reflow when restoring from history
     }
   }, [editorRef, unmountAllReactComponents, rehydrateMathBlocks, rehydrateGraphBlocks, restoreSelection]);
 
@@ -508,6 +508,7 @@ export const useEditor = (editorRef: React.RefObject<HTMLDivElement | null>) => 
     };
   }, [unmountAllReactComponents]);
 
+  // MODIFIED: Return reflowBackwardFromPage
   return {
     insertImage,
     insertContent,
@@ -526,5 +527,8 @@ export const useEditor = (editorRef: React.RefObject<HTMLDivElement | null>) => 
     resetHistory,
     scheduleReflow,
     immediateReflow,
+    isReflowing,
+    reflowPage,
+    reflowBackwardFromPage,
   };
 };
