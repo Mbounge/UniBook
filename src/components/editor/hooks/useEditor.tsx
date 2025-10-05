@@ -29,7 +29,7 @@ export const useEditor = (editorRef: React.RefObject<HTMLDivElement | null>) => 
   }, [record]);
 
   // MODIFIED: Destructure reflowBackwardFromPage from the hook
-  const { scheduleReflow, immediateReflow, isReflowing, reflowPage, reflowBackwardFromPage } = useTextReflow(editorRef, saveToHistory);
+  const { scheduleReflow, immediateReflow, isReflowing, reflowPage, reflowBackwardFromPage, reflowSplitParagraph } = useTextReflow(editorRef, saveToHistory);
 
   const unmountAllReactComponents = useCallback(() => {
     reactRootsRef.current.forEach((root) => root.unmount());
@@ -530,5 +530,6 @@ export const useEditor = (editorRef: React.RefObject<HTMLDivElement | null>) => 
     isReflowing,
     reflowPage,
     reflowBackwardFromPage,
+    reflowSplitParagraph
   };
 };

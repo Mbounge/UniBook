@@ -61,7 +61,8 @@ const EditorComponent = () => {
     immediateReflow,
     isReflowing,
     reflowPage,
-    reflowBackwardFromPage
+    reflowBackwardFromPage,
+    reflowSplitParagraph
   } = useEditor(pageContainerRef);
 
   const { data: bookData, isLoading: isBookLoading, isError } = useQuery({
@@ -294,6 +295,7 @@ const EditorComponent = () => {
             isReflowing={isReflowing}
             reflowPage={reflowPage}
             reflowBackwardFromPage={reflowBackwardFromPage}
+            reflowSplitParagraph={reflowSplitParagraph}
           />
         </div>
 

@@ -1,3 +1,5 @@
+//DocumentEditor.tsx
+
 'use client';
 
 import React, { useCallback, useRef, useEffect, useState, forwardRef, useImperativeHandle } from 'react';
@@ -8,6 +10,7 @@ import { StatusBar } from './StatusBar';
 import { useLineSpacing, LineSpacing } from '@/hooks/useLineSpacing';
 import { Plus } from 'lucide-react';
 import { GraphData } from './GraphBlock';
+import { analyzeParagraphs } from './hooks/useTextReflow';
 
 interface DocumentEditorProps {
   pageContainerRef: React.RefObject<HTMLDivElement | null>;
@@ -37,6 +40,7 @@ interface DocumentEditorProps {
   isReflowing: () => boolean;
   reflowPage: (pageElement: HTMLElement) => boolean;
   reflowBackwardFromPage: (pageElement: HTMLElement) => boolean;
+  reflowSplitParagraph: (paragraphId: string) => boolean; // NEW
 }
 
 export interface DocumentEditorHandle {
@@ -72,6 +76,7 @@ export const DocumentEditor = forwardRef<DocumentEditorHandle, DocumentEditorPro
     isReflowing,
     reflowPage,
     reflowBackwardFromPage,
+    reflowSplitParagraph, // NEW
   } = props;
 
   useImperativeHandle(ref, () => ({
@@ -108,6 +113,17 @@ export const DocumentEditor = forwardRef<DocumentEditorHandle, DocumentEditorPro
   const [currentSize, setCurrentSize] = useState('14pt');
   const [currentTextColor, setCurrentTextColor] = useState('#000000');
   const [overflowWarningPage, setOverflowWarningPage] = useState<HTMLElement | null>(null);
+
+  const runParagraphAnalysis = useCallback(() => {
+    setTimeout(() => {
+      if (!pageContainerRef.current) return;
+      console.log('%c--- Running Full Paragraph Analysis ---', 'color: white; background-color: #4A90E2; padding: 2px 5px; border-radius: 3px;');
+      const pages = Array.from(pageContainerRef.current.querySelectorAll('.page-content'));
+      pages.forEach((pageContent, index) => {
+        analyzeParagraphs(pageContent as HTMLElement, index + 1);
+      });
+    }, 0);
+  }, [pageContainerRef]);
 
   const reflowWithCursor = useCallback(() => {
     const selection = window.getSelection();
@@ -189,6 +205,61 @@ export const DocumentEditor = forwardRef<DocumentEditorHandle, DocumentEditorPro
     }
     return false;
   }, [isReflowing, handleImmediateOverflow]);
+
+  // NEW: Check if we're editing a split paragraph and trigger live reflow
+  const checkAndReflowSplitParagraph = useCallback((element: HTMLElement) => {
+    if (isReflowing()) return;
+
+    // Find the paragraph we're editing
+    const paragraph = element.closest('p[data-paragraph-id]') as HTMLElement;
+    if (!paragraph) return;
+
+    const paragraphId = paragraph.dataset.paragraphId;
+    if (!paragraphId) return;
+
+    console.log(`%c[Live Reflow]: Detected edit in split paragraph [${paragraphId}]`, 'color: #FF6B6B; font-weight: bold;');
+
+    // Save cursor position
+    const selection = window.getSelection();
+    if (!selection || selection.rangeCount === 0) {
+      reflowSplitParagraph(paragraphId);
+      return;
+    }
+
+    const range = selection.getRangeAt(0);
+    const markerId = `cursor-marker-${Date.now()}`;
+    const marker = document.createElement('span');
+    marker.id = markerId;
+    marker.style.display = 'inline';
+    
+    try {
+      range.insertNode(marker);
+    } catch (e) {
+      console.warn('Could not insert cursor marker', e);
+      reflowSplitParagraph(paragraphId);
+      return;
+    }
+
+    // Trigger reflow for this specific split paragraph
+    reflowSplitParagraph(paragraphId);
+
+    // Restore cursor
+    setTimeout(() => {
+      const newMarker = pageContainerRef.current?.querySelector(`#${markerId}`);
+      if (newMarker) {
+        const newRange = document.createRange();
+        const newSelection = window.getSelection();
+        
+        newRange.setStartBefore(newMarker);
+        newRange.collapse(true);
+        
+        newSelection?.removeAllRanges();
+        newSelection?.addRange(newRange);
+
+        newMarker.parentNode?.removeChild(newMarker);
+      }
+    }, 0);
+  }, [isReflowing, reflowSplitParagraph, pageContainerRef]);
 
   const updateToolbarState = useCallback(() => {
     if (!pageContainerRef.current) return;
@@ -275,26 +346,39 @@ export const DocumentEditor = forwardRef<DocumentEditorHandle, DocumentEditorPro
   }, [overflowWarningPage]);
 
   const handleInput = useCallback((event: React.FormEvent<HTMLDivElement>) => {
-    const pageContent = event.target as HTMLElement;
+    const target = event.target as HTMLElement;
     
-    if (checkAndReflowOnOverflow(pageContent)) {
+    // NEW: Check if we're editing a split paragraph first
+    const editedParagraph = target.closest('p[data-paragraph-id]') as HTMLElement;
+    if (editedParagraph && editedParagraph.dataset.paragraphId) {
+      console.log(`%c[Input Event]: Editing split paragraph [${editedParagraph.dataset.paragraphId}]`, 'color: #4ECDC4;');
+      checkAndReflowSplitParagraph(target);
+      updateToolbarState();
+      runParagraphAnalysis();
+      return;
+    }
+
+    // Regular overflow check for non-split paragraphs
+    const pageContent = target.closest('.page-content') as HTMLElement;
+    if (pageContent && checkAndReflowOnOverflow(pageContent)) {
       return;
     }
 
     updateOverflowWarning();
     saveToHistory();
     updateToolbarState();
-  }, [saveToHistory, updateToolbarState, checkAndReflowOnOverflow, updateOverflowWarning]);
+    runParagraphAnalysis();
+  }, [saveToHistory, updateToolbarState, checkAndReflowOnOverflow, updateOverflowWarning, runParagraphAnalysis, checkAndReflowSplitParagraph]);
 
   const handleBackspaceAtPageStart = useCallback((currentPage: HTMLElement, previousPage: HTMLElement) => {
     const prevPageContent = previousPage.querySelector('.page-content') as HTMLElement;
     const currentPageContent = currentPage.querySelector('.page-content') as HTMLElement;
     if (!prevPageContent || !currentPageContent) return;
 
-    const PAGE_CONTENT_HEIGHT = 9 * 96; // 9in in pixels
+    const PAGE_CONTENT_HEIGHT = 9 * 96;
     const prevContentHeight = prevPageContent.getBoundingClientRect().height;
     const remainingHeight = PAGE_CONTENT_HEIGHT - prevContentHeight;
-    const LINE_HEIGHT_BUFFER = 25; // Approx height of one line of text
+    const LINE_HEIGHT_BUFFER = 25;
 
     if (remainingHeight < LINE_HEIGHT_BUFFER) {
       const range = document.createRange();
@@ -311,7 +395,7 @@ export const DocumentEditor = forwardRef<DocumentEditorHandle, DocumentEditorPro
     const range = document.createRange();
     const sel = window.getSelection();
     range.selectNodeContents(prevPageContent);
-    range.collapse(false); // false collapses to the end
+    range.collapse(false);
     sel?.removeAllRanges();
     sel?.addRange(range);
     
@@ -321,9 +405,8 @@ export const DocumentEditor = forwardRef<DocumentEditorHandle, DocumentEditorPro
     }
 
     saveToHistory(true);
-
-  }, [reflowBackwardFromPage, saveToHistory]);
-
+    runParagraphAnalysis();
+  }, [reflowBackwardFromPage, saveToHistory, runParagraphAnalysis]);
 
   const addNewChapter = useCallback(() => {
     if (!pageContainerRef.current) return;
@@ -349,8 +432,9 @@ export const DocumentEditor = forwardRef<DocumentEditorHandle, DocumentEditorPro
     setTimeout(() => {
       saveToHistory(true);
       scheduleReflow();
+      runParagraphAnalysis();
     }, 100);
-  }, [pageContainerRef, saveToHistory, scheduleReflow]);
+  }, [pageContainerRef, saveToHistory, scheduleReflow, runParagraphAnalysis]);
 
   useEffect(() => {
     const container = pageContainerRef.current;
@@ -426,6 +510,7 @@ export const DocumentEditor = forwardRef<DocumentEditorHandle, DocumentEditorPro
                 onGalleryTemplateDrop();
             }
             saveToHistory(true);
+            runParagraphAnalysis();
         }
         return;
       }
@@ -438,7 +523,7 @@ export const DocumentEditor = forwardRef<DocumentEditorHandle, DocumentEditorPro
       container.removeEventListener('drop', handleDrop);
       container.removeEventListener('dragleave', handleDragLeave);
     };
-  }, [pageContainerRef, saveToHistory, onGalleryTemplateDrop, insertGraph, insertTemplate]);
+  }, [pageContainerRef, saveToHistory, onGalleryTemplateDrop, insertGraph, insertTemplate, runParagraphAnalysis]);
 
   useEffect(() => {
     const container = pageContainerRef.current;
@@ -558,7 +643,7 @@ export const DocumentEditor = forwardRef<DocumentEditorHandle, DocumentEditorPro
     const node = range.startContainer;
     if (node.nodeType !== Node.TEXT_NODE || range.startOffset < 2) return false;
     const textContent = node.textContent || '';
-    if (textContent.substring(range.startOffset - 2, range.startOffset) !== '$$') return;
+    if (textContent.substring(range.startOffset - 2, range.startOffset) !== '$$') return false;
     const parentBlock = node.parentElement?.closest('p, div');
     if (!parentBlock || parentBlock.textContent?.trim() !== '$$') return false;
     const parent = parentBlock.parentNode;
@@ -585,11 +670,13 @@ export const DocumentEditor = forwardRef<DocumentEditorHandle, DocumentEditorPro
       if ((event.metaKey || event.ctrlKey) && event.key === 'z' && !event.shiftKey) {
           event.preventDefault();
           undo();
+          runParagraphAnalysis();
           return;
       }
       if (((event.metaKey || event.ctrlKey) && event.key === 'y') || (event.metaKey && event.shiftKey && event.key === 'z')) {
           event.preventDefault();
           redo();
+          runParagraphAnalysis();
           return;
       }
       
@@ -618,7 +705,6 @@ export const DocumentEditor = forwardRef<DocumentEditorHandle, DocumentEditorPro
           const startNode = range.startContainer;
           const startElement = (startNode.nodeType === Node.ELEMENT_NODE ? startNode : startNode.parentElement) as HTMLElement;
           
-          // --- MODIFIED: Handle Backspace in lists ---
           const listItem = startElement.closest('li');
           if (listItem && range.startOffset === 0) {
             const preCaretRange = document.createRange();
@@ -632,7 +718,6 @@ export const DocumentEditor = forwardRef<DocumentEditorHandle, DocumentEditorPro
               return;
             }
           }
-          // --- END MODIFICATION ---
 
           const currentParagraph = startElement?.closest('p');
           if (currentParagraph && currentParagraph.dataset.splitPoint === 'end' && currentParagraph.dataset.paragraphId && range.startOffset === 0) {
@@ -666,6 +751,7 @@ export const DocumentEditor = forwardRef<DocumentEditorHandle, DocumentEditorPro
 
               saveToHistory(true);
               reflowWithCursor();
+              runParagraphAnalysis();
               return;
             }
           }
@@ -695,7 +781,7 @@ export const DocumentEditor = forwardRef<DocumentEditorHandle, DocumentEditorPro
                   const newRange = document.createRange();
                   const sel = window.getSelection();
                   newRange.selectNodeContents(prevPageContent);
-                  newRange.collapse(false); // Move to the end
+                  newRange.collapse(false);
                   sel?.removeAllRanges();
                   sel?.addRange(newRange);
                 }
@@ -774,7 +860,8 @@ export const DocumentEditor = forwardRef<DocumentEditorHandle, DocumentEditorPro
   }, [
     pageContainerRef, saveToHistory, checkForAutoList, checkForMathBlock, 
     updateToolbarState, undo, redo, scheduleReflow, immediateReflow, checkAndReflowOnOverflow, 
-    updateOverflowWarning, handleBackspaceAtPageStart, reflowBackwardFromPage, reflowWithCursor
+    updateOverflowWarning, handleBackspaceAtPageStart, reflowBackwardFromPage, reflowWithCursor,
+    runParagraphAnalysis
   ]);
 
   const applyCommand = (command: string, value?: string) => {
@@ -782,6 +869,7 @@ export const DocumentEditor = forwardRef<DocumentEditorHandle, DocumentEditorPro
     saveToHistory(true);
     setTimeout(updateToolbarState, 50);
     scheduleReflow();
+    runParagraphAnalysis();
   };
 
   const applyStyle = (style: 'fontFamily' | 'fontSize' | 'color', value: string) => {
@@ -807,6 +895,7 @@ export const DocumentEditor = forwardRef<DocumentEditorHandle, DocumentEditorPro
     saveToHistory(true);
     setTimeout(updateToolbarState, 50);
     scheduleReflow();
+    runParagraphAnalysis();
   };
 
   const handleTextColorChange = (color: string) => {
@@ -819,6 +908,7 @@ export const DocumentEditor = forwardRef<DocumentEditorHandle, DocumentEditorPro
     document.execCommand('hiliteColor', false, color);
     saveToHistory(true);
     scheduleReflow();
+    runParagraphAnalysis();
   };
 
   const handleLineSpacingChange = (spacing: LineSpacing) => {
@@ -826,6 +916,7 @@ export const DocumentEditor = forwardRef<DocumentEditorHandle, DocumentEditorPro
     applyLineSpacing(spacing);
     saveToHistory(true);
     scheduleReflow();
+    runParagraphAnalysis();
   };
 
   const handleInsertImage = useCallback(() => fileInputRef.current?.click(), []);
@@ -865,6 +956,7 @@ export const DocumentEditor = forwardRef<DocumentEditorHandle, DocumentEditorPro
     document.execCommand('insertHTML', false, tableHtml + '<p><br></p>');
     saveToHistory(true);
     scheduleReflow();
+    runParagraphAnalysis();
   };
 
   return (
