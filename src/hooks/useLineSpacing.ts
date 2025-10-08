@@ -1,5 +1,3 @@
-//src/hooks/useLineSpacing.ts
-
 'use client';
 
 import { useState, useCallback } from 'react';
@@ -26,7 +24,6 @@ export const useLineSpacing = () => {
     const selection = window.getSelection();
     if (!selection) return;
 
-    // Save the current selection/range
     let savedRange: Range | null = null;
     if (selection.rangeCount > 0) {
       savedRange = selection.getRangeAt(0).cloneRange();
@@ -34,9 +31,7 @@ export const useLineSpacing = () => {
 
     const lineHeight = getLineHeightValue(spacing);
 
-    // If no selection or collapsed selection, handle the current context
     if (!selection.rangeCount || selection.getRangeAt(0).collapsed) {
-      // Find the current block element or create one if needed
       let targetElement: HTMLElement | null = null;
       
       if (selection.rangeCount > 0) {
@@ -44,7 +39,6 @@ export const useLineSpacing = () => {
         let node = range.startContainer;
         let element = node.nodeType === Node.ELEMENT_NODE ? node as HTMLElement : node.parentElement;
         
-        // Find the closest block element
         while (element && element.contentEditable !== 'true') {
           if (['P', 'H1', 'H2', 'H3', 'H4', 'H5', 'H6', 'DIV', 'BLOCKQUOTE', 'LI'].includes(element.tagName)) {
             targetElement = element;
@@ -52,72 +46,13 @@ export const useLineSpacing = () => {
           }
           element = element.parentElement;
         }
-        
-        // If we're directly in page-content (no block element), we need to handle this specially
-        if (!targetElement && element && element.classList.contains('page-content')) {
-          // Check if there's any content in the page
-          const textContent = element.textContent?.trim();
-          if (textContent && textContent !== 'Start typing...') {
-            // There's content but no proper block element, wrap it in a paragraph
-            const p = document.createElement('p');
-            p.style.lineHeight = lineHeight;
-            p.dataset.lineSpacing = spacing;
-            
-            // Move all content to the new paragraph
-            while (element.firstChild) {
-              p.appendChild(element.firstChild);
-            }
-            element.appendChild(p);
-            
-            // Update the range to be inside the new paragraph
-            if (savedRange) {
-              try {
-                savedRange.setStart(p, 0);
-                savedRange.collapse(true);
-              } catch (e) {
-                // If range setting fails, create a new range
-                savedRange = document.createRange();
-                savedRange.setStart(p, 0);
-                savedRange.collapse(true);
-              }
-            }
-            targetElement = p;
-          } else {
-            // No content yet, just set the default for future content
-            // We'll handle this when content is actually typed
-            targetElement = element;
-          }
-        }
-      } else {
-        // No selection at all, find the first page content
-        const pageContent = document.querySelector('.page-content') as HTMLElement;
-        if (pageContent) {
-          targetElement = pageContent;
-        }
       }
 
       if (targetElement) {
-        if (targetElement.classList.contains('page-content')) {
-          // Apply to the page content as default, but don't override existing elements
-          targetElement.dataset.defaultLineSpacing = spacing;
-          
-          // Apply to any existing children that don't have line spacing set
-          const children = targetElement.querySelectorAll('p, h1, h2, h3, h4, h5, h6, div, blockquote, li');
-          children.forEach(child => {
-            const childElement = child as HTMLElement;
-            if (!childElement.dataset.lineSpacing) {
-              childElement.style.lineHeight = lineHeight;
-              childElement.dataset.lineSpacing = spacing;
-            }
-          });
-        } else {
-          // Apply to the specific block element
           targetElement.style.lineHeight = lineHeight;
           targetElement.dataset.lineSpacing = spacing;
-        }
       }
     } else {
-      // Handle text selection
       const range = selection.getRangeAt(0);
       const getBlockElement = (node: Node): HTMLElement | null => {
         let current = node.nodeType === Node.ELEMENT_NODE ? node as HTMLElement : node.parentElement;
@@ -173,7 +108,6 @@ export const useLineSpacing = () => {
 
     setCurrentLineSpacing(spacing);
 
-    // Restore the selection after a brief delay
     setTimeout(() => {
       if (savedRange) {
         try {
@@ -219,39 +153,16 @@ export const useLineSpacing = () => {
       
       element = element.parentElement;
     }
-
-    // Check if page content has a default line spacing
-    if (element && element.classList.contains('page-content')) {
-      const defaultSpacing = element.dataset.defaultLineSpacing as LineSpacing;
-      if (defaultSpacing) {
-        setCurrentLineSpacing(defaultSpacing);
-        return defaultSpacing;
-      }
-    }
-
+    
     return currentLineSpacing;
   }, [currentLineSpacing]);
 
   const initializeDefaultLineSpacing = useCallback((pageContent: HTMLElement) => {
     if (!pageContent) return;
-    
     const defaultSpacing = '1.5';
-    
-    // Don't apply line-height to the container itself
-    // Instead, store the default spacing for new elements
     pageContent.dataset.defaultLineSpacing = defaultSpacing;
     setCurrentLineSpacing(defaultSpacing);
   }, []);
-
-  const applyDefaultLineSpacingToElement = useCallback((element: HTMLElement) => {
-    const pageContent = element.closest('.page-content') as HTMLElement;
-    if (pageContent && pageContent.dataset.defaultLineSpacing) {
-      const defaultSpacing = pageContent.dataset.defaultLineSpacing as LineSpacing;
-      const lineHeight = getLineHeightValue(defaultSpacing);
-      element.style.lineHeight = lineHeight;
-      element.dataset.lineSpacing = defaultSpacing;
-    }
-  }, [getLineHeightValue]);
 
   return {
     currentLineSpacing,
@@ -259,6 +170,5 @@ export const useLineSpacing = () => {
     detectCurrentLineSpacing,
     getLineHeightValue,
     initializeDefaultLineSpacing,
-    applyDefaultLineSpacingToElement
   };
 };

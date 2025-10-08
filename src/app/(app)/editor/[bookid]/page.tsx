@@ -1,5 +1,3 @@
-//src/app/(app)/editor/[bookid]/page.tsx
-
 "use client";
 
 import React, { useState, useEffect, useRef } from "react";
@@ -50,7 +48,6 @@ const EditorComponent = () => {
   
   const pageContainerRef = useRef<HTMLDivElement | null>(null);
   
-  // MODIFIED: Destructure reflowBackwardFromPage from the useEditor hook
   const { 
     undo, redo, canUndo, canRedo, saveToHistory, 
     insertImage, insertContent, insertTemplate, 
@@ -62,7 +59,15 @@ const EditorComponent = () => {
     isReflowing,
     reflowPage,
     reflowBackwardFromPage,
-    reflowSplitParagraph
+    reflowSplitParagraph,
+    
+    customSelection,
+    highlightRects,
+    isSelecting,
+    isMultiPageSelection,
+    selectedPages,
+    selectedText,
+    clearSelection,
   } = useEditor(pageContainerRef);
 
   const { data: bookData, isLoading: isBookLoading, isError } = useQuery({
@@ -266,7 +271,6 @@ const EditorComponent = () => {
         )}
         
         <div className={`flex-1 flex flex-col min-w-0 ${isLeftPanelExpanded ? 'hidden' : ''}`}>
-          {/* MODIFIED: Pass reflowBackwardFromPage down to the DocumentEditor */}
           <DocumentEditor 
             pageContainerRef={pageContainerRef}
             onToggleOutline={handleToggleOutline}
@@ -296,6 +300,14 @@ const EditorComponent = () => {
             reflowPage={reflowPage}
             reflowBackwardFromPage={reflowBackwardFromPage}
             reflowSplitParagraph={reflowSplitParagraph}
+            
+            customSelection={customSelection}
+            highlightRects={highlightRects}
+            isSelecting={isSelecting}
+            isMultiPageSelection={isMultiPageSelection}
+            selectedPages={selectedPages}
+            selectedText={selectedText}
+            clearSelection={clearSelection}
           />
         </div>
 

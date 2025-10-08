@@ -1,5 +1,3 @@
-/* src/app/globals.css */
-
 @import "tailwindcss";
 
 :root {
@@ -45,31 +43,32 @@ body {
   align-items: center;
   padding: 3rem 0;
   background-color: #eef2f7;
+  /* --- NEW: Disable native selection on the container --- */
+  user-select: none;
+  -webkit-user-select: none;
 }
 
 .page {
   background: white;
   width: 8.5in;
   min-height: 11in;
-  max-height: 11in; /* Allow pages to grow beyond 11in if needed */
+  max-height: 11in;
   box-shadow: 0 4px 12px rgba(0,0,0,0.1);
   margin-bottom: 3rem;
   position: relative;
-  overflow: visible;
   border-bottom: 1px solid #d1d5db;
   transition: min-height 0.2s ease-out;
 }
 
 .page-content {
-  padding: 1in 1in 0.1in 1in; /* 1in top/left/right, only 0.25in bottom */
+  padding: 1in 1in 0.1in 1in;
   width: 100%;
-  min-height: 9.75in; /* Much taller content area */
+  min-height: 9.75in;
   outline: none;
   font-family: 'Inter', sans-serif;
   font-size: 14pt;
   line-height: 1.5;
   height: auto;
-  overflow: hidden;
 }
 
 /* This prevents the bottom margin of the last element from being included 
@@ -104,6 +103,8 @@ body {
 [contenteditable]:not(:empty):before {
   display: none;
 }
+
+/* All other styles for h1, p, table, etc. remain unchanged */
 
 .page-content h1 {
   font-size: 2.25rem;
@@ -591,4 +592,33 @@ body {
   content: 'Add a description...';
   font-style: italic;
   color: #9ca3af;
+}
+
+/* --- NEW: Styles for Custom Selection Overlay --- */
+
+/* Remove the native blue highlight since we're drawing our own */
+::selection {
+  background: transparent;
+}
+::-moz-selection {
+  background: transparent;
+}
+
+/* The overlay container that holds all highlight rectangles */
+.selection-overlay {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none; /* Allows clicks to pass through to the text below */
+  z-index: 5; /* Make sure it's above the text but below UI elements */
+}
+
+/* The style for each individual highlight rectangle */
+.custom-selection-highlight {
+  position: absolute;
+  background-color: rgba(59, 130, 246, 0.3); /* Standard selection blue */
+  pointer-events: none;
+  border-radius: 1px;
 }

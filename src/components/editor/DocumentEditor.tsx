@@ -1,4 +1,4 @@
-//DocumentEditor.tsx
+//src/components/editor/DocumentEditor.tsx
 
 'use client';
 
@@ -11,6 +11,9 @@ import { useLineSpacing, LineSpacing } from '@/hooks/useLineSpacing';
 import { Plus } from 'lucide-react';
 import { GraphData } from './GraphBlock';
 import { analyzeParagraphs } from './hooks/useTextReflow';
+import { SelectionInfo } from './SelectionInfo';
+import { SelectionDebug } from './SelectionDebug';
+import { CustomSelection } from './hooks/useMultiPageSelection';
 
 interface DocumentEditorProps {
   pageContainerRef: React.RefObject<HTMLDivElement | null>;
@@ -40,7 +43,14 @@ interface DocumentEditorProps {
   isReflowing: () => boolean;
   reflowPage: (pageElement: HTMLElement) => boolean;
   reflowBackwardFromPage: (pageElement: HTMLElement) => boolean;
-  reflowSplitParagraph: (paragraphId: string) => boolean; // NEW
+  reflowSplitParagraph: (paragraphId: string) => boolean;
+  customSelection: CustomSelection | null;
+  highlightRects: DOMRect[];
+  isSelecting: boolean;
+  isMultiPageSelection: boolean;
+  selectedPages: number[];
+  selectedText: string;
+  clearSelection: () => void;
 }
 
 export interface DocumentEditorHandle {
@@ -76,7 +86,13 @@ export const DocumentEditor = forwardRef<DocumentEditorHandle, DocumentEditorPro
     isReflowing,
     reflowPage,
     reflowBackwardFromPage,
-    reflowSplitParagraph, // NEW
+    reflowSplitParagraph,
+    customSelection,
+    highlightRects,
+    isMultiPageSelection,
+    selectedPages,
+    selectedText,
+    clearSelection,
   } = props;
 
   useImperativeHandle(ref, () => ({
@@ -95,6 +111,7 @@ export const DocumentEditor = forwardRef<DocumentEditorHandle, DocumentEditorPro
     applyLineSpacing, 
     detectCurrentLineSpacing, 
     initializeDefaultLineSpacing,
+    getLineHeightValue,
   } = useLineSpacing();
   
   const savedRangeRef = useRef<Range | null>(null);
@@ -117,7 +134,6 @@ export const DocumentEditor = forwardRef<DocumentEditorHandle, DocumentEditorPro
   const runParagraphAnalysis = useCallback(() => {
     setTimeout(() => {
       if (!pageContainerRef.current) return;
-      console.log('%c--- Running Full Paragraph Analysis ---', 'color: white; background-color: #4A90E2; padding: 2px 5px; border-radius: 3px;');
       const pages = Array.from(pageContainerRef.current.querySelectorAll('.page-content'));
       pages.forEach((pageContent, index) => {
         analyzeParagraphs(pageContent as HTMLElement, index + 1);
@@ -188,7 +204,6 @@ export const DocumentEditor = forwardRef<DocumentEditorHandle, DocumentEditorPro
 
   const checkAndReflowOnOverflow = useCallback((pageContent: HTMLElement): boolean => {
     if (isReflowing()) {
-      console.log('%c[DEBUG] Reflow already in progress. Skipping trigger.', 'color: orange;');
       return false;
     }
 
@@ -196,30 +211,21 @@ export const DocumentEditor = forwardRef<DocumentEditorHandle, DocumentEditorPro
     const currentContentHeight = pageContent.getBoundingClientRect().height;
 
     if (currentContentHeight > RED_LINE_THRESHOLD_PX) {
-      console.log(
-        `%c[DEBUG] Red Line Crossed! Content height (${Math.round(currentContentHeight)}px) > Threshold (${RED_LINE_THRESHOLD_PX}px). Triggering reflow.`,
-        'color: red; font-weight: bold;'
-      );
       handleImmediateOverflow(pageContent);
       return true;
     }
     return false;
   }, [isReflowing, handleImmediateOverflow]);
 
-  // NEW: Check if we're editing a split paragraph and trigger live reflow
   const checkAndReflowSplitParagraph = useCallback((element: HTMLElement) => {
     if (isReflowing()) return;
 
-    // Find the paragraph we're editing
     const paragraph = element.closest('p[data-paragraph-id]') as HTMLElement;
     if (!paragraph) return;
 
     const paragraphId = paragraph.dataset.paragraphId;
     if (!paragraphId) return;
 
-    console.log(`%c[Live Reflow]: Detected edit in split paragraph [${paragraphId}]`, 'color: #FF6B6B; font-weight: bold;');
-
-    // Save cursor position
     const selection = window.getSelection();
     if (!selection || selection.rangeCount === 0) {
       reflowSplitParagraph(paragraphId);
@@ -235,15 +241,12 @@ export const DocumentEditor = forwardRef<DocumentEditorHandle, DocumentEditorPro
     try {
       range.insertNode(marker);
     } catch (e) {
-      console.warn('Could not insert cursor marker', e);
       reflowSplitParagraph(paragraphId);
       return;
     }
 
-    // Trigger reflow for this specific split paragraph
     reflowSplitParagraph(paragraphId);
 
-    // Restore cursor
     setTimeout(() => {
       const newMarker = pageContainerRef.current?.querySelector(`#${markerId}`);
       if (newMarker) {
@@ -348,17 +351,14 @@ export const DocumentEditor = forwardRef<DocumentEditorHandle, DocumentEditorPro
   const handleInput = useCallback((event: React.FormEvent<HTMLDivElement>) => {
     const target = event.target as HTMLElement;
     
-    // NEW: Check if we're editing a split paragraph first
     const editedParagraph = target.closest('p[data-paragraph-id]') as HTMLElement;
     if (editedParagraph && editedParagraph.dataset.paragraphId) {
-      console.log(`%c[Input Event]: Editing split paragraph [${editedParagraph.dataset.paragraphId}]`, 'color: #4ECDC4;');
       checkAndReflowSplitParagraph(target);
       updateToolbarState();
       runParagraphAnalysis();
       return;
     }
 
-    // Regular overflow check for non-split paragraphs
     const pageContent = target.closest('.page-content') as HTMLElement;
     if (pageContent && checkAndReflowOnOverflow(pageContent)) {
       return;
@@ -435,6 +435,90 @@ export const DocumentEditor = forwardRef<DocumentEditorHandle, DocumentEditorPro
       runParagraphAnalysis();
     }, 100);
   }, [pageContainerRef, saveToHistory, scheduleReflow, runParagraphAnalysis]);
+
+  useEffect(() => {
+    if (!pageContainerRef.current) return;
+
+    const observer = new MutationObserver((mutations) => {
+      const relevantMutations = mutations.filter(m => {
+        const target = m.target;
+        if (target.nodeType === Node.ELEMENT_NODE) {
+          return (target as HTMLElement).closest('.page-content') !== null;
+        }
+        if (target.nodeType === Node.TEXT_NODE) {
+          return target.parentElement?.closest('.page-content') !== null;
+        }
+        return false;
+      });
+
+      if (relevantMutations.length === 0) return;
+
+      observer.disconnect();
+
+      let hasStructuralChanges = false;
+      const pages = pageContainerRef.current?.querySelectorAll('.page-content') || [];
+      
+      pages.forEach(pageContent => {
+        const children = Array.from(pageContent.childNodes);
+
+        for (let i = 0; i < children.length; i++) {
+          const node = children[i] as Node;
+
+          if (node.nodeType === Node.TEXT_NODE && node.textContent?.trim() !== '') {
+            const p = document.createElement('p');
+            pageContent.insertBefore(p, node);
+            p.appendChild(node);
+            applyLineSpacing(currentLineSpacing);
+            hasStructuralChanges = true;
+          }
+          else if (node.nodeType === Node.ELEMENT_NODE && (node as HTMLElement).tagName === 'DIV') {
+            const div = node as HTMLElement;
+            while (div.firstChild) {
+              pageContent.insertBefore(div.firstChild, div);
+            }
+            div.remove();
+            hasStructuralChanges = true;
+          }
+        }
+
+        const blockElements = pageContent.querySelectorAll('p, h1, h2, h3, h4');
+        blockElements.forEach(block => {
+          const isVisuallyEmpty = 
+            block.textContent?.trim() === '' && 
+            block.querySelector('img, video, canvas, .math-wrapper, .graph-wrapper, br') === null;
+
+          if (isVisuallyEmpty) {
+            const allBlocks = pageContent.querySelectorAll('p, h1, h2, h3, h4, ul, ol, blockquote, pre, table');
+            if (allBlocks.length > 1) {
+              block.remove();
+              hasStructuralChanges = true;
+            }
+          }
+        });
+      });
+
+      if (hasStructuralChanges) {
+        saveToHistory(true);
+      }
+
+      if (pageContainerRef.current) {
+        observer.observe(pageContainerRef.current, {
+          childList: true,
+          subtree: true,
+          characterData: true,
+        });
+      }
+    });
+
+    observer.observe(pageContainerRef.current, {
+      childList: true,
+      subtree: true,
+      characterData: true,
+    });
+
+    return () => observer.disconnect();
+  }, [pageContainerRef, saveToHistory, currentLineSpacing, applyLineSpacing]);
+
 
   useEffect(() => {
     const container = pageContainerRef.current;
@@ -662,11 +746,227 @@ export const DocumentEditor = forwardRef<DocumentEditorHandle, DocumentEditorPro
     return false;
   }, [insertMath]);
 
+  const deleteSelectionManually = useCallback((save: boolean = true) => {
+    if (!customSelection) return;
+    const selection = window.getSelection();
+    if (!selection) return;
+
+    const { start, end, startPage, endPage } = customSelection;
+    const allPages = Array.from(pageContainerRef.current?.querySelectorAll<HTMLElement>('.page') || []);
+
+    let finalCursorNode: Node | null = null;
+    let finalCursorOffset: number = 0;
+    let pageToFocus: HTMLElement | null = null;
+
+    const isBackwardSelection = startPage > endPage || (startPage === endPage && start.node.compareDocumentPosition(end.node) & Node.DOCUMENT_POSITION_PRECEDING);
+    const sPageIdx = isBackwardSelection ? endPage : startPage;
+    const ePageIdx = isBackwardSelection ? startPage : endPage;
+    const sNode = isBackwardSelection ? end.node : start.node;
+    const sOffset = isBackwardSelection ? end.offset : start.offset;
+    const eNode = isBackwardSelection ? start.node : end.node;
+    const eOffset = isBackwardSelection ? start.offset : end.offset;
+
+    const startBlock = (sNode.nodeType === Node.ELEMENT_NODE ? sNode : sNode.parentElement) as HTMLElement;
+    const endBlock = (eNode.nodeType === Node.ELEMENT_NODE ? eNode : eNode.parentElement) as HTMLElement;
+
+    const startPara = startBlock.closest('p');
+    const endPara = endBlock.closest('p');
+    
+    const isSplitParaDelete = 
+      startPara?.dataset.splitPoint === 'start' &&
+      endPara?.dataset.splitPoint === 'end' &&
+      startPara?.dataset.paragraphId === endPara?.dataset.paragraphId;
+
+    if (isSplitParaDelete && startPara && endPara) {
+      const startRange = document.createRange();
+      startRange.setStart(startPara, 0);
+      startRange.setEnd(sNode, sOffset);
+      const startContent = startRange.cloneContents();
+
+      const endRange = document.createRange();
+      endRange.setStart(eNode, eOffset);
+      endRange.setEndAfter(endPara.lastChild || eNode);
+      const endContent = endRange.cloneContents();
+
+      startPara.innerHTML = '';
+      startPara.appendChild(startContent);
+      const joinPoint = startPara.lastChild || startPara;
+
+      startPara.appendChild(endContent);
+      
+      startPara.removeAttribute('data-split-point');
+      startPara.removeAttribute('data-paragraph-id');
+      endPara.remove();
+
+      finalCursorNode = joinPoint;
+      finalCursorOffset = joinPoint.nodeType === Node.TEXT_NODE ? (joinPoint as Text).length : joinPoint.childNodes.length;
+      pageToFocus = startPara.closest('.page-content');
+    }
+    else if (startPage === endPage) {
+        try {
+            const range = document.createRange();
+            range.setStart(sNode, sOffset);
+            range.setEnd(eNode, eOffset);
+            finalCursorNode = sNode;
+            finalCursorOffset = sOffset;
+            pageToFocus = allPages[startPage]?.querySelector<HTMLElement>('.page-content');
+            range.deleteContents();
+        } catch (e) { console.error("Error during single-page deletion:", e); }
+    } 
+    else {
+        // --- CORRECTED MULTI-PAGE DELETION LOGIC ---
+
+        const startPageElement = allPages[sPageIdx];
+        const endPageElement = allPages[ePageIdx];
+        const middlePageElements = allPages.slice(sPageIdx + 1, ePageIdx);
+
+        // 1. Store the final cursor position before we modify the DOM.
+        finalCursorNode = sNode;
+        finalCursorOffset = sOffset;
+        pageToFocus = startPageElement?.querySelector<HTMLElement>('.page-content');
+
+        // 2. Delete the selected content from the end page.
+        const endPageContent = endPageElement?.querySelector<HTMLElement>('.page-content');
+        if (endPageContent) {
+            const endRange = document.createRange();
+            endRange.setStart(endPageContent, 0); // From the start of the page
+            endRange.setEnd(eNode, eOffset);      // To the end of the selection
+            endRange.deleteContents();
+        }
+
+        // 3. Completely clear the content of any pages fully selected in the middle.
+        middlePageElements.forEach(page => {
+            const content = page.querySelector<HTMLElement>('.page-content');
+            if (content) content.innerHTML = '';
+        });
+
+        // 4. Delete the selected content from the start page.
+        const startPageContent = startPageElement?.querySelector<HTMLElement>('.page-content');
+        if (startPageContent) {
+            const startRange = document.createRange();
+            startRange.setStart(sNode, sOffset); // From the start of the selection
+            // Select to the very end of the content on this page.
+            startRange.setEndAfter(startPageContent.lastChild || startPageContent);
+            startRange.deleteContents();
+        }
+        // CRITICAL: We no longer manually merge pages here.
+    }
+
+    clearSelection();
+
+    // Restore the cursor to where the deletion began.
+    if (finalCursorNode) {
+        try {
+            if (document.body.contains(finalCursorNode)) {
+                const newRange = document.createRange();
+                // Ensure offset is valid for the node's length after deletion
+                const nodeLength = finalCursorNode.nodeType === Node.TEXT_NODE 
+                    ? (finalCursorNode as Text).length 
+                    : finalCursorNode.childNodes.length;
+                newRange.setStart(finalCursorNode, Math.min(finalCursorOffset, nodeLength));
+                newRange.collapse(true);
+                selection.removeAllRanges();
+                selection.addRange(newRange);
+            }
+        } catch (e) { console.error("Error restoring cursor.", e); }
+        pageToFocus?.focus();
+    }
+
+    if (save) {
+      saveToHistory(true);
+    }
+    
+    // Trigger the reflow system to handle content flow and page cleanup.
+    // This is the key to correctly handling the pages.
+    const finalStartPage = isMultiPageSelection ? Math.min(startPage, endPage) : startPage;
+    const startPageElement = allPages[finalStartPage];
+    if (startPageElement) {
+        setTimeout(() => reflowBackwardFromPage(startPageElement), 50);
+    }
+    runParagraphAnalysis();
+
+  }, [customSelection, pageContainerRef, clearSelection, saveToHistory, reflowBackwardFromPage, runParagraphAnalysis, isMultiPageSelection, getLineHeightValue]);
+
+
   useEffect(() => {
     const container = pageContainerRef.current;
     if (!container) return;
+
+    const handleCopy = (event: ClipboardEvent) => {
+      if (!customSelection) return;
+      event.preventDefault();
+      
+      const { start, end } = customSelection;
+      const startBlock = (start.node.nodeType === Node.ELEMENT_NODE ? start.node : start.node.parentElement) as HTMLElement;
+      const endBlock = (end.node.nodeType === Node.ELEMENT_NODE ? end.node : end.node.parentElement) as HTMLElement;
+      const startPara = startBlock.closest('p');
+      const endPara = endBlock.closest('p');
+
+      let htmlContent = '';
+      const isSplitParaSelection = 
+        startPara?.dataset.splitPoint === 'start' &&
+        endPara?.dataset.splitPoint === 'end' &&
+        startPara?.dataset.paragraphId === endPara?.dataset.paragraphId;
+
+      if (isSplitParaSelection) {
+        const mergedText = (startPara.textContent || '') + (endPara.textContent || '');
+        const tempP = document.createElement('p');
+        tempP.textContent = mergedText;
+        if (startPara.style.cssText) tempP.style.cssText = startPara.style.cssText;
+        if (startPara.dataset.lineSpacing) tempP.dataset.lineSpacing = startPara.dataset.lineSpacing;
+        htmlContent = tempP.outerHTML;
+      } else {
+        const range = document.createRange();
+        range.setStart(start.node, start.offset);
+        range.setEnd(end.node, end.offset);
+        const fragment = range.cloneContents();
+        const tempDiv = document.createElement('div');
+        tempDiv.appendChild(fragment);
+        htmlContent = tempDiv.innerHTML;
+      }
+
+      if (event.clipboardData) {
+        event.clipboardData.setData('text/html', htmlContent);
+        event.clipboardData.setData('text/plain', selectedText);
+      }
+    };
+    
+    const handleCut = (event: ClipboardEvent) => {
+      if (!customSelection) return;
+      event.preventDefault();
+      
+      handleCopy(event);
+      deleteSelectionManually(true);
+    };
+
+    const handlePaste = () => {
+      setTimeout(() => {
+        saveToHistory(true);
+        scheduleReflow();
+        runParagraphAnalysis();
+      }, 50);
+    };
     
     const handleKeyDown = (event: KeyboardEvent) => {
+      const selection = window.getSelection();
+      const isSelectionActive = selection && !selection.isCollapsed && selectedText;
+
+      if (isSelectionActive) {
+        if (event.key.length === 1 && !event.ctrlKey && !event.metaKey && !event.altKey) {
+          event.preventDefault();
+          deleteSelectionManually(false);
+          document.execCommand('insertText', false, event.key);
+          saveToHistory(true);
+          return;
+        }
+
+        if (event.key === 'Backspace' || event.key === 'Delete') {
+          event.preventDefault();
+          deleteSelectionManually(true);
+          return;
+        }
+      }
+
       if ((event.metaKey || event.ctrlKey) && event.key === 'z' && !event.shiftKey) {
           event.preventDefault();
           undo();
@@ -681,19 +981,13 @@ export const DocumentEditor = forwardRef<DocumentEditorHandle, DocumentEditorPro
       }
       
       if (event.key === 'Enter') {
+ 
         setTimeout(() => {
-          const selection = window.getSelection();
-          if (selection && selection.rangeCount > 0) {
-            const range = selection.getRangeAt(0);
-            const startNode = range.startContainer;
-            const parentElement = startNode.nodeType === Node.ELEMENT_NODE ? startNode as HTMLElement : startNode.parentElement;
-            const pageContent = parentElement?.closest('.page-content') as HTMLElement | null;
-            if (pageContent) {
-              if (checkAndReflowOnOverflow(pageContent)) return;
-            }
-          }
+
+          immediateReflow();
         }, 0);
         
+
         saveToHistory(true);
         return;
       }
@@ -845,7 +1139,11 @@ export const DocumentEditor = forwardRef<DocumentEditorHandle, DocumentEditorPro
         return;
       }
     };
+
     container.addEventListener('keydown', handleKeyDown);
+    container.addEventListener('cut', handleCut);
+    container.addEventListener('paste', handlePaste);
+    container.addEventListener('copy', handleCopy);
     
     const handleSelectionChange = () => {
       updateToolbarState();
@@ -855,13 +1153,16 @@ export const DocumentEditor = forwardRef<DocumentEditorHandle, DocumentEditorPro
     
     return () => {
       container.removeEventListener('keydown', handleKeyDown);
+      container.removeEventListener('cut', handleCut);
+      container.removeEventListener('paste', handlePaste);
+      container.removeEventListener('copy', handleCopy);
       document.removeEventListener('selectionchange', handleSelectionChange);
     };
   }, [
     pageContainerRef, saveToHistory, checkForAutoList, checkForMathBlock, 
     updateToolbarState, undo, redo, scheduleReflow, immediateReflow, checkAndReflowOnOverflow, 
     updateOverflowWarning, handleBackspaceAtPageStart, reflowBackwardFromPage, reflowWithCursor,
-    runParagraphAnalysis
+    runParagraphAnalysis, selectedText, deleteSelectionManually, customSelection
   ]);
 
   const applyCommand = (command: string, value?: string) => {
@@ -996,6 +1297,28 @@ export const DocumentEditor = forwardRef<DocumentEditorHandle, DocumentEditorPro
       </div>
 
       <div ref={scrollContainerRef} className="flex-1 overflow-y-auto pt-6 bg-gray-100 flex flex-col items-center relative">
+        <div className="selection-overlay">
+          {highlightRects.map((rect, index) => {
+            const containerRect = scrollContainerRef.current?.getBoundingClientRect();
+            if (!containerRect) return null;
+            
+            const scrollTop = scrollContainerRef.current?.scrollTop || 0;
+            
+            return (
+              <div
+                key={index}
+                className="custom-selection-highlight"
+                style={{
+                  top: rect.top - containerRect.top + scrollTop,
+                  left: rect.left - containerRect.left,
+                  width: rect.width,
+                  height: rect.height,
+                }}
+              />
+            );
+          })}
+        </div>
+
         <div 
           ref={pageContainerRef} 
           className="page-container w-full" 
@@ -1035,6 +1358,17 @@ export const DocumentEditor = forwardRef<DocumentEditorHandle, DocumentEditorPro
         onChapterChange={handleNavigateToChapter}
         isContentHubOpen={isContentHubOpen}
         isHubExpanded={isHubExpanded}
+      />
+
+      <SelectionInfo
+        selectedText={selectedText}
+        isMultiPageSelection={isMultiPageSelection}
+        selectedPages={selectedPages}
+      />
+      <SelectionDebug 
+        selectedText={selectedText}
+        isMultiPageSelection={isMultiPageSelection}
+        selectedPages={selectedPages}
       />
     </div>
   );

@@ -8,6 +8,7 @@ import { MathBlock } from '../MathBlock';
 import { GraphBlock, GraphData } from '../GraphBlock';
 import { useHistory } from './useHistory';
 import { useTextReflow } from './useTextReflow';
+import { useMultiPageSelection } from './useMultiPageSelection';
 
 export const useEditor = (editorRef: React.RefObject<HTMLDivElement | null>) => {
   const { 
@@ -28,8 +29,17 @@ export const useEditor = (editorRef: React.RefObject<HTMLDivElement | null>) => 
     record(force ? 'action' : 'input');
   }, [record]);
 
-  // MODIFIED: Destructure reflowBackwardFromPage from the hook
   const { scheduleReflow, immediateReflow, isReflowing, reflowPage, reflowBackwardFromPage, reflowSplitParagraph } = useTextReflow(editorRef, saveToHistory);
+
+  const {
+    highlightRects,
+    isSelecting,
+    isMultiPageSelection,
+    selectedPages,
+    selectedText,
+    clearSelection,
+    customSelection
+  } = useMultiPageSelection(editorRef);
 
   const unmountAllReactComponents = useCallback(() => {
     reactRootsRef.current.forEach((root) => root.unmount());
@@ -508,7 +518,6 @@ export const useEditor = (editorRef: React.RefObject<HTMLDivElement | null>) => 
     };
   }, [unmountAllReactComponents]);
 
-  // MODIFIED: Return reflowBackwardFromPage
   return {
     insertImage,
     insertContent,
@@ -530,6 +539,14 @@ export const useEditor = (editorRef: React.RefObject<HTMLDivElement | null>) => 
     isReflowing,
     reflowPage,
     reflowBackwardFromPage,
-    reflowSplitParagraph
+    reflowSplitParagraph,
+    
+    highlightRects,
+    isSelecting,
+    isMultiPageSelection,
+    selectedPages,
+    selectedText,
+    clearSelection,
+    customSelection,
   };
 };
