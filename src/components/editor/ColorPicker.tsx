@@ -132,8 +132,6 @@ export const ColorPicker: React.FC<ColorPickerProps> = ({
     let currentSaturation = saturation;
     let currentLightness = lightness;
 
-    // --- FIX: If the color is grayscale (black, white, gray), set saturation and lightness to a sensible default. ---
-    // This provides an intuitive experience, immediately showing a vibrant color.
     if (saturation === 0 || lightness === 0 || lightness === 100) {
       currentSaturation = 100;
       currentLightness = 50;
@@ -150,7 +148,6 @@ export const ColorPicker: React.FC<ColorPickerProps> = ({
     const newSaturation = parseInt(e.target.value);
     let currentLightness = lightness;
 
-    // --- FIX: If the color is black or white, set lightness to the middle so saturation changes are visible. ---
     if (lightness === 0 || lightness === 100) {
         currentLightness = 50;
         setLightness(50);
@@ -189,6 +186,7 @@ export const ColorPicker: React.FC<ColorPickerProps> = ({
     <div ref={menuRef} className="relative">
       <button
         ref={buttonRef}
+        onMouseDown={(e) => e.preventDefault()}
         onClick={handleMenuToggle}
         title="Text Color"
         className="p-2 rounded-lg transition-all duration-200 hover:bg-gray-100 text-gray-700 hover:text-gray-900 border border-transparent hover:scale-105 active:scale-95 relative"
@@ -213,6 +211,7 @@ export const ColorPicker: React.FC<ColorPickerProps> = ({
               {presetColors.map((color) => (
                 <button
                   key={color}
+                  onMouseDown={(e) => e.preventDefault()}
                   onClick={() => handlePresetClick(color)}
                   className="w-8 h-8 rounded border-2 border-gray-200 hover:border-gray-400 transition-all duration-150 hover:scale-110"
                   style={{ backgroundColor: color }}
@@ -286,6 +285,7 @@ export const ColorPicker: React.FC<ColorPickerProps> = ({
             </div>
 
             <button
+              onMouseDown={(e) => e.preventDefault()}
               onClick={handleApplyColor}
               className="w-full mt-3 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors duration-150 text-sm font-medium"
             >

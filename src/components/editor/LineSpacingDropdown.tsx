@@ -54,6 +54,7 @@ export const LineSpacingDropdown: React.FC<LineSpacingDropdownProps> = ({
   return (
     <div ref={dropdownRef} className="relative">
       <button
+        onMouseDown={(e) => e.preventDefault()}
         onClick={handleToggle}
         className="flex items-center justify-between px-3 py-2 border border-gray-200 bg-white rounded-lg text-sm hover:bg-gray-50 hover:border-gray-300 transition-all duration-200 w-28 hover:scale-105 active:scale-95"
         title={`Line Spacing: ${currentOption.label}`}
@@ -70,6 +71,7 @@ export const LineSpacingDropdown: React.FC<LineSpacingDropdownProps> = ({
           {spacingOptions.map((option) => (
             <button
               key={option.value}
+              onMouseDown={(e) => e.preventDefault()}
               onClick={() => handleSelect(option.value)}
               className={`w-full text-left px-4 py-3 text-sm hover:bg-gray-50 transition-colors duration-150 border-b border-gray-100 last:border-b-0 ${
                 currentSpacing === option.value ? 'bg-blue-50 text-blue-700' : 'text-gray-700'

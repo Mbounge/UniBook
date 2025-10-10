@@ -1,3 +1,5 @@
+//src/components/editor/hooks/useTextReflow.tsx 
+
 'use client';
 
 import { useCallback, useRef } from 'react';
@@ -124,6 +126,44 @@ const moveContentToNextPage = (
 
   const lastChild = children[children.length - 1] as HTMLElement;
   if (!lastChild) return false;
+
+  if (lastChild.tagName === 'UL' || lastChild.tagName === 'OL') {
+    const list = lastChild;
+    const listItems = Array.from(list.children) as HTMLElement[];
+    if (listItems.length === 0) return false;
+
+    let splitItemIndex = -1;
+    for (let i = 0; i < listItems.length; i++) {
+      const item = listItems[i];
+      const itemRect = item.getBoundingClientRect();
+      const itemBottomRelativeToContent = itemRect.bottom - (contentAreaRect.top + paddingTop);
+
+      if (itemBottomRelativeToContent > availableContentHeight) {
+        splitItemIndex = i;
+        break;
+      }
+    }
+
+    if (splitItemIndex !== -1) {
+      let nextPageList = toContent.firstElementChild as HTMLElement;
+      if (!nextPageList || nextPageList.tagName !== list.tagName) {
+        nextPageList = document.createElement(list.tagName);
+        toContent.insertBefore(nextPageList, toContent.firstChild);
+      }
+
+      const itemsToMove = listItems.slice(splitItemIndex);
+      itemsToMove.forEach(item => nextPageList.insertBefore(item, nextPageList.firstChild));
+      moved = true;
+
+      if (list.tagName === 'OL') {
+        const remainingItemsCount = list.children.length;
+        const originalStart = parseInt(list.getAttribute('start') || '1', 10);
+        nextPageList.setAttribute('start', String(originalStart + remainingItemsCount));
+      }
+      // Return early to prevent paragraph logic from running on this list.
+      return moved;
+    }
+  }
 
   if (lastChild.tagName === 'P' && lastChild.textContent?.trim()) {
     const paragraphId = lastChild.dataset.paragraphId;
@@ -254,9 +294,39 @@ const moveContentToPreviousPage = useCallback((
   
   if (!fromContent || !toContent || !fromContent.firstElementChild) return false;
 
+  
+
   let moved = false;
   let firstChild = fromContent.firstElementChild as HTMLElement;
   const lastChildOnToPage = toContent.lastElementChild as HTMLElement;
+
+  if (lastChildOnToPage && (lastChildOnToPage.tagName === 'UL' || lastChildOnToPage.tagName === 'OL') && lastChildOnToPage.tagName === firstChild.tagName) {
+    const toList = lastChildOnToPage;
+    const fromList = firstChild;
+    const fromListItems = Array.from(fromList.children) as HTMLElement[];
+    if (fromListItems.length === 0) return false;
+
+    const currentContentHeight = getContentHeight(toContent);
+    const remainingHeight = availableHeight - currentContentHeight;
+
+    const firstItemToPull = fromListItems[0];
+    const itemRect = firstItemToPull.getBoundingClientRect();
+
+    if (itemRect.height <= remainingHeight) {
+      toList.appendChild(firstItemToPull);
+      moved = true;
+
+      if (fromList.children.length === 0) {
+        fromList.remove();
+      }
+      
+      if (fromList.tagName === 'OL' && fromList.hasAttribute('start')) {
+        fromList.removeAttribute('start');
+      }
+      // Return early to prevent paragraph logic from running on this list.
+      return moved;
+    }
+  }
 
   if (lastChildOnToPage && 
       lastChildOnToPage.tagName === 'P' && 

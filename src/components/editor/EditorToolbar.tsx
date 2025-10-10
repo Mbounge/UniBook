@@ -15,7 +15,7 @@ import { LineSpacing } from '@/hooks/useLineSpacing';
 
 const ToolbarButton = React.forwardRef<HTMLButtonElement, { onClick: () => void; title: string; isActive?: boolean; disabled?: boolean; children: React.ReactNode; }>(
   ({ onClick, title, isActive, disabled, children }, ref) => (
-    <button ref={ref} onClick={onClick} title={title} disabled={disabled} className={`p-2 rounded-lg transition-all duration-200 ${isActive ? "bg-gradient-to-br from-blue-50 to-blue-100 text-blue-700 border border-blue-200" : "hover:bg-gray-100 text-gray-700 hover:text-gray-900 border border-transparent"} disabled:opacity-40 disabled:cursor-not-allowed hover:scale-105 active:scale-95`}>
+    <button ref={ref} onMouseDown={(e) => e.preventDefault()} onClick={onClick} title={title} disabled={disabled} className={`p-2 rounded-lg transition-all duration-200 ${isActive ? "bg-gradient-to-br from-blue-50 to-blue-100 text-blue-700 border border-blue-200" : "hover:bg-gray-100 text-gray-700 hover:text-gray-900 border border-transparent"} disabled:opacity-40 disabled:cursor-not-allowed hover:scale-105 active:scale-95`}>
       {children}
     </button>
   )
@@ -33,13 +33,18 @@ const Dropdown = ({ options, value, onChange, title, widthClass = "w-40" }: { op
   }, []);
   return (
     <div ref={ref} className="relative">
-      <button onClick={() => setIsOpen(!isOpen)} className={`flex items-center justify-between px-3 py-2 border border-gray-200 bg-white rounded-lg text-sm hover:bg-gray-50 hover:border-gray-300 transition-all duration-200 ${widthClass} hover:scale-105 active:scale-95`}>
+      {/* --- FIX: Added onMouseDown to prevent focus shift --- */}
+      <button 
+        onMouseDown={(e) => e.preventDefault()} 
+        onClick={() => setIsOpen(!isOpen)} 
+        className={`flex items-center justify-between px-3 py-2 border border-gray-200 bg-white rounded-lg text-sm hover:bg-gray-50 hover:border-gray-300 transition-all duration-200 ${widthClass} hover:scale-105 active:scale-95`}
+      >
         <span className="truncate font-medium text-gray-700">{selectedLabel}</span>
         <ChevronDown className={`w-4 h-4 ml-2 text-gray-500 transition-transform duration-200 ${isOpen ? 'rotate-180' : ''}`} />
       </button>
       {isOpen && (
         <div className={`absolute z-20 top-full mt-2 bg-white rounded-lg border border-gray-200 overflow-hidden max-h-60 overflow-y-auto ${widthClass}`}>
-          {options.map(option => (<button key={option.value} onClick={() => { onChange(option.value); setIsOpen(false); }} className="w-full text-left px-4 py-2 text-sm hover:bg-gray-100 transition-colors duration-150 font-medium text-gray-700 hover:text-gray-900">{option.label}</button>))}
+          {options.map(option => (<button key={option.value} onMouseDown={(e) => e.preventDefault()} onClick={() => { onChange(option.value); setIsOpen(false); }} className="w-full text-left px-4 py-2 text-sm hover:bg-gray-100 transition-colors duration-150 font-medium text-gray-700 hover:text-gray-900">{option.label}</button>))}
         </div>
       )}
     </div>
