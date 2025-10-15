@@ -51,7 +51,6 @@ const mergeRects = (rects: DOMRect[]): DOMRect[] => {
     return rects;
   }
 
-  // Sort rects by vertical position first for better multi-page handling
   const sortedRects = [...rects].sort((a, b) => {
     const verticalDiff = a.top - b.top;
     if (Math.abs(verticalDiff) > 5) return verticalDiff;
@@ -61,17 +60,16 @@ const mergeRects = (rects: DOMRect[]): DOMRect[] => {
   const rectMap = new Map<number, DOMRect>();
 
   for (const rect of sortedRects) {
-    const lineTop = Math.round(rect.top / 5) * 5; // Group by 5px bands for more stable merging
+    const lineTop = Math.round(rect.top / 5) * 5;
 
     const existingRect = rectMap.get(lineTop);
     if (existingRect) {
-      // Only merge if rects are horizontally adjacent or overlapping
       const horizontalGap = Math.min(
         Math.abs(rect.left - existingRect.right),
         Math.abs(existingRect.left - rect.right)
       );
       
-      if (horizontalGap < 5) { // 5px tolerance for merging
+      if (horizontalGap < 5) {
         const newLeft = Math.min(existingRect.left, rect.left);
         const newRight = Math.max(existingRect.right, rect.right);
         const newTop = Math.min(existingRect.top, rect.top);
@@ -84,7 +82,6 @@ const mergeRects = (rects: DOMRect[]): DOMRect[] => {
           newBottom - newTop
         ));
       } else {
-        // Create new entry with slightly different key
         rectMap.set(lineTop + 0.1, rect);
       }
     } else {
@@ -93,6 +90,27 @@ const mergeRects = (rects: DOMRect[]): DOMRect[] => {
   }
 
   return Array.from(rectMap.values());
+};
+
+const getBoundaryPosition = (container: HTMLElement, findStart: boolean): DocumentPosition | null => {
+  const walker = document.createTreeWalker(container, NodeFilter.SHOW_TEXT);
+  let node;
+  const boundaryNodes: Text[] = [];
+  while (node = walker.nextNode()) {
+    if (node.textContent?.trim()) {
+      boundaryNodes.push(node as Text);
+    }
+  }
+
+  if (boundaryNodes.length === 0) return null;
+
+  if (findStart) {
+    const firstNode = boundaryNodes[0];
+    return { node: firstNode, offset: 0 };
+  } else {
+    const lastNode = boundaryNodes[boundaryNodes.length - 1];
+    return { node: lastNode, offset: lastNode.length };
+  }
 };
 
 
@@ -107,9 +125,7 @@ export const useMultiPageSelection = (
   const rectUpdateTimeoutRef = useRef<number>(0);
   const isUpdatingSelectionRef = useRef(false);
   const lastUpdateTimeRef = useRef<number>(0);
-  const isBackwardSelectionRef = useRef(false);
-  const pendingRangeRef = useRef<Range | null>(null);
-
+  
   const getPageIndex = useCallback((element: Node | null): number => {
     if (!element || !containerRef.current) return -1;
     const targetNode = element.nodeType === Node.ELEMENT_NODE ? element : element.parentElement;
@@ -124,18 +140,35 @@ export const useMultiPageSelection = (
     return range ? { node: range.startContainer, offset: range.startOffset } : null;
   };
 
+  const forceRecalculateRects = useCallback(() => {
+    const selection = window.getSelection();
+
+    if (!selection || selection.rangeCount === 0 || selection.isCollapsed) {
+      if (highlightRects.length > 0) setHighlightRects([]);
+      return;
+    }
+
+    const liveRange = selection.getRangeAt(0);
+
+    try {
+      const preciseRects = getPreciseRectsForRange(liveRange);
+      const mergedRects = mergeRects(preciseRects);
+      setHighlightRects(mergedRects);
+    } catch (error) {
+      console.error("Failed to recalculate selection rectangles from live selection:", error);
+      setHighlightRects([]);
+    }
+  }, [highlightRects.length]);
+
   const updateStateFromNativeSelection = useCallback((selection: Selection | null, immediate: boolean = false) => {
     if (!selection || selection.rangeCount === 0 || selection.isCollapsed) {
       setCustomSelection(null);
       setHighlightRects([]);
-      pendingRangeRef.current = null;
       return;
     }
 
     const range = selection.getRangeAt(0);
     
-    // CRITICAL: Always use the range's actual start/end, which are always in document order
-    // regardless of how the selection was made (forward or backward)
     const startPage = getPageIndex(range.startContainer);
     const endPage = getPageIndex(range.endContainer);
 
@@ -148,7 +181,6 @@ export const useMultiPageSelection = (
     }
     const accurateText = texts.join(' ').replace(/\s+/g, ' ').trim();
 
-    // Store positions in document order (range.start is always before range.end)
     setCustomSelection({
       start: { node: range.startContainer, offset: range.startOffset },
       end: { node: range.endContainer, offset: range.endOffset },
@@ -158,25 +190,19 @@ export const useMultiPageSelection = (
     });
 
     const updateRects = () => {
-      // Use the pending range if available (for backward selections)
-      const rangeToUse = pendingRangeRef.current || range;
-      const preciseRects = getPreciseRectsForRange(rangeToUse);
+      const preciseRects = getPreciseRectsForRange(range);
       const mergedRects = mergeRects(preciseRects);
       setHighlightRects(mergedRects);
       lastUpdateTimeRef.current = Date.now();
-      pendingRangeRef.current = null;
     };
 
-    // For immediate updates (during active selection), update instantly
     if (immediate) {
       updateRects();
     } else {
-      // For passive updates, use minimal debouncing
       if (rectUpdateTimeoutRef.current) {
         clearTimeout(rectUpdateTimeoutRef.current);
       }
 
-      // Only debounce if we updated very recently (< 16ms ago)
       const timeSinceLastUpdate = Date.now() - lastUpdateTimeRef.current;
       const debounceDelay = timeSinceLastUpdate < 16 ? 8 : 0;
 
@@ -186,7 +212,7 @@ export const useMultiPageSelection = (
   }, [getPageIndex]);
 
   const updateSelectionFromPositions = useCallback((startPos: DocumentPosition, endPos: DocumentPosition) => {
-    if (isUpdatingSelectionRef.current) return; // Prevent re-entry
+    if (isUpdatingSelectionRef.current) return;
     
     try {
       isUpdatingSelectionRef.current = true;
@@ -194,53 +220,22 @@ export const useMultiPageSelection = (
       const selection = window.getSelection();
       if (!selection) return;
 
-      // Determine if this is a backward selection (user is dragging up/left)
-      const comparison = startPos.node.compareDocumentPosition(endPos.node);
-      const isBackward = Boolean(comparison & Node.DOCUMENT_POSITION_PRECEDING) || 
-                        (comparison === 0 && startPos.offset > endPos.offset);
+      // The "base" is the anchor, where the selection started.
+      const baseNode = startPos.node;
+      const baseOffset = startPos.offset;
       
-      isBackwardSelectionRef.current = isBackward;
+      // The "extent" is the focus, where the mouse currently is.
+      const extentNode = endPos.node;
+      const extentOffset = endPos.offset;
 
-      // For backward selections, we need to handle them differently to avoid flicker
-      if (isBackward) {
-        // Create the range in document order (endPos comes before startPos in the document)
-        const range = document.createRange();
-        range.setStart(endPos.node, endPos.offset);
-        range.setEnd(startPos.node, startPos.offset);
-        
-        // Store the range for rect calculation
-        pendingRangeRef.current = range;
-        
-        // Now set the selection - this will be backward visually but the range is in document order
-        selection.removeAllRanges();
-        selection.addRange(range);
-        
-        // The browser will handle making it appear as a backward selection
-        // But the range itself is always in document order (start before end)
-        
-        // Update state immediately with the correct range
-        updateStateFromNativeSelection(selection, true);
-      } else {
-        // Forward selection - use the standard extend method
-        selection.removeAllRanges();
-        const range = document.createRange();
-        range.setStart(startPos.node, startPos.offset);
-        selection.addRange(range);
-        
-        try {
-          selection.extend(endPos.node, endPos.offset);
-        } catch (e) {
-          // Fallback if extend fails
-          range.setEnd(endPos.node, endPos.offset);
-          selection.removeAllRanges();
-          selection.addRange(range);
-        }
-        
-        pendingRangeRef.current = null;
-        updateStateFromNativeSelection(selection, true);
-      }
+      // This single method handles both forward and backward selections perfectly.
+      selection.setBaseAndExtent(baseNode, baseOffset, extentNode, extentOffset);
+      
+      // After letting the browser handle the selection, update our state.
+      updateStateFromNativeSelection(selection, true);
+
     } catch (error) {
-      console.error('Error updating selection:', error);
+      console.error('Error updating selection with setBaseAndExtent:', error);
     } finally {
       isUpdatingSelectionRef.current = false;
     }
@@ -257,12 +252,14 @@ export const useMultiPageSelection = (
     if (startPos) {
       isSelectingRef.current = true;
       selectionStartRef.current = startPos;
-      isBackwardSelectionRef.current = false;
-      pendingRangeRef.current = null;
       
       if (!e.shiftKey) {
-        window.getSelection()?.removeAllRanges();
-        updateStateFromNativeSelection(null, true);
+        // For a new selection, collapse the current one to the starting point.
+        const selection = window.getSelection();
+        if (selection) {
+          selection.collapse(startPos.node, startPos.offset);
+        }
+        updateStateFromNativeSelection(selection, true);
       }
     }
   }, [containerRef, updateStateFromNativeSelection]);
@@ -276,24 +273,36 @@ export const useMultiPageSelection = (
     }
 
     animationFrameRef.current = requestAnimationFrame(() => {
-      const editorRect = containerRef.current!.getBoundingClientRect();
-
-      // Better clamping with small margin to prevent edge issues
-      const margin = 2;
-      const clampedX = Math.max(editorRect.left + margin, Math.min(e.clientX, editorRect.right - margin));
-      const clampedY = Math.max(editorRect.top + margin, Math.min(e.clientY, editorRect.bottom - margin));
-
-      const currentPos = getPositionFromPoint(clampedX, clampedY);
+      const container = containerRef.current!;
+      const editorRect = container.getBoundingClientRect();
       
-      if (currentPos) {
-        updateSelectionFromPositions(selectionStartRef.current!, currentPos);
+      let endPos: DocumentPosition | null = null;
+
+      const isVerticallyInside = e.clientY >= editorRect.top && e.clientY <= editorRect.bottom;
+      
+      if (isVerticallyInside) {
+        const pos = getPositionFromPoint(e.clientX, e.clientY);
+        if (pos && container.contains(pos.node)) {
+          endPos = pos;
+        }
+      }
+      
+      if (!endPos) {
+        if (e.clientY < editorRect.top) {
+          endPos = getBoundaryPosition(container, true);
+        } else if (e.clientY > editorRect.bottom) {
+          endPos = getBoundaryPosition(container, false);
+        }
+      }
+
+      if (endPos) {
+        updateSelectionFromPositions(selectionStartRef.current!, endPos);
       }
     });
   }, [containerRef, updateSelectionFromPositions]);
 
   const handleMouseUp = useCallback(() => {
     isSelectingRef.current = false;
-    isBackwardSelectionRef.current = false;
     if (animationFrameRef.current) {
       cancelAnimationFrame(animationFrameRef.current);
     }
@@ -301,7 +310,6 @@ export const useMultiPageSelection = (
 
   useEffect(() => {
     const handleSelectionChange = () => {
-      // CRITICAL: Ignore selection changes during active mouse selection
       if (isSelectingRef.current) return;
 
       const selection = window.getSelection();
@@ -335,9 +343,33 @@ export const useMultiPageSelection = (
     };
   }, [handleMouseDown, handleMouseMove, handleMouseUp, updateStateFromNativeSelection]);
 
+  useEffect(() => {
+    const container = containerRef.current;
+    if (!container || !customSelection) return;
+
+    let frameId: number;
+    const handleLayoutChange = () => {
+      cancelAnimationFrame(frameId);
+      frameId = requestAnimationFrame(forceRecalculateRects);
+    };
+
+    const scrollContainer = container.parentElement;
+    scrollContainer?.addEventListener('scroll', handleLayoutChange, { passive: true });
+
+    const resizeObserver = new ResizeObserver(handleLayoutChange);
+    resizeObserver.observe(container);
+
+    forceRecalculateRects();
+
+    return () => {
+      scrollContainer?.removeEventListener('scroll', handleLayoutChange);
+      resizeObserver.disconnect();
+      cancelAnimationFrame(frameId);
+    };
+  }, [containerRef, customSelection, forceRecalculateRects]);
+
   const clearSelection = useCallback(() => {
     window.getSelection()?.removeAllRanges();
-    pendingRangeRef.current = null;
     updateStateFromNativeSelection(null, true);
   }, [updateStateFromNativeSelection]);
 
@@ -359,5 +391,6 @@ export const useMultiPageSelection = (
     selectedPages,
     selectedText: customSelection?.text || '',
     clearSelection,
+    forceRecalculateRects,
   };
 };

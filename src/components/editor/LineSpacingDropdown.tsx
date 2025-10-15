@@ -1,4 +1,4 @@
-//src/components/editor/LineSpaciongDropdown.tsx
+//src/components/editor/LineSpacingDropdown.tsx
 
 'use client';
 
@@ -12,9 +12,11 @@ interface LineSpacingDropdownProps {
   onMenuOpen: () => void;
 }
 
+// MODIFICATION: Updated the options array
 const spacingOptions = [
-  { label: 'Single', value: 'single' as LineSpacing, description: '1.2x' },
-  { label: '1.5 lines', value: '1.5' as LineSpacing, description: '1.8x' },
+  { label: '1.0', value: '1.0' as LineSpacing, description: '1.2x' },
+  { label: '1.2', value: '1.2' as LineSpacing, description: '1.5x' },
+  { label: '1.5', value: '1.5' as LineSpacing, description: '1.8x' },
   { label: 'Double', value: 'double' as LineSpacing, description: '2.4x' }
 ];
 
@@ -40,10 +42,14 @@ export const LineSpacingDropdown: React.FC<LineSpacingDropdownProps> = ({
   }, []);
 
   const handleToggle = () => {
+    setIsOpen(!isOpen);
+  };
+
+  const handleMouseDown = (e: React.MouseEvent<HTMLButtonElement>) => {
+    e.preventDefault();
     if (!isOpen) {
       onMenuOpen();
     }
-    setIsOpen(!isOpen);
   };
 
   const handleSelect = (spacing: LineSpacing) => {
@@ -54,7 +60,7 @@ export const LineSpacingDropdown: React.FC<LineSpacingDropdownProps> = ({
   return (
     <div ref={dropdownRef} className="relative">
       <button
-        onMouseDown={(e) => e.preventDefault()}
+        onMouseDown={handleMouseDown}
         onClick={handleToggle}
         className="flex items-center justify-between px-3 py-2 border border-gray-200 bg-white rounded-lg text-sm hover:bg-gray-50 hover:border-gray-300 transition-all duration-200 w-28 hover:scale-105 active:scale-95"
         title={`Line Spacing: ${currentOption.label}`}

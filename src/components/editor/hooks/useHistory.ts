@@ -1,4 +1,4 @@
-//src/components/editor/hooks/useHistory.ts
+//src/component/editor/hooks/useHistory.ts
 
 'use client';
 
@@ -24,9 +24,10 @@ const getSelectionOffsets = (container: HTMLElement): { startOffset: number; end
   return { startOffset, endOffset };
 };
 
-const restoreSelectionFromOffsets = (container: HTMLElement, startOffset: number, endOffset: number) => {
+// --- MODIFICATION: This function now returns the element to scroll to ---
+const restoreSelectionFromOffsets = (container: HTMLElement, startOffset: number, endOffset: number): HTMLElement | null => {
   const selection = window.getSelection();
-  if (!selection) return;
+  if (!selection) return null;
   const range = document.createRange();
   const nodeIterator = document.createNodeIterator(container, NodeFilter.SHOW_TEXT);
   let currentNode: Node | null;
@@ -54,31 +55,27 @@ const restoreSelectionFromOffsets = (container: HTMLElement, startOffset: number
       range.setEnd(endNode, rangeEndOffset);
       selection.removeAllRanges();
       selection.addRange(range);
-      setTimeout(() => {
-        const selection = window.getSelection();
-        if (selection && selection.rangeCount > 0) {
-          const currentRange = selection.getRangeAt(0);
-          let elementToScrollTo = currentRange.commonAncestorContainer;
-          if (elementToScrollTo.nodeType === Node.TEXT_NODE) {
-            elementToScrollTo = elementToScrollTo.parentElement!;
-          }
-          if (elementToScrollTo && (elementToScrollTo as HTMLElement).scrollIntoView) {
-            (elementToScrollTo as HTMLElement).scrollIntoView({ behavior: 'smooth', block: 'center', inline: 'nearest' });
-          }
-        }
-      }, 0);
-    } catch (e) { console.error("Failed to restore selection:", e); }
-  } else {
-    const scrollableContainer = container.parentElement;
-    if (scrollableContainer && typeof scrollableContainer.scrollTo === 'function') {
-        scrollableContainer.scrollTo({ top: 0, behavior: 'smooth' });
+
+      // Find the common ancestor element and return it for scrolling.
+      let elementToScrollTo = range.commonAncestorContainer;
+      if (elementToScrollTo.nodeType === Node.TEXT_NODE) {
+        elementToScrollTo = elementToScrollTo.parentElement!;
+      }
+      return elementToScrollTo as HTMLElement;
+
+    } catch (e) { 
+      console.error("Failed to restore selection:", e); 
+      return null;
     }
+  } else {
+    // If selection fails, we can't scroll to it.
     try {
         range.selectNodeContents(container);
         range.collapse(true);
         selection.removeAllRanges();
         selection.addRange(range);
     } catch (e) { console.error("Failed to set cursor in empty editor:", e); }
+    return container; // Return the main container as a fallback
   }
 };
 

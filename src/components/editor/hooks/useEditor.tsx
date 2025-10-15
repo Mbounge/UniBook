@@ -10,6 +10,18 @@ import { useHistory } from './useHistory';
 import { useTextReflow } from './useTextReflow';
 import { useMultiPageSelection } from './useMultiPageSelection';
 
+const createNewPage = (): HTMLElement => {
+  const newPageDiv = document.createElement('div');
+  newPageDiv.className = 'page';
+  
+  const newPageContent = document.createElement('div');
+  newPageContent.className = 'page-content';
+  newPageContent.contentEditable = 'true';
+  
+  newPageDiv.appendChild(newPageContent);
+  return newPageDiv;
+};
+
 export const useEditor = (editorRef: React.RefObject<HTMLDivElement | null>) => {
   const { 
     record, 
@@ -29,7 +41,16 @@ export const useEditor = (editorRef: React.RefObject<HTMLDivElement | null>) => 
     record(force ? 'action' : 'input');
   }, [record]);
 
-  const { scheduleReflow, immediateReflow, isReflowing, reflowPage, reflowBackwardFromPage, reflowSplitParagraph } = useTextReflow(editorRef, saveToHistory);
+  const { 
+    scheduleReflow, 
+    immediateReflow, 
+    isReflowing, 
+    reflowPage, 
+    reflowBackwardFromPage, 
+    reflowSplitParagraph,
+    getContentHeight,
+    getAvailableHeight 
+  } = useTextReflow(editorRef, saveToHistory);
 
   const {
     highlightRects,
@@ -38,7 +59,8 @@ export const useEditor = (editorRef: React.RefObject<HTMLDivElement | null>) => 
     selectedPages,
     selectedText,
     clearSelection,
-    customSelection
+    customSelection,
+    forceRecalculateRects,
   } = useMultiPageSelection(editorRef);
 
   const unmountAllReactComponents = useCallback(() => {
@@ -97,13 +119,23 @@ export const useEditor = (editorRef: React.RefObject<HTMLDivElement | null>) => 
     });
   }, [mountReactComponent, saveToHistory, scheduleReflow]);
 
+  // --- MODIFICATION: This function now handles the scrolling ---
   const restoreStateFromHistory = useCallback((state: { html: string; startOffset: number; endOffset: number; } | null) => {
     if (state && editorRef.current) {
       unmountAllReactComponents();
       editorRef.current.innerHTML = state.html;
       rehydrateMathBlocks(editorRef.current);
       rehydrateGraphBlocks(editorRef.current);
-      restoreSelection(editorRef.current, state.startOffset, state.endOffset);
+      
+      // `restoreSelection` now returns the element that should be scrolled to.
+      const elementToFocus = restoreSelection(editorRef.current, state.startOffset, state.endOffset);
+
+      // If we got an element back, scroll to it after a short delay.
+      if (elementToFocus) {
+        setTimeout(() => {
+          elementToFocus.scrollIntoView({ behavior: 'smooth', block: 'center', inline: 'nearest' });
+        }, 50); // 50ms is a more reliable delay than 0 to ensure rendering is complete.
+      }
     }
   }, [editorRef, unmountAllReactComponents, rehydrateMathBlocks, rehydrateGraphBlocks, restoreSelection]);
 
@@ -403,6 +435,7 @@ export const useEditor = (editorRef: React.RefObject<HTMLDivElement | null>) => 
   const insertContent = useCallback((htmlBlocks: string[], createChapters: boolean) => {
     if (!editorRef.current) return;
     saveToHistory(true);
+
     const sanitizeAndStyle = (html: string): DocumentFragment => {
       const fragment = document.createDocumentFragment();
       const tempDiv = document.createElement('div');
@@ -425,45 +458,67 @@ export const useEditor = (editorRef: React.RefObject<HTMLDivElement | null>) => 
       Array.from(tempDiv.childNodes).forEach(node => fragment.appendChild(node.cloneNode(true)));
       return fragment;
     };
+
     if (createChapters) {
       htmlBlocks.forEach(block => {
-        const newPageDiv = document.createElement('div');
-        newPageDiv.className = 'page';
-        const newPageContent = document.createElement('div');
-        newPageContent.className = 'page-content';
-        newPageContent.contentEditable = 'true';
+        const newPageDiv = createNewPage();
+        const newPageContent = newPageDiv.querySelector('.page-content') as HTMLElement;
         const contentFragment = sanitizeAndStyle(block);
         newPageContent.appendChild(contentFragment);
-        newPageDiv.appendChild(newPageContent);
         editorRef.current?.appendChild(newPageDiv);
       });
       const lastPage = editorRef.current.querySelector('.page:last-child');
       lastPage?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      setTimeout(() => immediateReflow(), 100);
+
     } else {
       let target = findInsertionTarget();
       if (!target) { addNewChapter(); target = findInsertionTarget(); if (!target) return; }
-      const { container: targetContainer, range } = target;
-      if (targetContainer) {
-        const combinedHtml = htmlBlocks.join('<div style="margin: 16px 0;"></div>');
-        const contentFragment = sanitizeAndStyle(combinedHtml);
-        const finalFragment = document.createDocumentFragment();
-        finalFragment.appendChild(document.createElement('br'));
-        finalFragment.appendChild(contentFragment);
-        finalFragment.appendChild(document.createElement('br'));
+      
+      let { container: currentTargetPageContent, range } = target;
+      if (!currentTargetPageContent) return;
+
+      if (range && !range.collapsed) {
+        range.deleteContents();
+      }
+
+      const combinedHtml = htmlBlocks.join('<br>');
+      const contentFragment = sanitizeAndStyle(combinedHtml);
+      const contentChunks = Array.from(contentFragment.childNodes);
+      const availableHeight = getAvailableHeight();
+
+      for (const chunk of contentChunks) {
         if (range) {
-          range.deleteContents();
-          range.insertNode(finalFragment);
-          range.collapse(false);
+          range.insertNode(chunk);
+          range.setStartAfter(chunk);
+          range.collapse(true);
         } else {
-          targetContainer.appendChild(finalFragment);
+          currentTargetPageContent.appendChild(chunk);
+        }
+
+        const currentHeight = getContentHeight(currentTargetPageContent);
+        if (currentHeight > availableHeight) {
+          const currentPageElement = currentTargetPageContent.closest('.page') as HTMLElement;
+          
+          reflowPage(currentPageElement);
+
+          const nextPageElement = currentPageElement.nextElementSibling as HTMLElement;
+          if (nextPageElement && nextPageElement.classList.contains('page')) {
+            currentTargetPageContent = nextPageElement.querySelector('.page-content') as HTMLElement;
+            range = document.createRange();
+            range.selectNodeContents(currentTargetPageContent);
+            range.collapse(false);
+            const selection = window.getSelection();
+            selection?.removeAllRanges();
+            selection?.addRange(range);
+          }
         }
       }
     }
-    setTimeout(() => {
-      saveToHistory(true);
-      scheduleReflow();
-    }, 100);
-  }, [editorRef, saveToHistory, findInsertionTarget, addNewChapter, scheduleReflow]);
+
+    saveToHistory(true);
+    
+  }, [editorRef, saveToHistory, findInsertionTarget, addNewChapter, immediateReflow, getContentHeight, getAvailableHeight, reflowPage]);
 
   const insertTemplate = useCallback((templateHtml: string) => {
     if (!editorRef.current) return;
@@ -548,5 +603,6 @@ export const useEditor = (editorRef: React.RefObject<HTMLDivElement | null>) => 
     selectedText,
     clearSelection,
     customSelection,
+    forceRecalculateRects,
   };
 };

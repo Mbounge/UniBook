@@ -1,3 +1,5 @@
+//src/app/(app)/editor/[bookid]/page.tsx
+
 "use client";
 
 import React, { useState, useEffect, useRef } from "react";
@@ -68,6 +70,7 @@ const EditorComponent = () => {
     selectedPages,
     selectedText,
     clearSelection,
+    forceRecalculateRects,
   } = useEditor(pageContainerRef);
 
   const { data: bookData, isLoading: isBookLoading, isError } = useQuery({
@@ -308,6 +311,7 @@ const EditorComponent = () => {
             selectedPages={selectedPages}
             selectedText={selectedText}
             clearSelection={clearSelection}
+            forceRecalculateRects={forceRecalculateRects}
           />
         </div>
 

@@ -77,7 +77,7 @@ export const StatusBar: React.FC<StatusBarProps> = ({
 
         <div className="flex items-center px-2">
           <FileText className="w-4 h-4 text-gray-500 mr-2" />
-          <span className="font-medium">Chapter</span>
+          <span className="font-medium">Page</span>
           <input
             type="text"
             value={inputValue}

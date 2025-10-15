@@ -51,6 +51,7 @@ interface DocumentEditorProps {
   selectedPages: number[];
   selectedText: string;
   clearSelection: () => void;
+  forceRecalculateRects: () => void; // <-- MODIFICATION: ADDED PROP
 }
 
 export interface DocumentEditorHandle {
@@ -95,6 +96,7 @@ export const DocumentEditor = forwardRef<DocumentEditorHandle, DocumentEditorPro
     selectedPages,
     selectedText,
     clearSelection,
+    forceRecalculateRects, // <-- MODIFICATION: DESTRUCTURED PROP
   } = props;
 
   useImperativeHandle(ref, () => ({
@@ -110,7 +112,6 @@ export const DocumentEditor = forwardRef<DocumentEditorHandle, DocumentEditorPro
   
   const { 
     currentLineSpacing, 
-    applyLineSpacing, 
     detectCurrentLineSpacing, 
     initializeDefaultLineSpacing,
     getLineHeightValue,
@@ -143,11 +144,9 @@ export const DocumentEditor = forwardRef<DocumentEditorHandle, DocumentEditorPro
     }, 0);
   }, [pageContainerRef]);
 
-  // --- START: MODIFIED updateToolbarState ---
   const updateToolbarState = useCallback(() => {
     if (!pageContainerRef.current) return;
 
-    // Use browser's queryCommandState for simple toggles
     setIsBold(document.queryCommandState('bold'));
     setIsItalic(document.queryCommandState('italic'));
     setIsUnderline(document.queryCommandState('underline'));
@@ -161,10 +160,8 @@ export const DocumentEditor = forwardRef<DocumentEditorHandle, DocumentEditorPro
     let element = node?.nodeType === Node.ELEMENT_NODE ? node as HTMLElement : node?.parentElement;
     if (!element) return;
 
-    // Reset flags for this check
     let blockTypeFound = false, fontFound = false, sizeFound = false, highlightFound = false, colorFound = false;
 
-    // Traverse up the DOM from the cursor position
     while (element && element.contentEditable !== 'true') {
       if (!blockTypeFound && element.nodeName.match(/^(H[1-4]|P|BLOCKQUOTE|PRE)$/)) {
         setCurrentBlockType(element.nodeName.toLowerCase());
@@ -185,14 +182,11 @@ export const DocumentEditor = forwardRef<DocumentEditorHandle, DocumentEditorPro
         highlightFound = true;
       }
 
-      // **IMPROVED COLOR DETECTION**
       if (!colorFound) {
         let foundColor: string | null = null;
-        // Check for modern inline style
         if (element.style.color) {
           foundColor = element.style.color;
         } 
-        // Check for legacy <font> tag
         else if (element.nodeName === 'FONT' && (element as HTMLFontElement).color) {
           foundColor = (element as HTMLFontElement).color;
         }
@@ -208,7 +202,7 @@ export const DocumentEditor = forwardRef<DocumentEditorHandle, DocumentEditorPro
               setCurrentTextColor(hex);
             }
           } else {
-            setCurrentTextColor(foundColor); // Handles hex and named colors
+            setCurrentTextColor(foundColor);
           }
           colorFound = true;
         }
@@ -217,14 +211,12 @@ export const DocumentEditor = forwardRef<DocumentEditorHandle, DocumentEditorPro
       element = element.parentElement;
     }
 
-    // Set final states, falling back to defaults if nothing was found
     setIsHighlighted(highlightFound);
     if (!blockTypeFound) setCurrentBlockType('p');
     if (!fontFound) setCurrentFont('Inter');
     if (!sizeFound) setCurrentSize('14pt');
     if (!colorFound) setCurrentTextColor('#000000');
 
-    // Alignment check
     if (document.queryCommandState('justifyCenter')) setTextAlign('center');
     else if (document.queryCommandState('justifyRight')) setTextAlign('right');
     else if (document.queryCommandState('justifyFull')) setTextAlign('justify');
@@ -275,34 +267,46 @@ export const DocumentEditor = forwardRef<DocumentEditorHandle, DocumentEditorPro
     const selection = window.getSelection();
     if (!selection) return;
 
-    // Case 1: There is an active, highlighted selection (single or multi-page).
-    // Use the existing robust logic.
-    if (customSelection) {
-      const { start, end } = customSelection;
-      if (!document.body.contains(start.node) || !document.body.contains(end.node)) {
-          console.warn("Cannot apply command, selection is stale.");
-          clearSelection();
-          return;
-      }
+    if (command === 'formatBlock') {
+      document.execCommand(command, false, value);
 
-      if (isMultiPageSelection) {
-          applyStyleAcrossPages(command, value);
-      } else {
-          const range = document.createRange();
-          range.setStart(start.node, start.offset);
-          range.setEnd(end.node, end.offset);
-          selection.removeAllRanges();
-          selection.addRange(range);
-          document.execCommand(command, false, value);
+      if (selection.rangeCount > 0) {
+        const range = selection.getRangeAt(0);
+        const container = range.commonAncestorContainer;
+        const parentElement = (container.nodeType === Node.ELEMENT_NODE ? container : container.parentElement) as HTMLElement;
+        
+        const newBlock = parentElement?.closest('p, h1, h2, h3, h4, li, blockquote, pre');
+
+        if (newBlock instanceof HTMLElement) {
+          newBlock.style.fontSize = '';
+        }
       }
     } 
-    // Case 2: There is no highlighted selection, just a blinking cursor.
-    // Apply the style at the cursor's position for subsequent typing.
-    else if (selection.isCollapsed) {
-      document.execCommand(command, false, value);
+    else {
+      if (customSelection) {
+        const { start, end } = customSelection;
+        if (!document.body.contains(start.node) || !document.body.contains(end.node)) {
+            console.warn("Cannot apply command, selection is stale.");
+            clearSelection();
+            return;
+        }
+
+        if (isMultiPageSelection) {
+            applyStyleAcrossPages(command, value);
+        } else {
+            const range = document.createRange();
+            range.setStart(start.node, start.offset);
+            range.setEnd(end.node, end.offset);
+            selection.removeAllRanges();
+            selection.addRange(range);
+            document.execCommand(command, false, value);
+        }
+      } 
+      else if (selection.isCollapsed) {
+        document.execCommand(command, false, value);
+      }
     }
 
-    // Ensure history and toolbar state are updated in all cases.
     saveToHistory(true);
     setTimeout(() => {
       updateToolbarState();
@@ -314,6 +318,7 @@ export const DocumentEditor = forwardRef<DocumentEditorHandle, DocumentEditorPro
           reflowBackwardFromPage(startPageElement);
         }
       }
+      forceRecalculateRects(); // <-- MODIFICATION: CALLED
     }, 0);
   }, [
     customSelection,
@@ -324,14 +329,14 @@ export const DocumentEditor = forwardRef<DocumentEditorHandle, DocumentEditorPro
     saveToHistory, 
     updateToolbarState, 
     runParagraphAnalysis, 
-    reflowBackwardFromPage
+    reflowBackwardFromPage,
+    forceRecalculateRects, // <-- MODIFICATION: ADDED DEPENDENCY
   ]);
 
   const applyStyle = useCallback((style: 'fontFamily' | 'fontSize' | 'color', value: string) => {
     const selection = window.getSelection();
     if (!selection) return;
 
-    // Case 1: There is an active, highlighted selection (single or multi-page).
     if (customSelection) {
       const { start, end } = customSelection;
       if (!document.body.contains(start.node) || !document.body.contains(end.node)) {
@@ -354,22 +359,17 @@ export const DocumentEditor = forwardRef<DocumentEditorHandle, DocumentEditorPro
           document.execCommand(command, false, value);
       }
     }
-    // Case 2: There is no highlighted text, just a blinking cursor.
     else if (selection.rangeCount > 0 && selection.isCollapsed) {
       let range = selection.getRangeAt(0);
       let node = range.startContainer;
       let parentBlock = (node.nodeType === Node.ELEMENT_NODE ? node : node.parentElement) as HTMLElement;
       
-      // --- FIX: Structural Integrity Check ---
-      // Traverse up to find a valid block-level element.
       while (parentBlock && !['P', 'H1', 'H2', 'H3', 'H4', 'LI', 'BLOCKQUOTE'].includes(parentBlock.tagName) && parentBlock.contentEditable !== 'true') {
         parentBlock = parentBlock.parentElement as HTMLElement;
       }
 
-      // If we are not inside a valid block, create one. This prevents structural corruption.
       if (!parentBlock || parentBlock.contentEditable === 'true') {
         document.execCommand('formatBlock', false, 'p');
-        // Re-acquire the selection and parent block as execCommand changes the DOM.
         const newSelection = window.getSelection();
         if (newSelection && newSelection.rangeCount > 0) {
           range = newSelection.getRangeAt(0);
@@ -378,21 +378,18 @@ export const DocumentEditor = forwardRef<DocumentEditorHandle, DocumentEditorPro
         }
       }
       
-      // Now that we are guaranteed to be in a valid block, apply the style.
       const span = document.createElement('span');
       span.style[style as any] = value;
-      span.innerHTML = '&#8203;'; // Zero-width space
+      span.innerHTML = '&#8203;';
       
       range.insertNode(span);
       
-      // Place the cursor inside the new span.
       range.setStart(span.firstChild!, 1);
       range.collapse(true);
       selection.removeAllRanges();
       selection.addRange(range);
     }
 
-    // Unified update logic for history and toolbar UI.
     saveToHistory(true);
     setTimeout(() => {
       updateToolbarState();
@@ -404,6 +401,7 @@ export const DocumentEditor = forwardRef<DocumentEditorHandle, DocumentEditorPro
           reflowBackwardFromPage(startPageElement);
         }
       }
+      forceRecalculateRects(); // <-- MODIFICATION: CALLED
     }, 0);
   }, [
     customSelection,
@@ -414,8 +412,83 @@ export const DocumentEditor = forwardRef<DocumentEditorHandle, DocumentEditorPro
     saveToHistory,
     updateToolbarState,
     runParagraphAnalysis,
-    reflowBackwardFromPage
+    reflowBackwardFromPage,
+    forceRecalculateRects, // <-- MODIFICATION: ADDED DEPENDENCY
   ]);
+
+  const handleLineSpacingChange = useCallback((spacing: LineSpacing) => {
+    const lineHeight = getLineHeightValue(spacing);
+    const elementsToUpdate = new Set<HTMLElement>();
+    const selection = window.getSelection();
+
+    // Determine the range to work with. Prioritize the robust `customSelection`.
+    let range: Range | null = null;
+    if (customSelection) {
+        range = document.createRange();
+        range.setStart(customSelection.start.node, customSelection.start.offset);
+        range.setEnd(customSelection.end.node, customSelection.end.offset);
+    } else if (selection && selection.rangeCount > 0) {
+        range = selection.getRangeAt(0);
+    }
+
+    // If there's no range, there's nothing to do.
+    if (!range) return;
+
+    // A reliable helper to find the block-level parent of any node.
+    const getBlockParent = (node: Node): HTMLElement | null => {
+        let current = node.nodeType === Node.ELEMENT_NODE ? node as HTMLElement : node.parentElement;
+        while (current) {
+            if (['P', 'H1', 'H2', 'H3', 'H4', 'LI', 'BLOCKQUOTE'].includes(current.tagName)) {
+                return current;
+            }
+            if (current.contentEditable === 'true') return null; // Stop at the editor boundary
+            current = current.parentElement;
+        }
+        return null;
+    };
+
+    const startBlock = getBlockParent(range.startContainer);
+    const endBlock = getBlockParent(range.endContainer);
+
+    if (startBlock && endBlock) {
+      // CASE 1: The selection is contained within a single block element.
+      if (startBlock === endBlock) {
+          elementsToUpdate.add(startBlock);
+      } 
+      // CASE 2: The selection spans multiple block elements.
+      else {
+          let commonAncestor = range.commonAncestorContainer;
+          // Ensure the ancestor is an element for the walker to work correctly.
+          if (commonAncestor.nodeType === Node.TEXT_NODE) {
+              commonAncestor = commonAncestor.parentElement!;
+          }
+
+          const walker = document.createTreeWalker(commonAncestor, NodeFilter.SHOW_ELEMENT);
+          while (walker.nextNode()) {
+              const el = walker.currentNode as HTMLElement;
+              if (['P', 'H1', 'H2', 'H3', 'H4', 'LI', 'BLOCKQUOTE'].includes(el.tagName)) {
+                  // The most reliable check: does the selection range intersect this block?
+                  if (range.intersectsNode(el)) {
+                      elementsToUpdate.add(el);
+                  }
+              }
+          }
+      }
+    }
+
+    if (elementsToUpdate.size > 0) {
+      elementsToUpdate.forEach(element => {
+        element.style.lineHeight = lineHeight;
+        element.dataset.lineSpacing = spacing;
+      });
+      saveToHistory(true);
+      updateToolbarState();
+      // MODIFICATION: Use a timeout to ensure the DOM has updated before recalculating
+      setTimeout(() => {
+        forceRecalculateRects();
+      }, 0);
+    }
+  }, [customSelection, getLineHeightValue, saveToHistory, updateToolbarState, forceRecalculateRects]); // <-- MODIFICATION: ADDED DEPENDENCY
 
   const reflowWithCursor = useCallback(() => {
     const selection = window.getSelection();
@@ -656,112 +729,151 @@ export const DocumentEditor = forwardRef<DocumentEditorHandle, DocumentEditorPro
   }, [pageContainerRef, saveToHistory, scheduleReflow, runParagraphAnalysis]);
 
   useEffect(() => {
-    if (!pageContainerRef.current) return;
+  if (!pageContainerRef.current) return;
 
-    const observer = new MutationObserver((mutations) => {
-      const relevantMutations = mutations.filter(m => {
-        if (m.type === 'attributes') return false;
-        const target = m.target;
-        if (target.nodeType === Node.ELEMENT_NODE) return (target as HTMLElement).closest('.page-content') !== null;
-        if (target.nodeType === Node.TEXT_NODE) return target.parentElement?.closest('.page-content') !== null;
-        return false;
+  const observer = new MutationObserver((mutations) => {
+    const relevantMutations = mutations.filter(m => {
+      if (m.type === 'attributes') return false;
+      const target = m.target;
+      if (target.nodeType === Node.ELEMENT_NODE) return (target as HTMLElement).closest('.page-content') !== null;
+      if (target.nodeType === Node.TEXT_NODE) return target.parentElement?.closest('.page-content') !== null;
+      return false;
+    });
+
+    if (relevantMutations.length === 0) return;
+
+    observer.disconnect();
+
+    let hasStructuralChanges = false;
+    const pages = pageContainerRef.current?.querySelectorAll('.page-content') || [];
+    
+    pages.forEach(pageContent => {
+      pageContent.querySelectorAll(':scope > div').forEach(div => {
+        const newParagraph = document.createElement('p');
+        newParagraph.style.lineHeight = getLineHeightValue(currentLineSpacing);
+        newParagraph.dataset.lineSpacing = currentLineSpacing;
+        newParagraph.style.fontSize = currentSize;
+        
+        while (div.firstChild) {
+          newParagraph.appendChild(div.firstChild);
+        }
+        
+        if (newParagraph.innerHTML === '') {
+          newParagraph.innerHTML = '<br>';
+        }
+        
+        div.replaceWith(newParagraph);
+        hasStructuralChanges = true;
       });
 
-      if (relevantMutations.length === 0) return;
-
-      observer.disconnect();
-
-      let hasStructuralChanges = false;
-      const pages = pageContainerRef.current?.querySelectorAll('.page-content') || [];
-      
-      pages.forEach(pageContent => {
-        // --- 1. Structural Cleanup (Existing Logic) ---
-        // (This part remains the same, wrapping orphans, cleaning empty lists, etc.)
-        const children = Array.from(pageContent.childNodes);
-        for (let i = 0; i < children.length; i++) {
-          const node = children[i] as Node;
-          const knownInlineTags = ['SPAN', 'B', 'I', 'U', 'A', 'CODE', 'EM', 'STRONG', 'FONT', 'SUB', 'SUP'];
-          const isStrayNode = (node.nodeType === Node.TEXT_NODE && node.textContent?.trim() !== '') ||
-                              (node.nodeType === Node.ELEMENT_NODE && knownInlineTags.includes((node as HTMLElement).tagName));
-          if (isStrayNode) {
-            const p = document.createElement('p');
-            const lineHeight = getLineHeightValue(currentLineSpacing);
-            p.style.lineHeight = lineHeight;
+      pageContent.querySelectorAll(':scope > p').forEach(p => {
+        if (p instanceof HTMLElement) {
+          const needsLineSpacing = !p.dataset.lineSpacing || !p.style.lineHeight;
+          const needsFontSize = !p.style.fontSize;
+          
+          if (needsLineSpacing) {
+            p.style.lineHeight = getLineHeightValue(currentLineSpacing);
             p.dataset.lineSpacing = currentLineSpacing;
-            pageContent.insertBefore(p, node);
-            p.appendChild(node);
-            while (children[i + 1]) {
-              const nextNode = children[i + 1];
-              const isNextNodeStray = (nextNode.nodeType === Node.TEXT_NODE) || (nextNode.nodeType === Node.ELEMENT_NODE && knownInlineTags.includes((nextNode as HTMLElement).tagName));
-              if (isNextNodeStray) { p.appendChild(nextNode); i++; } else { break; }
-            }
+            hasStructuralChanges = true;
+          }
+          
+          if (needsFontSize) {
+            p.style.fontSize = currentSize;
             hasStructuralChanges = true;
           }
         }
-        pageContent.querySelectorAll('li').forEach(li => {
-          const isEffectivelyEmpty = li.textContent?.trim() === '' && li.querySelector('img, .math-wrapper, .graph-wrapper, br') === null;
-          if (isEffectivelyEmpty) {
-            const parentList = li.parentElement;
-            li.remove();
-            if (parentList && parentList.children.length === 0) { parentList.remove(); }
-            hasStructuralChanges = true;
-          }
-        });
-        pageContent.querySelectorAll('p, h1, h2, h3, h4').forEach(block => {
-          const isVisuallyEmpty = block.textContent?.trim() === '' && block.querySelector('img, video, canvas, .math-wrapper, .graph-wrapper, br') === null;
-          if (isVisuallyEmpty) {
-            const allBlocks = pageContent.querySelectorAll('p, h1, h2, h3, h4, ul, ol, blockquote, pre, table');
-            if (allBlocks.length > 1) { block.remove(); hasStructuralChanges = true; }
-          }
-        });
-        Array.from(pageContent.childNodes).forEach(node => {
-          if (node.nodeName === 'BR') { node.remove(); hasStructuralChanges = true; }
-        });
-
-        // --- 2. Stylistic Sanitization (THE CRITICAL NEW LOGIC) ---
-        // After ensuring the structure is sound, we clean up style inconsistencies.
-        pageContent.querySelectorAll('p, h1, h2, h3, h4').forEach(block => {
-          if (block instanceof HTMLElement) {
-            // Find any rogue spans with pixel-based font sizes.
-            const rogueSpans = block.querySelectorAll('span[style*="font-size"]');
-            rogueSpans.forEach(span => {
-              if (span instanceof HTMLElement && span.style.fontSize.includes('px')) {
-                // Remove the incorrect style from the span.
-                span.style.fontSize = '';
-                // If the span is now empty of styles, unwrap it.
-                if (!span.getAttribute('style')) {
-                  span.replaceWith(...span.childNodes);
-                }
-                hasStructuralChanges = true;
-              }
-            });
-
-            // Ensure the main block element has the correct font size from our toolbar's state.
-            if (!block.style.fontSize || block.style.fontSize.includes('px')) {
-              block.style.fontSize = currentSize;
-              hasStructuralChanges = true;
-            }
-          }
-        });
       });
 
-      if (hasStructuralChanges) {
-        saveToHistory(true);
+      const children = Array.from(pageContent.childNodes);
+      for (let i = 0; i < children.length; i++) {
+        const node = children[i] as Node;
+        const knownInlineTags = ['SPAN', 'B', 'I', 'U', 'A', 'CODE', 'EM', 'STRONG', 'FONT', 'SUB', 'SUP'];
+        const isStrayNode = (node.nodeType === Node.TEXT_NODE && node.textContent?.trim() !== '') ||
+                            (node.nodeType === Node.ELEMENT_NODE && knownInlineTags.includes((node as HTMLElement).tagName));
+        if (isStrayNode) {
+          const p = document.createElement('p');
+          const lineHeight = getLineHeightValue(currentLineSpacing);
+          p.style.lineHeight = lineHeight;
+          p.dataset.lineSpacing = currentLineSpacing;
+          p.style.fontSize = currentSize;
+          pageContent.insertBefore(p, node);
+          p.appendChild(node);
+          while (children[i + 1]) {
+            const nextNode = children[i + 1];
+            const isNextNodeStray = (nextNode.nodeType === Node.TEXT_NODE) || (nextNode.nodeType === Node.ELEMENT_NODE && knownInlineTags.includes((nextNode as HTMLElement).tagName));
+            if (isNextNodeStray) { p.appendChild(nextNode); i++; } else { break; }
+          }
+          hasStructuralChanges = true;
+        }
       }
 
-      if (pageContainerRef.current) {
-        observer.observe(pageContainerRef.current, {
-          childList: true, subtree: true, characterData: true,
-        });
-      }
+      pageContent.querySelectorAll('li').forEach(li => {
+        const isEffectivelyEmpty = li.textContent?.trim() === '' && li.querySelector('img, .math-wrapper, .graph-wrapper, br') === null;
+        if (isEffectivelyEmpty) {
+          const parentList = li.parentElement;
+          li.remove();
+          if (parentList && parentList.children.length === 0) { 
+            parentList.remove(); 
+          }
+          hasStructuralChanges = true;
+        }
+      });
+
+      pageContent.querySelectorAll('p, h1, h2, h3, h4').forEach(block => {
+        const isVisuallyEmpty = block.textContent?.trim() === '' && block.querySelector('img, video, canvas, .math-wrapper, .graph-wrapper, br') === null;
+        if (isVisuallyEmpty) {
+          const allBlocks = pageContent.querySelectorAll('p, h1, h2, h3, h4, ul, ol, blockquote, pre, table');
+          if (allBlocks.length > 1) { 
+            block.remove(); 
+            hasStructuralChanges = true; 
+          }
+        }
+      });
+
+      Array.from(pageContent.childNodes).forEach(node => {
+        if (node.nodeName === 'BR') { 
+          node.remove(); 
+          hasStructuralChanges = true; 
+        }
+      });
+
+      pageContent.querySelectorAll('p, h1, h2, h3, h4').forEach(block => {
+        if (block instanceof HTMLElement) {
+          const rogueSpans = block.querySelectorAll('span[style*="font-size"]');
+          rogueSpans.forEach(span => {
+            if (span instanceof HTMLElement && span.style.fontSize.includes('px')) {
+              span.style.fontSize = '';
+              if (!span.getAttribute('style')) {
+                span.replaceWith(...span.childNodes);
+              }
+              hasStructuralChanges = true;
+            }
+          });
+        }
+      });
     });
 
-    observer.observe(pageContainerRef.current, {
-      childList: true, subtree: true, characterData: true,
-    });
+    if (hasStructuralChanges) {
+      saveToHistory(true);
+    }
 
-    return () => observer.disconnect();
-  }, [pageContainerRef, saveToHistory, currentLineSpacing, getLineHeightValue, currentSize]); // Added currentSize dependency
+    if (pageContainerRef.current) {
+      observer.observe(pageContainerRef.current, {
+        childList: true, 
+        subtree: true, 
+        characterData: true,
+      });
+    }
+  });
+
+  observer.observe(pageContainerRef.current, {
+    childList: true, 
+    subtree: true, 
+    characterData: true,
+  });
+
+  return () => observer.disconnect();
+}, [pageContainerRef, saveToHistory, currentLineSpacing, getLineHeightValue, currentSize]);
 
 
   useEffect(() => {
@@ -910,7 +1022,7 @@ export const DocumentEditor = forwardRef<DocumentEditorHandle, DocumentEditorPro
   const saveSelection = useCallback(() => {
     const selection = window.getSelection();
     if (selection && selection.rangeCount > 0) {
-      savedRangeRef.current = selection.getRangeAt(0);
+      savedRangeRef.current = selection.getRangeAt(0).cloneRange();
     }
   }, []);
 
@@ -1003,18 +1115,16 @@ export const DocumentEditor = forwardRef<DocumentEditorHandle, DocumentEditorPro
     let finalCursorOffset: number = 0;
     let pageToFocus: HTMLElement | null = null;
 
-    const sPageIdx = startPage;
-    const ePageIdx = endPage;
     const sNode = start.node;
     const sOffset = start.offset;
     const eNode = end.node;
     const eOffset = end.offset;
 
-    const startBlock = (sNode.nodeType === Node.ELEMENT_NODE ? sNode : sNode.parentElement) as HTMLElement;
-    const endBlock = (eNode.nodeType === Node.ELEMENT_NODE ? eNode : eNode.parentElement) as HTMLElement;
+    const startElement = (sNode.nodeType === Node.ELEMENT_NODE ? sNode : sNode.parentElement) as HTMLElement;
+    const endElement = (eNode.nodeType === Node.ELEMENT_NODE ? eNode : eNode.parentElement) as HTMLElement;
 
-    const startPara = startBlock.closest('p');
-    const endPara = endBlock.closest('p');
+    const startPara = startElement.closest('p');
+    const endPara = endElement.closest('p');
     
     const isSplitParaDelete = 
       startPara?.dataset.splitPoint === 'start' &&
@@ -1046,47 +1156,65 @@ export const DocumentEditor = forwardRef<DocumentEditorHandle, DocumentEditorPro
       finalCursorOffset = joinPoint.nodeType === Node.TEXT_NODE ? (joinPoint as Text).length : joinPoint.childNodes.length;
       pageToFocus = startPara.closest('.page-content');
     }
-    else if (startPage === endPage) {
-      try {
+    else {
+      const topBlock = startElement.closest('p, h1, h2, h3, h4, li, blockquote, pre');
+      const bottomBlock = endElement.closest('p, h1, h2, h3, h4, li, blockquote, pre');
+
+      if (!topBlock) {
         const range = document.createRange();
         range.setStart(sNode, sOffset);
         range.setEnd(eNode, eOffset);
-        finalCursorNode = sNode;
-        finalCursorOffset = sOffset;
-        pageToFocus = allPages[startPage]?.querySelector<HTMLElement>('.page-content');
         range.deleteContents();
-      } catch (e) { 
-        console.error("Error during single-page deletion:", e); 
+        finalCursorNode = range.startContainer;
+        finalCursorOffset = range.startOffset;
+      } else if (topBlock === bottomBlock) {
+        const range = document.createRange();
+        range.setStart(sNode, sOffset);
+        range.setEnd(eNode, eOffset);
+        range.deleteContents();
+        finalCursorNode = range.startContainer;
+        finalCursorOffset = range.startOffset;
+      } else {
+        const topRange = document.createRange();
+        topRange.setStart(sNode, sOffset);
+        if (topBlock.lastChild) topRange.setEndAfter(topBlock.lastChild);
+        else topRange.setEnd(topBlock, 0);
+        topRange.deleteContents();
+
+        let currentBlock = topBlock.nextElementSibling;
+        while (currentBlock && currentBlock !== bottomBlock) {
+          const next = currentBlock.nextElementSibling;
+          currentBlock.remove();
+          currentBlock = next;
+        }
+
+        if (bottomBlock) {
+          const bottomRange = document.createRange();
+          bottomRange.setStart(bottomBlock, 0);
+          bottomRange.setEnd(eNode, eOffset);
+          bottomRange.deleteContents();
+          
+          while (bottomBlock.firstChild) {
+            topBlock.appendChild(bottomBlock.firstChild);
+          }
+          bottomBlock.remove();
+        }
       }
-    } 
-    else {
-      const startPageElement = allPages[sPageIdx];
-      const endPageElement = allPages[ePageIdx];
-      const middlePageElements = allPages.slice(sPageIdx + 1, ePageIdx);
-
-      finalCursorNode = sNode;
-      finalCursorOffset = sOffset;
-      pageToFocus = startPageElement?.querySelector<HTMLElement>('.page-content');
-
-      const endPageContent = endPageElement?.querySelector<HTMLElement>('.page-content');
-      if (endPageContent) {
-        const endRange = document.createRange();
-        endRange.setStart(endPageContent, 0);
-        endRange.setEnd(eNode, eOffset);
-        endRange.deleteContents();
+      
+      if (topBlock) {
+        if (topBlock.textContent === '' && topBlock.children.length === 0) {
+          topBlock.innerHTML = '<br>';
+        }
+        const finalRange = document.createRange();
+        finalRange.selectNodeContents(topBlock);
+        finalRange.collapse(false);
+        
+        finalCursorNode = finalRange.startContainer;
+        finalCursorOffset = finalRange.startOffset;
       }
-
-      middlePageElements.forEach(page => {
-        const content = page.querySelector<HTMLElement>('.page-content');
-        if (content) content.innerHTML = '';
-      });
-
-      const startPageContent = startPageElement?.querySelector<HTMLElement>('.page-content');
-      if (startPageContent) {
-        const startRange = document.createRange();
-        startRange.setStart(sNode, sOffset);
-        startRange.setEndAfter(startPageContent.lastChild || startPageContent);
-        startRange.deleteContents();
+      
+      if (finalCursorNode) {
+        pageToFocus = (finalCursorNode.nodeType === Node.ELEMENT_NODE ? finalCursorNode as HTMLElement : finalCursorNode.parentElement)?.closest('.page-content') || null;
       }
     }
 
@@ -1107,7 +1235,11 @@ export const DocumentEditor = forwardRef<DocumentEditorHandle, DocumentEditorPro
       } catch (e) { 
         console.error("Error restoring cursor.", e); 
       }
-      pageToFocus?.focus();
+      
+      // THE FIX: Use a timeout to ensure focus is restored after the current event cycle.
+      setTimeout(() => {
+        pageToFocus?.focus();
+      }, 0);
     }
 
     if (save) {
@@ -1159,22 +1291,43 @@ export const DocumentEditor = forwardRef<DocumentEditorHandle, DocumentEditorPro
       const clipboardData = event.clipboardData;
       if (!clipboardData) return;
 
-      const pastedHtml = clipboardData.getData('text/html');
+      let pastedHtml = clipboardData.getData('text/html');
       const pastedText = clipboardData.getData('text/plain');
 
-      if (!pastedHtml && pastedText) {
+      if (!pastedHtml || pastedHtml.trim() === '') {
         document.execCommand('insertText', false, pastedText);
-      } else {
-        const tempDiv = document.createElement('div');
-        tempDiv.innerHTML = pastedHtml;
-        // Basic sanitization: remove font size styles to maintain consistency
-        tempDiv.querySelectorAll('*').forEach(el => {
-          if (el instanceof HTMLElement && el.style.fontSize) {
-            el.style.fontSize = '';
-          }
-        });
-        document.execCommand('insertHTML', false, tempDiv.innerHTML);
+        saveToHistory(true);
+        scheduleReflow();
+        return;
       }
+
+      const tempDiv = document.createElement('div');
+      tempDiv.innerHTML = pastedHtml;
+
+      tempDiv.querySelectorAll('*').forEach(el => {
+        el.removeAttribute('class');
+        el.removeAttribute('id');
+        el.removeAttribute('style');
+        el.removeAttribute('width');
+        el.removeAttribute('height');
+      });
+
+      tempDiv.querySelectorAll('b').forEach(b => {
+        const strong = document.createElement('strong');
+        strong.innerHTML = b.innerHTML;
+        b.replaceWith(strong);
+      });
+      tempDiv.querySelectorAll('i').forEach(i => {
+        const em = document.createElement('em');
+        em.innerHTML = i.innerHTML;
+        i.replaceWith(em);
+      });
+
+      tempDiv.querySelectorAll('script, style, link, meta, header, footer, nav').forEach(el => el.remove());
+      
+      const sanitizedHtml = tempDiv.innerHTML;
+
+      document.execCommand('insertHTML', false, sanitizedHtml);
 
       setTimeout(() => {
         saveToHistory(true);
@@ -1231,6 +1384,197 @@ export const DocumentEditor = forwardRef<DocumentEditorHandle, DocumentEditorPro
       }
       
       if (event.key === 'Enter') {
+        const selection = window.getSelection();
+        if (selection && selection.isCollapsed && selection.rangeCount > 0) {
+          const range = selection.getRangeAt(0);
+          const startElement = (range.startContainer.nodeType === Node.ELEMENT_NODE 
+            ? range.startContainer 
+            : range.startContainer.parentElement) as HTMLElement;
+          
+          const parentDiv = startElement?.closest('.page-content > div');
+          if (parentDiv) {
+            event.preventDefault();
+            
+            const newParagraph = document.createElement('p');
+            newParagraph.style.lineHeight = getLineHeightValue(currentLineSpacing);
+            newParagraph.dataset.lineSpacing = currentLineSpacing;
+            newParagraph.style.fontSize = currentSize;
+            
+            const beforeRange = document.createRange();
+            beforeRange.setStartBefore(parentDiv.firstChild || parentDiv);
+            beforeRange.setEnd(range.startContainer, range.startOffset);
+            const beforeContent = beforeRange.cloneContents();
+            
+            const afterRange = document.createRange();
+            afterRange.setStart(range.startContainer, range.startOffset);
+            afterRange.setEndAfter(parentDiv.lastChild || parentDiv);
+            const afterContent = afterRange.cloneContents();
+            
+            parentDiv.innerHTML = '';
+            parentDiv.appendChild(beforeContent);
+            if (parentDiv.textContent?.trim() === '') {
+              parentDiv.innerHTML = '<br>';
+            }
+            
+            newParagraph.appendChild(afterContent);
+            if (newParagraph.textContent?.trim() === '') {
+              newParagraph.innerHTML = '<br>';
+            }
+            
+            parentDiv.parentNode?.insertBefore(newParagraph, parentDiv.nextSibling);
+            
+            const convertedParagraph = document.createElement('p');
+            convertedParagraph.style.lineHeight = getLineHeightValue(currentLineSpacing);
+            convertedParagraph.dataset.lineSpacing = currentLineSpacing;
+            convertedParagraph.style.fontSize = currentSize;
+            while (parentDiv.firstChild) {
+              convertedParagraph.appendChild(parentDiv.firstChild);
+            }
+            parentDiv.replaceWith(convertedParagraph);
+            
+            const newRange = document.createRange();
+            newRange.setStart(newParagraph, 0);
+            newRange.collapse(true);
+            selection.removeAllRanges();
+            selection.addRange(newRange);
+            
+            saveToHistory(true);
+            scheduleReflow();
+            return;
+          }
+          
+          const listItem = startElement.closest('li');
+          if (listItem) {
+            event.preventDefault();
+            
+            const isEmpty = listItem.textContent?.trim() === '' && 
+                           !listItem.querySelector('img, .math-wrapper, .graph-wrapper');
+            
+            if (isEmpty) {
+              const parentList = listItem.parentElement;
+              const isOnlyItem = parentList && parentList.children.length === 1;
+              
+              if (isOnlyItem) {
+                const newParagraph = document.createElement('p');
+                newParagraph.style.lineHeight = getLineHeightValue(currentLineSpacing);
+                newParagraph.dataset.lineSpacing = currentLineSpacing;
+                newParagraph.style.fontSize = currentSize;
+                newParagraph.innerHTML = '<br>';
+                
+                parentList?.replaceWith(newParagraph);
+                
+                const newRange = document.createRange();
+                newRange.setStart(newParagraph, 0);
+                newRange.collapse(true);
+                selection.removeAllRanges();
+                selection.addRange(newRange);
+              } else {
+                const newParagraph = document.createElement('p');
+                newParagraph.style.lineHeight = getLineHeightValue(currentLineSpacing);
+                newParagraph.dataset.lineSpacing = currentLineSpacing;
+                newParagraph.style.fontSize = currentSize;
+                newParagraph.innerHTML = '<br>';
+                
+                listItem.remove();
+                
+                parentList?.parentNode?.insertBefore(newParagraph, parentList.nextSibling);
+                
+                const newRange = document.createRange();
+                newRange.setStart(newParagraph, 0);
+                newRange.collapse(true);
+                selection.removeAllRanges();
+                selection.addRange(newRange);
+              }
+              
+              saveToHistory(true);
+              updateToolbarState();
+              scheduleReflow();
+              return;
+            } else {
+              const parentList = listItem.parentElement;
+              
+              const beforeRange = document.createRange();
+              beforeRange.setStartBefore(listItem.firstChild || listItem);
+              beforeRange.setEnd(range.startContainer, range.startOffset);
+              const beforeContent = beforeRange.cloneContents();
+              
+              const afterRange = document.createRange();
+              afterRange.setStart(range.startContainer, range.startOffset);
+              afterRange.setEndAfter(listItem.lastChild || listItem);
+              const afterContent = afterRange.cloneContents();
+              
+              listItem.innerHTML = '';
+              listItem.appendChild(beforeContent);
+              if (listItem.textContent?.trim() === '') {
+                listItem.innerHTML = '<br>';
+              }
+              
+              const newListItem = document.createElement('li');
+              newListItem.appendChild(afterContent);
+              if (newListItem.textContent?.trim() === '') {
+                newListItem.innerHTML = '<br>';
+              }
+              
+              if (listItem.nextSibling) {
+                parentList?.insertBefore(newListItem, listItem.nextSibling);
+              } else {
+                parentList?.appendChild(newListItem);
+              }
+              
+              const newRange = document.createRange();
+              newRange.setStart(newListItem, 0);
+              newRange.collapse(true);
+              selection.removeAllRanges();
+              selection.addRange(newRange);
+              
+              saveToHistory(true);
+              scheduleReflow();
+              return;
+            }
+          }
+
+          const currentBlock = startElement?.closest('h1, h2, h3, h4');
+          if (currentBlock) {
+            setTimeout(() => {
+              const newSelection = window.getSelection();
+              if (!newSelection || newSelection.rangeCount === 0) return;
+
+              const newRange = newSelection.getRangeAt(0);
+              let newStartElement: HTMLElement | null = newRange.startContainer.nodeType === Node.ELEMENT_NODE
+                ? newRange.startContainer as HTMLElement
+                : newRange.startContainer.parentElement;
+              
+              const newBlock = newStartElement?.closest('.page-content > *');
+
+              if (newBlock && newBlock.tagName === 'DIV' && newBlock.previousElementSibling === currentBlock) {
+                const newParagraph = document.createElement('p');
+                newParagraph.style.lineHeight = getLineHeightValue(currentLineSpacing);
+                newParagraph.dataset.lineSpacing = currentLineSpacing;
+                newParagraph.style.fontSize = currentSize;
+                
+                while (newBlock.firstChild) {
+                  newParagraph.appendChild(newBlock.firstChild);
+                }
+                if (newParagraph.innerHTML === "") {
+                  newParagraph.innerHTML = '<br>';
+                }
+
+                newBlock.replaceWith(newParagraph);
+
+                const finalRange = document.createRange();
+                finalRange.setStart(newParagraph, 0);
+                finalRange.collapse(true);
+                newSelection.removeAllRanges();
+                newSelection.addRange(finalRange);
+              }
+              saveToHistory(true);
+              scheduleReflow();
+            }, 0);
+
+            return;
+          }
+        }
+        
         setTimeout(immediateReflow, 0);
         saveToHistory(true);
         return;
@@ -1242,44 +1586,34 @@ export const DocumentEditor = forwardRef<DocumentEditorHandle, DocumentEditorPro
             const range = selection.getRangeAt(0);
             const startElement = (range.startContainer.nodeType === Node.ELEMENT_NODE ? range.startContainer : range.startContainer.parentElement) as HTMLElement;
             
-            // Logic for outdenting lists
             const listItem = startElement.closest('li');
             if (listItem && range.startOffset === 0 && (listItem.textContent || '').trim() === '') {
                 
                 const parentList = listItem.parentElement;
 
-                // --- THE CRITICAL FIX: PROACTIVE INTERCEPTION ---
-
-                // SCENARIO 1: Deleting the VERY LAST item in a list.
-                // We take full manual control to prevent the browser from creating a messy paragraph.
                 if (parentList && parentList.children.length === 1) {
                     event.preventDefault();
 
                     const newParagraph = document.createElement('p');
-                    // Immediately apply all correct styles from our editor's state.
                     newParagraph.style.lineHeight = getLineHeightValue(currentLineSpacing);
                     newParagraph.dataset.lineSpacing = currentLineSpacing;
                     newParagraph.style.fontSize = currentSize;
-                    newParagraph.innerHTML = '<br>'; // Placeholder for the cursor.
+                    newParagraph.innerHTML = '<br>';
 
-                    // Replace the entire list with our new, clean paragraph.
                     parentList.replaceWith(newParagraph);
 
-                    // Manually place the cursor inside the new paragraph.
                     const newRange = document.createRange();
                     newRange.setStart(newParagraph, 0);
                     newRange.collapse(true);
                     selection.removeAllRanges();
                     selection.addRange(newRange);
 
-                    // Because the DOM is clean *before* the function ends, the toolbar will update correctly.
                     saveToHistory(true);
                     updateToolbarState();
                     scheduleReflow();
                     return;
                 }
                 
-                // SCENARIO 2: Outdenting the VERY FIRST item in a list with multiple items.
                 if (!listItem.previousElementSibling) {
                     event.preventDefault();
                     document.execCommand('outdent');
@@ -1307,10 +1641,24 @@ export const DocumentEditor = forwardRef<DocumentEditorHandle, DocumentEditorPro
                     return;
                 }
 
-                // SCENARIO 3: Deleting a middle/end item is handled by the browser's default behavior.
+                else if (parentList && !listItem.nextElementSibling && listItem.previousElementSibling) {
+                    event.preventDefault();
+                    const prevItem = listItem.previousElementSibling;
+                    listItem.remove();
+                    
+                    if (prevItem) {
+                        const newRange = document.createRange();
+                        newRange.selectNodeContents(prevItem);
+                        newRange.collapse(false);
+                        selection.removeAllRanges();
+                        selection.addRange(newRange);
+                    }
+
+                    saveToHistory(true);
+                    return;
+                }
             }
 
-            // Logic for merging split paragraphs
             const currentParagraph = startElement?.closest<HTMLElement>('p[data-split-point="end"]');
             if (currentParagraph && currentParagraph.dataset.paragraphId && range.startOffset === 0) {
                 event.preventDefault();
@@ -1318,7 +1666,6 @@ export const DocumentEditor = forwardRef<DocumentEditorHandle, DocumentEditorPro
                 return;
             }
 
-            // Logic for merging pages
             const pageContent = startElement?.closest('.page-content');
             if (pageContent) {
                 const preCaretRange = document.createRange();
@@ -1335,7 +1682,7 @@ export const DocumentEditor = forwardRef<DocumentEditorHandle, DocumentEditorPro
                 }
             }
         }
-        saveToHistory(); // Use debounced save for simple backspace
+        saveToHistory();
         setTimeout(() => reflowBackwardFromPage((window.getSelection()?.anchorNode?.parentElement?.closest('.page') as HTMLElement)), 50);
         return;
       }
@@ -1368,9 +1715,7 @@ export const DocumentEditor = forwardRef<DocumentEditorHandle, DocumentEditorPro
       updateOverflowWarning();
     };
 
-    // **NEW MouseUp Listener**
     const handleMouseUp = () => {
-        // Use a timeout to ensure the selection has been updated by the browser before we check it
         setTimeout(() => updateToolbarState(), 0);
     };
 
@@ -1378,7 +1723,7 @@ export const DocumentEditor = forwardRef<DocumentEditorHandle, DocumentEditorPro
     container.addEventListener('cut', handleCut);
     container.addEventListener('paste', handlePaste);
     container.addEventListener('copy', handleCopy);
-    container.addEventListener('mouseup', handleMouseUp); // Add listener
+    container.addEventListener('mouseup', handleMouseUp);
     document.addEventListener('selectionchange', handleSelectionChange);
     
     return () => {
@@ -1386,7 +1731,7 @@ export const DocumentEditor = forwardRef<DocumentEditorHandle, DocumentEditorPro
       container.removeEventListener('cut', handleCut);
       container.removeEventListener('paste', handlePaste);
       container.removeEventListener('copy', handleCopy);
-      container.removeEventListener('mouseup', handleMouseUp); // Clean up listener
+      container.removeEventListener('mouseup', handleMouseUp);
       document.removeEventListener('selectionchange', handleSelectionChange);
     };
   }, [
@@ -1394,9 +1739,8 @@ export const DocumentEditor = forwardRef<DocumentEditorHandle, DocumentEditorPro
     updateToolbarState, undo, redo, scheduleReflow, immediateReflow, 
     updateOverflowWarning, handleBackspaceAtPageStart, reflowBackwardFromPage, reflowWithCursor,
     runParagraphAnalysis, selectedText, deleteSelectionManually, customSelection, applyCommand, applyStyle,
-    checkAndReflowOnOverflow, checkAndReflowSplitParagraph // Added dependencies
+    checkAndReflowOnOverflow, checkAndReflowSplitParagraph, forceRecalculateRects
   ]);
-  // --- END: MODIFIED useEffect for event listeners ---
 
 
   const handleTextColorChange = (color: string) => {
@@ -1407,14 +1751,6 @@ export const DocumentEditor = forwardRef<DocumentEditorHandle, DocumentEditorPro
   const handleHighlight = () => {
     const color = isHighlighted ? 'transparent' : '#FFF3A3';
     applyCommand('hiliteColor', color);
-  };
-
-  const handleLineSpacingChange = (spacing: LineSpacing) => {
-    saveSelection();
-    applyLineSpacing(spacing);
-    saveToHistory(true);
-    scheduleReflow();
-    runParagraphAnalysis();
   };
 
   const handleInsertImage = useCallback(() => fileInputRef.current?.click(), []);

@@ -1,4 +1,4 @@
-//src/components/editor/hooks/useTextReflow.tsx 
+//src/components/editor/hooks/useTextReflow.tsx
 
 'use client';
 
@@ -280,9 +280,9 @@ export const useTextReflow = (
     return rect.height;
   }, []);
 
-  const getAvailableHeight = useCallback((options: ReflowOptions): number => {
+  const getAvailableHeight = useCallback((options: ReflowOptions = DEFAULT_OPTIONS): number => {
     return options.pageHeight - options.marginTop - options.marginBottom;
-  }, []);
+  }, [DEFAULT_OPTIONS]);
 
 const moveContentToPreviousPage = useCallback((
   fromPage: HTMLElement,
@@ -442,7 +442,7 @@ const moveContentToPreviousPage = useCallback((
   }
 
   return moved;
-}, [getContentHeight, getAvailableHeight]);
+}, [getContentHeight]);
 
   const reflowPage = useCallback((pageElement: HTMLElement, options: ReflowOptions = DEFAULT_OPTIONS): boolean => {
     if (!containerRef.current || isReflowingRef.current) return false;
@@ -627,6 +627,9 @@ const moveContentToPreviousPage = useCallback((
     reflowPage,
     reflowBackwardFromPage, 
     reflowSplitParagraph,
-    isReflowing: () => isReflowingRef.current
+    isReflowing: () => isReflowingRef.current,
+    // --- NEW: EXPORTING HELPER FUNCTIONS ---
+    getContentHeight,
+    getAvailableHeight,
   };
 };
