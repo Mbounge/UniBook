@@ -61,6 +61,7 @@ export const useEditor = (editorRef: React.RefObject<HTMLDivElement | null>) => 
     clearSelection,
     customSelection,
     forceRecalculateRects,
+    startTextSelection,
   } = useMultiPageSelection(editorRef);
 
   const unmountAllReactComponents = useCallback(() => {
@@ -119,7 +120,6 @@ export const useEditor = (editorRef: React.RefObject<HTMLDivElement | null>) => 
     });
   }, [mountReactComponent, saveToHistory, scheduleReflow]);
 
-  // --- MODIFICATION: This function now handles the scrolling ---
   const restoreStateFromHistory = useCallback((state: { html: string; startOffset: number; endOffset: number; } | null) => {
     if (state && editorRef.current) {
       unmountAllReactComponents();
@@ -127,14 +127,12 @@ export const useEditor = (editorRef: React.RefObject<HTMLDivElement | null>) => 
       rehydrateMathBlocks(editorRef.current);
       rehydrateGraphBlocks(editorRef.current);
       
-      // `restoreSelection` now returns the element that should be scrolled to.
       const elementToFocus = restoreSelection(editorRef.current, state.startOffset, state.endOffset);
 
-      // If we got an element back, scroll to it after a short delay.
       if (elementToFocus) {
         setTimeout(() => {
           elementToFocus.scrollIntoView({ behavior: 'smooth', block: 'center', inline: 'nearest' });
-        }, 50); // 50ms is a more reliable delay than 0 to ensure rendering is complete.
+        }, 50);
       }
     }
   }, [editorRef, unmountAllReactComponents, rehydrateMathBlocks, rehydrateGraphBlocks, restoreSelection]);
@@ -604,5 +602,6 @@ export const useEditor = (editorRef: React.RefObject<HTMLDivElement | null>) => 
     clearSelection,
     customSelection,
     forceRecalculateRects,
+    startTextSelection,
   };
 };

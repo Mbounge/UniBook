@@ -66,6 +66,7 @@ export const ImageResizer: React.FC<ImageResizerProps> = ({
   }, [isResizing]);
 
   useEffect(() => {
+    //console.log("[ImageResizer] selectedImageElement prop changed:", selectedImageElement);
     const newSelection = selectedImageElement ? selectedImageElement.closest('.image-wrapper, .template-wrapper') as HTMLElement : null;
     setSelection(newSelection);
   }, [selectedImageElement]);
@@ -148,6 +149,7 @@ export const ImageResizer: React.FC<ImageResizerProps> = ({
 
   const cleanupControls = useCallback((element: HTMLElement | null) => {
     if (!element || !document.body.contains(element)) return;
+    //console.log("[ImageResizer] Cleaning up controls for:", element);
     disconnectCaptionListener();
     const overlay = element.querySelector('.image-resize-overlay, .template-resize-overlay');
     const toolbar = element.querySelector('.image-toolbar, .template-toolbar');
@@ -159,6 +161,7 @@ export const ImageResizer: React.FC<ImageResizerProps> = ({
 
   const createControls = useCallback((element: HTMLElement) => {
     if (element.querySelector('.image-resize-overlay, .template-resize-overlay')) return;
+    //console.log("[ImageResizer] Creating controls for:", element);
     const isImage = element.classList.contains('image-wrapper');
     const isTemplate = element.classList.contains('template-wrapper');
 
@@ -294,7 +297,6 @@ export const ImageResizer: React.FC<ImageResizerProps> = ({
       element.style.clear = 'none';
       element.style.margin = '';
 
-      // --- MODIFICATION START: Re-introduce specific margin for templates ---
       switch (float) {
         case 'left':
           element.style.float = 'left';
@@ -317,15 +319,23 @@ export const ImageResizer: React.FC<ImageResizerProps> = ({
           }
           break;
       }
-      // --- MODIFICATION END ---
 
       setTimeout(() => applyButtonStates(element, true), 50);
       setTimeout(() => propsRef.current.saveToHistory(true), 100);
     };
 
-    const handleMouseDown = (e: MouseEvent) => {
+    const handleMouseUp = () => {
+      if (isResizingRef.current) {
+        propsRef.current.saveToHistory(true);
+      }
+      setIsResizing(false);
+      resizeHandleRef.current = null;
+    };
+
+    const handleActionClick = (e: MouseEvent) => {
       const target = e.target as HTMLElement;
       const currentSelection = selectionRef.current;
+      if (!currentSelection) return;
       const actionButton = target.closest('button[data-caption-button], button[data-delete-button], button[data-float-type]');
       if (actionButton && currentSelection) {
         e.preventDefault();
@@ -372,7 +382,12 @@ export const ImageResizer: React.FC<ImageResizerProps> = ({
         }
         return;
       }
+    };
+
+    const handleResizeStart = (e: MouseEvent) => {
+      const target = e.target as HTMLElement;
       const resizeHandle = target.closest('[data-resize-handle]');
+      const currentSelection = selectionRef.current;
       if (resizeHandle && currentSelection) {
         e.preventDefault();
         setIsResizing(true);
@@ -382,39 +397,8 @@ export const ImageResizer: React.FC<ImageResizerProps> = ({
         resizeStart.current = { width: currentSelection.offsetWidth, height: currentSelection.offsetHeight, x: e.clientX, y: e.clientY, aspectRatio };
         return;
       }
-      const newSelection = target.closest('.image-wrapper, .template-wrapper') as HTMLElement | null;
-      if (currentSelection !== newSelection) {
-        setSelection(newSelection);
-        const image = newSelection?.querySelector('img');
-        propsRef.current.onImageSelect?.(image || null);
-      } else if (currentSelection && newSelection) {
-        if (target.nodeName === 'IMG' || target.classList.contains('template-block')) {
-          const overlay = currentSelection.querySelector('.image-resize-overlay, .template-resize-overlay');
-          const toolbar = currentSelection.querySelector('.image-toolbar, .template-toolbar');
-          if (overlay) (overlay as HTMLElement).style.visibility = 'visible';
-          if (toolbar) {
-            (toolbar as HTMLElement).style.visibility = 'visible';
-            applyButtonStates(currentSelection, true);
-          }
-        }
-      }
     };
-    const observer = new MutationObserver((mutations) => {
-      mutations.forEach((mutation) => {
-        if (mutation.type === 'attributes' && mutation.attributeName === 'style') {
-          const target = mutation.target as HTMLElement;
-          if (target.classList.contains('image-toolbar') || target.classList.contains('template-toolbar')) {
-            const element = target.closest('.image-wrapper, .template-wrapper') as HTMLElement;
-            if (element && target.style.visibility === 'visible') {
-              setTimeout(() => applyButtonStates(element, true), 0);
-            }
-          }
-        }
-      });
-    });
-    document.querySelectorAll('.image-toolbar, .template-toolbar').forEach(toolbar => {
-      observer.observe(toolbar, { attributes: true, attributeFilter: ['style'] });
-    });
+    
     const handleMouseMove = (e: MouseEvent) => {
       if (!isResizingRef.current || !selectionRef.current) return;
       const { width, height, x, y, aspectRatio } = resizeStart.current;
@@ -493,21 +477,16 @@ export const ImageResizer: React.FC<ImageResizerProps> = ({
         selectionRef.current.style.height = `${newHeight}px`;
       }
     };
-    const handleMouseUp = () => {
-      if (isResizingRef.current) {
-        propsRef.current.saveToHistory(true);
-      }
-      setIsResizing(false);
-      resizeHandleRef.current = null;
-    };
-    document.addEventListener('mousedown', handleMouseDown);
+    
+    document.addEventListener('mousedown', handleResizeStart);
+    document.addEventListener('click', handleActionClick, true);
     document.addEventListener('mousemove', handleMouseMove);
     document.addEventListener('mouseup', handleMouseUp);
     return () => {
-      document.removeEventListener('mousedown', handleMouseDown);
+      document.removeEventListener('mousedown', handleResizeStart);
+      document.removeEventListener('click', handleActionClick, true);
       document.removeEventListener('mousemove', handleMouseMove);
       document.removeEventListener('mouseup', handleMouseUp);
-      observer.disconnect();
       disconnectCaptionListener();
     };
   }, [pageContainerRef, createControls, cleanupControls, applyButtonStates, disconnectCaptionListener, setupCaptionListener]);

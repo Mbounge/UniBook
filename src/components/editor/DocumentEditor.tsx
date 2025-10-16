@@ -51,7 +51,8 @@ interface DocumentEditorProps {
   selectedPages: number[];
   selectedText: string;
   clearSelection: () => void;
-  forceRecalculateRects: () => void; // <-- MODIFICATION: ADDED PROP
+  forceRecalculateRects: () => void;
+  startTextSelection: (e: MouseEvent) => void;
 }
 
 export interface DocumentEditorHandle {
@@ -96,7 +97,8 @@ export const DocumentEditor = forwardRef<DocumentEditorHandle, DocumentEditorPro
     selectedPages,
     selectedText,
     clearSelection,
-    forceRecalculateRects, // <-- MODIFICATION: DESTRUCTURED PROP
+    forceRecalculateRects,
+    startTextSelection,
   } = props;
 
   useImperativeHandle(ref, () => ({
@@ -107,6 +109,7 @@ export const DocumentEditor = forwardRef<DocumentEditorHandle, DocumentEditorPro
 
   const fileInputRef = useRef<HTMLInputElement>(null);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
+  const toolbarRef = useRef<HTMLDivElement>(null);
   const [selectedImageElement, setSelectedImageElement] = useState<HTMLImageElement | null>(null);
   const [selectedGraphElement, setSelectedGraphElement] = useState<HTMLElement | null>(null);
   
@@ -318,7 +321,7 @@ export const DocumentEditor = forwardRef<DocumentEditorHandle, DocumentEditorPro
           reflowBackwardFromPage(startPageElement);
         }
       }
-      forceRecalculateRects(); // <-- MODIFICATION: CALLED
+      forceRecalculateRects();
     }, 0);
   }, [
     customSelection,
@@ -330,7 +333,7 @@ export const DocumentEditor = forwardRef<DocumentEditorHandle, DocumentEditorPro
     updateToolbarState, 
     runParagraphAnalysis, 
     reflowBackwardFromPage,
-    forceRecalculateRects, // <-- MODIFICATION: ADDED DEPENDENCY
+    forceRecalculateRects,
   ]);
 
   const applyStyle = useCallback((style: 'fontFamily' | 'fontSize' | 'color', value: string) => {
@@ -401,7 +404,7 @@ export const DocumentEditor = forwardRef<DocumentEditorHandle, DocumentEditorPro
           reflowBackwardFromPage(startPageElement);
         }
       }
-      forceRecalculateRects(); // <-- MODIFICATION: CALLED
+      forceRecalculateRects();
     }, 0);
   }, [
     customSelection,
@@ -413,7 +416,7 @@ export const DocumentEditor = forwardRef<DocumentEditorHandle, DocumentEditorPro
     updateToolbarState,
     runParagraphAnalysis,
     reflowBackwardFromPage,
-    forceRecalculateRects, // <-- MODIFICATION: ADDED DEPENDENCY
+    forceRecalculateRects,
   ]);
 
   const handleLineSpacingChange = useCallback((spacing: LineSpacing) => {
@@ -421,7 +424,6 @@ export const DocumentEditor = forwardRef<DocumentEditorHandle, DocumentEditorPro
     const elementsToUpdate = new Set<HTMLElement>();
     const selection = window.getSelection();
 
-    // Determine the range to work with. Prioritize the robust `customSelection`.
     let range: Range | null = null;
     if (customSelection) {
         range = document.createRange();
@@ -431,17 +433,15 @@ export const DocumentEditor = forwardRef<DocumentEditorHandle, DocumentEditorPro
         range = selection.getRangeAt(0);
     }
 
-    // If there's no range, there's nothing to do.
     if (!range) return;
 
-    // A reliable helper to find the block-level parent of any node.
     const getBlockParent = (node: Node): HTMLElement | null => {
         let current = node.nodeType === Node.ELEMENT_NODE ? node as HTMLElement : node.parentElement;
         while (current) {
             if (['P', 'H1', 'H2', 'H3', 'H4', 'LI', 'BLOCKQUOTE'].includes(current.tagName)) {
                 return current;
             }
-            if (current.contentEditable === 'true') return null; // Stop at the editor boundary
+            if (current.contentEditable === 'true') return null;
             current = current.parentElement;
         }
         return null;
@@ -451,14 +451,11 @@ export const DocumentEditor = forwardRef<DocumentEditorHandle, DocumentEditorPro
     const endBlock = getBlockParent(range.endContainer);
 
     if (startBlock && endBlock) {
-      // CASE 1: The selection is contained within a single block element.
       if (startBlock === endBlock) {
           elementsToUpdate.add(startBlock);
       } 
-      // CASE 2: The selection spans multiple block elements.
       else {
           let commonAncestor = range.commonAncestorContainer;
-          // Ensure the ancestor is an element for the walker to work correctly.
           if (commonAncestor.nodeType === Node.TEXT_NODE) {
               commonAncestor = commonAncestor.parentElement!;
           }
@@ -467,7 +464,6 @@ export const DocumentEditor = forwardRef<DocumentEditorHandle, DocumentEditorPro
           while (walker.nextNode()) {
               const el = walker.currentNode as HTMLElement;
               if (['P', 'H1', 'H2', 'H3', 'H4', 'LI', 'BLOCKQUOTE'].includes(el.tagName)) {
-                  // The most reliable check: does the selection range intersect this block?
                   if (range.intersectsNode(el)) {
                       elementsToUpdate.add(el);
                   }
@@ -483,12 +479,11 @@ export const DocumentEditor = forwardRef<DocumentEditorHandle, DocumentEditorPro
       });
       saveToHistory(true);
       updateToolbarState();
-      // MODIFICATION: Use a timeout to ensure the DOM has updated before recalculating
       setTimeout(() => {
         forceRecalculateRects();
       }, 0);
     }
-  }, [customSelection, getLineHeightValue, saveToHistory, updateToolbarState, forceRecalculateRects]); // <-- MODIFICATION: ADDED DEPENDENCY
+  }, [customSelection, getLineHeightValue, saveToHistory, updateToolbarState, forceRecalculateRects]);
 
   const reflowWithCursor = useCallback(() => {
     const selection = window.getSelection();
@@ -748,7 +743,8 @@ export const DocumentEditor = forwardRef<DocumentEditorHandle, DocumentEditorPro
     const pages = pageContainerRef.current?.querySelectorAll('.page-content') || [];
     
     pages.forEach(pageContent => {
-      pageContent.querySelectorAll(':scope > div').forEach(div => {
+      // --- MODIFICATION: The selector is now more specific to avoid stripping our functional wrappers ---
+      pageContent.querySelectorAll(':scope > div:not(.image-wrapper):not(.graph-wrapper):not(.template-wrapper)').forEach(div => {
         const newParagraph = document.createElement('p');
         newParagraph.style.lineHeight = getLineHeightValue(currentLineSpacing);
         newParagraph.dataset.lineSpacing = currentLineSpacing;
@@ -1236,7 +1232,6 @@ export const DocumentEditor = forwardRef<DocumentEditorHandle, DocumentEditorPro
         console.error("Error restoring cursor.", e); 
       }
       
-      // THE FIX: Use a timeout to ensure focus is restored after the current event cycle.
       setTimeout(() => {
         pageToFocus?.focus();
       }, 0);
@@ -1253,8 +1248,71 @@ export const DocumentEditor = forwardRef<DocumentEditorHandle, DocumentEditorPro
     runParagraphAnalysis();
 
   }, [customSelection, pageContainerRef, clearSelection, saveToHistory, reflowBackwardFromPage, runParagraphAnalysis, getLineHeightValue]);
+  
+  useEffect(() => {
+    const container = pageContainerRef.current;
+    if (!container) return;
 
+    const handleGlobalMouseDown = (e: MouseEvent) => {
+      const target = e.target as HTMLElement;
 
+      if (toolbarRef.current && toolbarRef.current.contains(target)) {
+        return;
+      }
+
+      if (target.closest('.image-toolbar, .template-toolbar, .graph-toolbar, [data-resize-handle]')) {
+        return;
+      }
+
+      const graphWrapper = target.closest('.graph-wrapper') as HTMLElement | null;
+      const imageWrapper = target.closest('.image-wrapper, .template-wrapper') as HTMLElement | null;
+
+      if (graphWrapper) {
+        if (selectedGraphElement !== graphWrapper) {
+          clearSelection();
+          setSelectedImageElement(null);
+          setSelectedGraphElement(graphWrapper);
+        }
+        return;
+      }
+      
+      if (imageWrapper) {
+        let elementToSelect: HTMLImageElement | null = null;
+        
+        if (imageWrapper.classList.contains('template-wrapper')) {
+            elementToSelect = imageWrapper.firstElementChild as HTMLImageElement;
+        } else {
+            elementToSelect = imageWrapper.querySelector('img');
+        }
+
+        if (selectedImageElement !== elementToSelect) {
+          clearSelection();
+          setSelectedGraphElement(null);
+          setSelectedImageElement(elementToSelect);
+        }
+        return;
+      }
+
+      if (container.contains(target)) {
+        if (selectedGraphElement || selectedImageElement) {
+          setSelectedGraphElement(null);
+          setSelectedImageElement(null);
+        }
+        startTextSelection(e);
+      } 
+      else {
+        setSelectedGraphElement(null);
+        setSelectedImageElement(null);
+        clearSelection();
+      }
+    };
+
+    document.addEventListener('mousedown', handleGlobalMouseDown);
+
+    return () => {
+      document.removeEventListener('mousedown', handleGlobalMouseDown);
+    };
+  }, [clearSelection, startTextSelection, selectedGraphElement, selectedImageElement]);
   
   useEffect(() => {
     const container = pageContainerRef.current;
@@ -1806,7 +1864,7 @@ export const DocumentEditor = forwardRef<DocumentEditorHandle, DocumentEditorPro
         />
       )}
 
-      <div className="flex-shrink-0 w-full flex justify-center px-6 pt-4 bg-gray-50 sticky top-0 z-20 no-print">
+      <div ref={toolbarRef} className="flex-shrink-0 w-full flex justify-center px-6 pt-4 bg-gray-50 sticky top-0 z-20 no-print">
         <div className="w-full max-w-7xl">
           <EditorToolbar
             onUndo={undo} onRedo={redo} onBlockTypeChange={(type) => applyCommand('formatBlock', type)}

@@ -1,5 +1,3 @@
-//src/components/editor/GraphResizer.tsx
-
 'use client';
 
 import React, { useEffect, useRef, useState, useCallback } from 'react';
@@ -59,22 +57,20 @@ export const GraphResizer: React.FC<GraphResizerProps> = ({
   }, [isResizing]);
 
   useEffect(() => {
+    //console.log("[GraphResizer] selectedGraphElement prop changed:", selectedGraphElement);
     const newSelection = selectedGraphElement ? selectedGraphElement.closest('.graph-wrapper') as HTMLElement : null;
     setSelection(newSelection);
   }, [selectedGraphElement]);
 
-  // --- MODIFICATION START: Simplified caption handling ---
   const setupCaptionListener = useCallback((captionElement: HTMLElement) => {
     const handleBlur = () => {
-      // If the caption is empty on blur, clear its innerHTML
-      // to ensure the CSS :empty placeholder applies correctly.
       if (captionElement.textContent?.trim() === '') {
         captionElement.innerHTML = '';
       }
     };
 
     captionElement.addEventListener('blur', handleBlur);
-    captionBlurHandlerRef.current = handleBlur; // Store the handler to remove it later
+    captionBlurHandlerRef.current = handleBlur;
   }, []);
 
   const disconnectCaptionListener = useCallback(() => {
@@ -84,7 +80,6 @@ export const GraphResizer: React.FC<GraphResizerProps> = ({
       captionBlurHandlerRef.current = null;
     }
   }, []);
-  // --- MODIFICATION END ---
 
   useEffect(() => {
     const handleSelectionChange = () => {
@@ -115,6 +110,7 @@ export const GraphResizer: React.FC<GraphResizerProps> = ({
 
   const cleanupControls = useCallback((element: HTMLElement | null) => {
     if (!element || !document.body.contains(element)) return;
+    //console.log("[GraphResizer] Cleaning up controls for:", element);
     disconnectCaptionListener();
     const overlay = element.querySelector('.graph-resize-overlay');
     const toolbar = element.querySelector('.graph-toolbar');
@@ -144,6 +140,7 @@ export const GraphResizer: React.FC<GraphResizerProps> = ({
 
   const createControls = useCallback((element: HTMLElement) => {
     if (element.querySelector('.graph-resize-overlay')) return;
+    //console.log("[GraphResizer] Creating controls for:", element);
     element.draggable = true;
     element.ondragstart = (e) => {
       if ((e.target as HTMLElement).closest('[data-resize-handle]')) {
@@ -254,25 +251,6 @@ export const GraphResizer: React.FC<GraphResizerProps> = ({
       const hasCaption = !!element.querySelector('figcaption');
       updateToolbarButtonStates(element, float, hasCaption);
       setTimeout(() => propsRef.current.saveToHistory(true), 100);
-    };
-
-    const handleMouseDown = (e: MouseEvent) => {
-      const target = e.target as HTMLElement;
-      const currentSelection = selectionRef.current;
-      const newSelection = target.closest('.graph-wrapper') as HTMLElement | null;
-      if (currentSelection && currentSelection === newSelection) {
-        if (target.nodeName === 'CANVAS') {
-          const overlay = currentSelection.querySelector('.graph-resize-overlay');
-          const toolbar = currentSelection.querySelector('.graph-toolbar');
-          if (overlay) (overlay as HTMLElement).style.visibility = 'visible';
-          if (toolbar) (toolbar as HTMLElement).style.visibility = 'visible';
-        }
-        return;
-      }
-      if (currentSelection !== newSelection) {
-        setSelection(newSelection);
-        propsRef.current.onGraphSelect?.(newSelection || null);
-      }
     };
 
     const handleMouseUp = () => {
@@ -386,14 +364,12 @@ export const GraphResizer: React.FC<GraphResizerProps> = ({
       }
     };
 
-    document.addEventListener('mousedown', handleMouseDown);
     document.addEventListener('mousedown', handleResizeStart);
     document.addEventListener('click', handleActionClick, true);
     document.addEventListener('mousemove', handleMouseMove);
     document.addEventListener('mouseup', handleMouseUp);
 
     return () => {
-      document.removeEventListener('mousedown', handleMouseDown);
       document.removeEventListener('mousedown', handleResizeStart);
       document.removeEventListener('click', handleActionClick, true);
       document.removeEventListener('mousemove', handleMouseMove);

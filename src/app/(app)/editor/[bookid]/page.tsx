@@ -71,6 +71,7 @@ const EditorComponent = () => {
     selectedText,
     clearSelection,
     forceRecalculateRects,
+    startTextSelection
   } = useEditor(pageContainerRef);
 
   const { data: bookData, isLoading: isBookLoading, isError } = useQuery({
@@ -312,6 +313,7 @@ const EditorComponent = () => {
             selectedText={selectedText}
             clearSelection={clearSelection}
             forceRecalculateRects={forceRecalculateRects}
+            startTextSelection={startTextSelection}
           />
         </div>
 

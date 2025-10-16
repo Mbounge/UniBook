@@ -162,6 +162,7 @@ export const useMultiPageSelection = (
 
   const updateStateFromNativeSelection = useCallback((selection: Selection | null, immediate: boolean = false) => {
     if (!selection || selection.rangeCount === 0 || selection.isCollapsed) {
+      //console.log("[useMultiPageSelection] Clearing custom selection state.");
       setCustomSelection(null);
       setHighlightRects([]);
       return;
@@ -181,6 +182,7 @@ export const useMultiPageSelection = (
     }
     const accurateText = texts.join(' ').replace(/\s+/g, ' ').trim();
 
+    //console.log("[useMultiPageSelection] Updating custom selection state from native selection.");
     setCustomSelection({
       start: { node: range.startContainer, offset: range.startOffset },
       end: { node: range.endContainer, offset: range.endOffset },
@@ -220,18 +222,8 @@ export const useMultiPageSelection = (
       const selection = window.getSelection();
       if (!selection) return;
 
-      // The "base" is the anchor, where the selection started.
-      const baseNode = startPos.node;
-      const baseOffset = startPos.offset;
+      selection.setBaseAndExtent(startPos.node, startPos.offset, endPos.node, endPos.offset);
       
-      // The "extent" is the focus, where the mouse currently is.
-      const extentNode = endPos.node;
-      const extentOffset = endPos.offset;
-
-      // This single method handles both forward and backward selections perfectly.
-      selection.setBaseAndExtent(baseNode, baseOffset, extentNode, extentOffset);
-      
-      // After letting the browser handle the selection, update our state.
       updateStateFromNativeSelection(selection, true);
 
     } catch (error) {
@@ -241,20 +233,14 @@ export const useMultiPageSelection = (
     }
   }, [updateStateFromNativeSelection]);
 
-  const handleMouseDown = useCallback((e: MouseEvent) => {
-    if (!containerRef.current?.contains(e.target as Node)) return;
-    const target = e.target as HTMLElement;
-    if (target.closest('.image-wrapper, .graph-wrapper, .template-wrapper, .math-wrapper, button, input, textarea')) {
-      return;
-    }
-
+  const startTextSelection = useCallback((e: MouseEvent) => {
+    //console.log("[useMultiPageSelection] startTextSelection called.");
     const startPos = getPositionFromPoint(e.clientX, e.clientY);
     if (startPos) {
       isSelectingRef.current = true;
       selectionStartRef.current = startPos;
       
       if (!e.shiftKey) {
-        // For a new selection, collapse the current one to the starting point.
         const selection = window.getSelection();
         if (selection) {
           selection.collapse(startPos.node, startPos.offset);
@@ -262,7 +248,7 @@ export const useMultiPageSelection = (
         updateStateFromNativeSelection(selection, true);
       }
     }
-  }, [containerRef, updateStateFromNativeSelection]);
+  }, [updateStateFromNativeSelection]);
 
   const handleMouseMove = useCallback((e: MouseEvent) => {
     if (!isSelectingRef.current || !selectionStartRef.current || !containerRef.current) return;
@@ -302,7 +288,10 @@ export const useMultiPageSelection = (
   }, [containerRef, updateSelectionFromPositions]);
 
   const handleMouseUp = useCallback(() => {
-    isSelectingRef.current = false;
+    if (isSelectingRef.current) {
+      //console.log("[useMultiPageSelection] MouseUp detected, ending text selection.");
+      isSelectingRef.current = false;
+    }
     if (animationFrameRef.current) {
       cancelAnimationFrame(animationFrameRef.current);
     }
@@ -322,14 +311,12 @@ export const useMultiPageSelection = (
       }
     };
 
-    document.addEventListener('mousedown', handleMouseDown);
     document.addEventListener('mousemove', handleMouseMove);
     document.addEventListener('mouseup', handleMouseUp);
     document.addEventListener('selectionchange', handleSelectionChange);
     document.addEventListener('mouseout', handleMouseLeaveWindow);
 
     return () => {
-      document.removeEventListener('mousedown', handleMouseDown);
       document.removeEventListener('mousemove', handleMouseMove);
       document.removeEventListener('mouseup', handleMouseUp);
       document.removeEventListener('selectionchange', handleSelectionChange);
@@ -341,7 +328,7 @@ export const useMultiPageSelection = (
         clearTimeout(rectUpdateTimeoutRef.current);
       }
     };
-  }, [handleMouseDown, handleMouseMove, handleMouseUp, updateStateFromNativeSelection]);
+  }, [handleMouseMove, handleMouseUp, updateStateFromNativeSelection]);
 
   useEffect(() => {
     const container = containerRef.current;
@@ -369,6 +356,7 @@ export const useMultiPageSelection = (
   }, [containerRef, customSelection, forceRecalculateRects]);
 
   const clearSelection = useCallback(() => {
+    //console.log("[useMultiPageSelection] clearSelection called.");
     window.getSelection()?.removeAllRanges();
     updateStateFromNativeSelection(null, true);
   }, [updateStateFromNativeSelection]);
@@ -392,5 +380,6 @@ export const useMultiPageSelection = (
     selectedText: customSelection?.text || '',
     clearSelection,
     forceRecalculateRects,
+    startTextSelection,
   };
 };
