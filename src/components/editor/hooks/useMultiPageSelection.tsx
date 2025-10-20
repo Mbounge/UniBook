@@ -1,5 +1,4 @@
 //src/components/editor/hooks/useMultiPageSelection.tsx
-
 'use client';
 
 import { useCallback, useEffect, useState, useRef } from 'react';
@@ -17,34 +16,87 @@ export interface CustomSelection {
   endPage: number;
 }
 
-const getPreciseRectsForRange = (range: Range): DOMRect[] => {
-  const rects = Array.from(range.getClientRects());
-  const validRects = rects.filter(rect => rect.width > 0.5 && rect.height > 0.5);
+// Helper function to get rects for a single, contiguous range.
+const getRectsWithinRange = (range: Range): DOMRect[] => {
+  const rects: DOMRect[] = [];
+  const selector = 'p, h1, h2, h3, h4, li, blockquote, pre, .image-wrapper, .graph-wrapper, .math-wrapper, .template-wrapper';
+  const commonAncestor = range.commonAncestorContainer;
+  const parentElement = (commonAncestor.nodeType === Node.ELEMENT_NODE ? commonAncestor : commonAncestor.parentElement) as HTMLElement;
+  if (!parentElement) return [];
+
+  const elements = Array.from(parentElement.querySelectorAll(selector));
   
-  if (validRects.length === 0) return [];
-  
-  const uniqueRects: DOMRect[] = [];
-  
-  for (const rect of validRects) {
-    const hasSignificantOverlap = uniqueRects.some(existing => {
-      const overlapX = Math.max(0, Math.min(existing.right, rect.right) - Math.max(existing.left, rect.left));
-      const overlapY = Math.max(0, Math.min(existing.bottom, rect.bottom) - Math.max(existing.top, rect.top));
-      
-      const overlapArea = overlapX * overlapY;
-      const rectArea = rect.width * rect.height;
-      const existingArea = existing.width * existing.height;
-      const smallerArea = Math.min(rectArea, existingArea);
-      
-      return overlapArea > (smallerArea * 0.8);
-    });
-    
-    if (!hasSignificantOverlap) {
-      uniqueRects.push(rect);
+  for (const el of elements) {
+    if (!range.intersectsNode(el)) continue;
+
+    if (el.matches('.image-wrapper, .graph-wrapper, .math-wrapper, .template-wrapper')) {
+      rects.push(el.getBoundingClientRect());
+      continue;
     }
+
+    const intersectionRange = range.cloneRange();
+    intersectionRange.selectNodeContents(el);
+
+    if (range.startContainer.isSameNode(el) || el.contains(range.startContainer)) {
+      intersectionRange.setStart(range.startContainer, range.startOffset);
+    }
+    if (range.endContainer.isSameNode(el) || el.contains(range.endContainer)) {
+      intersectionRange.setEnd(range.endContainer, range.endOffset);
+    }
+    
+    rects.push(...Array.from(intersectionRange.getClientRects()));
   }
   
-  return uniqueRects;
+  // If no block elements were found, fall back to the basic method
+  if (rects.length === 0) {
+    rects.push(...Array.from(range.getClientRects()));
+  }
+
+  return rects.filter(r => r.width > 0 && r.height > 0);
 };
+
+// --- REWRITTEN: Page-aware function to get rects for the entire custom selection ---
+const getPreciseRectsForSelection = (
+  selection: CustomSelection | null,
+  container: HTMLElement | null
+): DOMRect[] => {
+  if (!selection || !container) return [];
+
+  const { start, end, startPage, endPage } = selection;
+  const allPages = Array.from(container.querySelectorAll<HTMLElement>('.page-content'));
+  const finalRects: DOMRect[] = [];
+
+  const minPage = Math.min(startPage, endPage);
+  const maxPage = Math.max(startPage, endPage);
+
+  for (let i = minPage; i <= maxPage; i++) {
+    const pageContent = allPages[i];
+    if (!pageContent) continue;
+
+    const pageRange = document.createRange();
+
+    // Determine the start point for this page's range
+    if (i === startPage) {
+      pageRange.setStart(start.node, start.offset);
+    } else {
+      pageRange.setStart(pageContent, 0);
+    }
+
+    // Determine the end point for this page's range
+    if (i === endPage) {
+      pageRange.setEnd(end.node, end.offset);
+    } else {
+      pageRange.setEnd(pageContent, pageContent.childNodes.length);
+    }
+
+    // Get rectangles for this specific page's portion of the selection
+    const pageRects = getRectsWithinRange(pageRange);
+    finalRects.push(...pageRects);
+  }
+
+  return finalRects;
+};
+
 
 const mergeRects = (rects: DOMRect[]): DOMRect[] => {
   if (rects.length < 2) {
@@ -57,39 +109,110 @@ const mergeRects = (rects: DOMRect[]): DOMRect[] => {
     return a.left - b.left;
   });
 
-  const rectMap = new Map<number, DOMRect>();
-
+  const merged: DOMRect[] = [];
+  
   for (const rect of sortedRects) {
-    const lineTop = Math.round(rect.top / 5) * 5;
-
-    const existingRect = rectMap.get(lineTop);
-    if (existingRect) {
-      const horizontalGap = Math.min(
-        Math.abs(rect.left - existingRect.right),
-        Math.abs(existingRect.left - rect.right)
-      );
+    let wasMerged = false;
+    
+    // Try to merge with existing rectangles
+    for (let i = 0; i < merged.length; i++) {
+      const existingRect = merged[i];
       
-      if (horizontalGap < 5) {
+      // Check if rectangles are on the same line (similar vertical position)
+      const onSameLine = Math.abs(rect.top - existingRect.top) < 5 && 
+                         Math.abs(rect.height - existingRect.height) < 5;
+      
+      if (onSameLine) {
+        // Check for horizontal overlap or proximity
+        const horizontalOverlap = !(rect.right < existingRect.left || rect.left > existingRect.right);
+        const horizontalGap = horizontalOverlap ? 0 : Math.min(
+          Math.abs(rect.left - existingRect.right),
+          Math.abs(existingRect.left - rect.right)
+        );
+        
+        // Merge if overlapping or very close (within 15px)
+        if (horizontalOverlap || horizontalGap < 15) {
+          const newLeft = Math.min(existingRect.left, rect.left);
+          const newRight = Math.max(existingRect.right, rect.right);
+          const newTop = Math.min(existingRect.top, rect.top);
+          const newBottom = Math.max(existingRect.bottom, rect.bottom);
+          
+          merged[i] = new DOMRect(
+            newLeft,
+            newTop,
+            newRight - newLeft,
+            newBottom - newTop
+          );
+          
+          wasMerged = true;
+          break;
+        }
+      }
+      
+      // Check for complete vertical overlap (one rect contains the other)
+      const verticalOverlap = !(rect.bottom < existingRect.top || rect.top > existingRect.bottom);
+      const horizontalOverlap = !(rect.right < existingRect.left || rect.left > existingRect.right);
+      
+      if (verticalOverlap && horizontalOverlap) {
+        // These rectangles overlap in 2D space - merge them
         const newLeft = Math.min(existingRect.left, rect.left);
         const newRight = Math.max(existingRect.right, rect.right);
         const newTop = Math.min(existingRect.top, rect.top);
         const newBottom = Math.max(existingRect.bottom, rect.bottom);
         
-        rectMap.set(lineTop, new DOMRect(
+        merged[i] = new DOMRect(
           newLeft,
           newTop,
           newRight - newLeft,
           newBottom - newTop
-        ));
-      } else {
-        rectMap.set(lineTop + 0.1, rect);
+        );
+        
+        wasMerged = true;
+        break;
       }
-    } else {
-      rectMap.set(lineTop, rect);
+    }
+    
+    if (!wasMerged) {
+      merged.push(rect);
     }
   }
 
-  return Array.from(rectMap.values());
+  // Second pass: merge any remaining overlaps
+  const finalMerged: DOMRect[] = [];
+  
+  for (const rect of merged) {
+    let wasMerged = false;
+    
+    for (let i = 0; i < finalMerged.length; i++) {
+      const existingRect = finalMerged[i];
+      
+      const verticalOverlap = !(rect.bottom < existingRect.top || rect.top > existingRect.bottom);
+      const horizontalOverlap = !(rect.right < existingRect.left || rect.left > existingRect.right);
+      
+      if (verticalOverlap && horizontalOverlap) {
+        const newLeft = Math.min(existingRect.left, rect.left);
+        const newRight = Math.max(existingRect.right, rect.right);
+        const newTop = Math.min(existingRect.top, rect.top);
+        const newBottom = Math.max(existingRect.bottom, rect.bottom);
+        
+        finalMerged[i] = new DOMRect(
+          newLeft,
+          newTop,
+          newRight - newLeft,
+          newBottom - newTop
+        );
+        
+        wasMerged = true;
+        break;
+      }
+    }
+    
+    if (!wasMerged) {
+      finalMerged.push(rect);
+    }
+  }
+
+  return finalMerged;
 };
 
 const getBoundaryPosition = (container: HTMLElement, findStart: boolean): DocumentPosition | null => {
@@ -122,9 +245,7 @@ export const useMultiPageSelection = (
   const isSelectingRef = useRef(false);
   const selectionStartRef = useRef<DocumentPosition | null>(null);
   const animationFrameRef = useRef<number>(0);
-  const rectUpdateTimeoutRef = useRef<number>(0);
   const isUpdatingSelectionRef = useRef(false);
-  const lastUpdateTimeRef = useRef<number>(0);
   
   const getPageIndex = useCallback((element: Node | null): number => {
     if (!element || !containerRef.current) return -1;
@@ -140,31 +261,11 @@ export const useMultiPageSelection = (
     return range ? { node: range.startContainer, offset: range.startOffset } : null;
   };
 
-  const forceRecalculateRects = useCallback(() => {
-    const selection = window.getSelection();
-
+  const updateStateFromNativeSelection = useCallback((selection: Selection | null) => {
     if (!selection || selection.rangeCount === 0 || selection.isCollapsed) {
-      if (highlightRects.length > 0) setHighlightRects([]);
-      return;
-    }
-
-    const liveRange = selection.getRangeAt(0);
-
-    try {
-      const preciseRects = getPreciseRectsForRange(liveRange);
-      const mergedRects = mergeRects(preciseRects);
-      setHighlightRects(mergedRects);
-    } catch (error) {
-      console.error("Failed to recalculate selection rectangles from live selection:", error);
-      setHighlightRects([]);
-    }
-  }, [highlightRects.length]);
-
-  const updateStateFromNativeSelection = useCallback((selection: Selection | null, immediate: boolean = false) => {
-    if (!selection || selection.rangeCount === 0 || selection.isCollapsed) {
-      //console.log("[useMultiPageSelection] Clearing custom selection state.");
-      setCustomSelection(null);
-      setHighlightRects([]);
+      if (customSelection !== null) {
+        setCustomSelection(null);
+      }
       return;
     }
 
@@ -182,7 +283,6 @@ export const useMultiPageSelection = (
     }
     const accurateText = texts.join(' ').replace(/\s+/g, ' ').trim();
 
-    //console.log("[useMultiPageSelection] Updating custom selection state from native selection.");
     setCustomSelection({
       start: { node: range.startContainer, offset: range.startOffset },
       end: { node: range.endContainer, offset: range.endOffset },
@@ -190,28 +290,31 @@ export const useMultiPageSelection = (
       startPage,
       endPage,
     });
+  }, [getPageIndex, customSelection]);
 
-    const updateRects = () => {
-      const preciseRects = getPreciseRectsForRange(range);
-      const mergedRects = mergeRects(preciseRects);
-      setHighlightRects(mergedRects);
-      lastUpdateTimeRef.current = Date.now();
-    };
-
-    if (immediate) {
-      updateRects();
-    } else {
-      if (rectUpdateTimeoutRef.current) {
-        clearTimeout(rectUpdateTimeoutRef.current);
+  useEffect(() => {
+    if (!customSelection) {
+      if (highlightRects.length > 0) {
+        setHighlightRects([]);
       }
-
-      const timeSinceLastUpdate = Date.now() - lastUpdateTimeRef.current;
-      const debounceDelay = timeSinceLastUpdate < 16 ? 8 : 0;
-
-      rectUpdateTimeoutRef.current = window.setTimeout(updateRects, debounceDelay);
+      return;
     }
 
-  }, [getPageIndex]);
+    if (!document.body.contains(customSelection.start.node) || !document.body.contains(customSelection.end.node)) {
+      return;
+    }
+
+    try {
+      // Use the new page-aware function
+      const preciseRects = getPreciseRectsForSelection(customSelection, containerRef.current);
+      const mergedRects = mergeRects(preciseRects);
+      setHighlightRects(mergedRects);
+    } catch (error) {
+      console.error("Error calculating highlight rectangles:", error);
+      setHighlightRects([]);
+    }
+  }, [customSelection, containerRef, highlightRects.length]);
+
 
   const updateSelectionFromPositions = useCallback((startPos: DocumentPosition, endPos: DocumentPosition) => {
     if (isUpdatingSelectionRef.current) return;
@@ -224,7 +327,7 @@ export const useMultiPageSelection = (
 
       selection.setBaseAndExtent(startPos.node, startPos.offset, endPos.node, endPos.offset);
       
-      updateStateFromNativeSelection(selection, true);
+      updateStateFromNativeSelection(selection);
 
     } catch (error) {
       console.error('Error updating selection with setBaseAndExtent:', error);
@@ -234,7 +337,6 @@ export const useMultiPageSelection = (
   }, [updateStateFromNativeSelection]);
 
   const startTextSelection = useCallback((e: MouseEvent) => {
-    //console.log("[useMultiPageSelection] startTextSelection called.");
     const startPos = getPositionFromPoint(e.clientX, e.clientY);
     if (startPos) {
       isSelectingRef.current = true;
@@ -245,7 +347,7 @@ export const useMultiPageSelection = (
         if (selection) {
           selection.collapse(startPos.node, startPos.offset);
         }
-        updateStateFromNativeSelection(selection, true);
+        updateStateFromNativeSelection(selection);
       }
     }
   }, [updateStateFromNativeSelection]);
@@ -288,21 +390,46 @@ export const useMultiPageSelection = (
   }, [containerRef, updateSelectionFromPositions]);
 
   const handleMouseUp = useCallback(() => {
-    if (isSelectingRef.current) {
-      //console.log("[useMultiPageSelection] MouseUp detected, ending text selection.");
-      isSelectingRef.current = false;
-    }
+    isSelectingRef.current = false;
     if (animationFrameRef.current) {
       cancelAnimationFrame(animationFrameRef.current);
     }
   }, []);
+
+  const clearSelection = useCallback(() => {
+    window.getSelection()?.removeAllRanges();
+    updateStateFromNativeSelection(null);
+  }, [updateStateFromNativeSelection]);
+
+  const forceRecalculateRects = useCallback(() => {
+    if (!customSelection) {
+      if (highlightRects.length > 0) setHighlightRects([]);
+      return;
+    }
+    try {
+      const preciseRects = getPreciseRectsForSelection(customSelection, containerRef.current);
+      const mergedRects = mergeRects(preciseRects);
+      setHighlightRects(mergedRects);
+    } catch (error) {
+      console.error("Failed to force recalculate selection rectangles:", error);
+      setHighlightRects([]);
+    }
+  }, [customSelection, containerRef, highlightRects.length]);
 
   useEffect(() => {
     const handleSelectionChange = () => {
       if (isSelectingRef.current) return;
 
       const selection = window.getSelection();
-      updateStateFromNativeSelection(selection, false);
+      
+      if (!selection || !selection.anchorNode || !containerRef.current || !containerRef.current.contains(selection.anchorNode)) {
+        if (customSelection) {
+          clearSelection();
+        }
+        return;
+      }
+
+      updateStateFromNativeSelection(selection);
     };
 
     const handleMouseLeaveWindow = (event: MouseEvent) => {
@@ -324,11 +451,8 @@ export const useMultiPageSelection = (
       if (animationFrameRef.current) {
         cancelAnimationFrame(animationFrameRef.current);
       }
-      if (rectUpdateTimeoutRef.current) {
-        clearTimeout(rectUpdateTimeoutRef.current);
-      }
     };
-  }, [handleMouseMove, handleMouseUp, updateStateFromNativeSelection]);
+  }, [handleMouseMove, handleMouseUp, updateStateFromNativeSelection, containerRef, customSelection, clearSelection]);
 
   useEffect(() => {
     const container = containerRef.current;
@@ -355,11 +479,7 @@ export const useMultiPageSelection = (
     };
   }, [containerRef, customSelection, forceRecalculateRects]);
 
-  const clearSelection = useCallback(() => {
-    //console.log("[useMultiPageSelection] clearSelection called.");
-    window.getSelection()?.removeAllRanges();
-    updateStateFromNativeSelection(null, true);
-  }, [updateStateFromNativeSelection]);
+  
 
   const isMultiPageSelection = customSelection ? customSelection.startPage !== customSelection.endPage : false;
   const selectedPages = [];

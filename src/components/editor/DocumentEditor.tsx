@@ -1,11 +1,11 @@
 //src/components/editor/DocumentEditor.tsx
-
 'use client';
 
 import React, { useCallback, useRef, useEffect, useState, forwardRef, useImperativeHandle } from 'react';
 import { EditorToolbar } from './EditorToolbar';
 import { ImageResizer } from './ImageResizer';
 import { GraphResizer } from './GraphResizer';
+import { MathResizer } from './MathResizer';
 import { StatusBar } from './StatusBar';
 import { useLineSpacing, LineSpacing } from '@/hooks/useLineSpacing';
 import { Plus } from 'lucide-react';
@@ -29,6 +29,7 @@ interface DocumentEditorProps {
   canRedo: boolean;
   saveToHistory: (force?: boolean) => void;
   insertImage: (imageData: any) => void;
+  insertContent: (htmlBlocks: string[], createChapters: boolean, isInternal?: boolean) => void;
   insertMath: (isInline?: boolean) => void;
   insertGraph: (graphData: GraphData) => void;
   insertTemplate: (html: string) => void;
@@ -76,6 +77,7 @@ export const DocumentEditor = forwardRef<DocumentEditorHandle, DocumentEditorPro
     canRedo,
     saveToHistory,
     insertImage,
+    insertContent,
     insertMath,
     insertGraph,
     insertTemplate,
@@ -110,8 +112,9 @@ export const DocumentEditor = forwardRef<DocumentEditorHandle, DocumentEditorPro
   const fileInputRef = useRef<HTMLInputElement>(null);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const toolbarRef = useRef<HTMLDivElement>(null);
-  const [selectedImageElement, setSelectedImageElement] = useState<HTMLImageElement | null>(null);
+  const [selectedResizableElement, setSelectedResizableElement] = useState<HTMLElement | null>(null);
   const [selectedGraphElement, setSelectedGraphElement] = useState<HTMLElement | null>(null);
+  const [selectedMathElement, setSelectedMathElement] = useState<HTMLElement | null>(null);
   
   const { 
     currentLineSpacing, 
@@ -137,6 +140,7 @@ export const DocumentEditor = forwardRef<DocumentEditorHandle, DocumentEditorPro
   const [currentTextColor, setCurrentTextColor] = useState('#000000');
   const [overflowWarningPage, setOverflowWarningPage] = useState<HTMLElement | null>(null);
 
+  // ... (All other functions like runParagraphAnalysis, updateToolbarState, etc., remain unchanged) ...
   const runParagraphAnalysis = useCallback(() => {
     setTimeout(() => {
       if (!pageContainerRef.current) return;
@@ -743,8 +747,7 @@ export const DocumentEditor = forwardRef<DocumentEditorHandle, DocumentEditorPro
     const pages = pageContainerRef.current?.querySelectorAll('.page-content') || [];
     
     pages.forEach(pageContent => {
-      // --- MODIFICATION: The selector is now more specific to avoid stripping our functional wrappers ---
-      pageContent.querySelectorAll(':scope > div:not(.image-wrapper):not(.graph-wrapper):not(.template-wrapper)').forEach(div => {
+      pageContent.querySelectorAll(':scope > div:not(.image-wrapper):not(.graph-wrapper):not(.template-wrapper):not(.math-wrapper)').forEach(div => {
         const newParagraph = document.createElement('p');
         newParagraph.style.lineHeight = getLineHeightValue(currentLineSpacing);
         newParagraph.dataset.lineSpacing = currentLineSpacing;
@@ -1098,156 +1101,141 @@ export const DocumentEditor = forwardRef<DocumentEditorHandle, DocumentEditorPro
     return false;
   }, [insertMath]);
 
-  const deleteSelectionManually = useCallback((save: boolean = true) => {
-    if (!customSelection) return;
-    const selection = window.getSelection();
-    if (!selection) return;
+// --- REVISED: This function now handles all complex deletion cases robustly ---
+const deleteSelectionManually = useCallback((save: boolean = true) => {
+  if (!customSelection || !pageContainerRef.current) return;
+  const selection = window.getSelection();
+  if (!selection) return;
 
-    const { start, end, startPage, endPage } = customSelection;
-    
-    const allPages = Array.from(pageContainerRef.current?.querySelectorAll<HTMLElement>('.page') || []);
+  const { start, end, startPage } = customSelection;
+  const allPages = Array.from(pageContainerRef.current.querySelectorAll<HTMLElement>('.page'));
 
-    let finalCursorNode: Node | null = null;
-    let finalCursorOffset: number = 0;
-    let pageToFocus: HTMLElement | null = null;
+  // Check if we're deleting from a split paragraph BEFORE deletion
+  const startElement = (start.node.nodeType === Node.ELEMENT_NODE ? start.node : start.node.parentElement) as HTMLElement;
+  const startParagraph = startElement?.closest('p[data-paragraph-id]') as HTMLElement | null;
+  const paragraphId = startParagraph?.dataset.paragraphId;
+  const isSplitParagraphDeletion = !!paragraphId;
 
-    const sNode = start.node;
-    const sOffset = start.offset;
-    const eNode = end.node;
-    const eOffset = end.offset;
+  // 1. Create a range from our custom selection state.
+  const range = document.createRange();
+  range.setStart(start.node, start.offset);
+  range.setEnd(end.node, end.offset);
 
-    const startElement = (sNode.nodeType === Node.ELEMENT_NODE ? sNode : sNode.parentElement) as HTMLElement;
-    const endElement = (eNode.nodeType === Node.ELEMENT_NODE ? eNode : eNode.parentElement) as HTMLElement;
-
-    const startPara = startElement.closest('p');
-    const endPara = endElement.closest('p');
-    
-    const isSplitParaDelete = 
-      startPara?.dataset.splitPoint === 'start' &&
-      endPara?.dataset.splitPoint === 'end' &&
-      startPara?.dataset.paragraphId === endPara?.dataset.paragraphId;
-
-    if (isSplitParaDelete && startPara && endPara) {
-      const startRange = document.createRange();
-      startRange.setStart(startPara, 0);
-      startRange.setEnd(sNode, sOffset);
-      const startContent = startRange.cloneContents();
-
-      const endRange = document.createRange();
-      endRange.setStart(eNode, eOffset);
-      endRange.setEndAfter(endPara.lastChild || eNode);
-      const endContent = endRange.cloneContents();
-
-      startPara.innerHTML = '';
-      startPara.appendChild(startContent);
-      const joinPoint = startPara.lastChild || startPara;
-
-      startPara.appendChild(endContent);
-      
-      startPara.removeAttribute('data-split-point');
-      startPara.removeAttribute('data-paragraph-id');
-      endPara.remove();
-
-      finalCursorNode = joinPoint;
-      finalCursorOffset = joinPoint.nodeType === Node.TEXT_NODE ? (joinPoint as Text).length : joinPoint.childNodes.length;
-      pageToFocus = startPara.closest('.page-content');
-    }
-    else {
-      const topBlock = startElement.closest('p, h1, h2, h3, h4, li, blockquote, pre');
-      const bottomBlock = endElement.closest('p, h1, h2, h3, h4, li, blockquote, pre');
-
-      if (!topBlock) {
-        const range = document.createRange();
-        range.setStart(sNode, sOffset);
-        range.setEnd(eNode, eOffset);
-        range.deleteContents();
-        finalCursorNode = range.startContainer;
-        finalCursorOffset = range.startOffset;
-      } else if (topBlock === bottomBlock) {
-        const range = document.createRange();
-        range.setStart(sNode, sOffset);
-        range.setEnd(eNode, eOffset);
-        range.deleteContents();
-        finalCursorNode = range.startContainer;
-        finalCursorOffset = range.startOffset;
-      } else {
-        const topRange = document.createRange();
-        topRange.setStart(sNode, sOffset);
-        if (topBlock.lastChild) topRange.setEndAfter(topBlock.lastChild);
-        else topRange.setEnd(topBlock, 0);
-        topRange.deleteContents();
-
-        let currentBlock = topBlock.nextElementSibling;
-        while (currentBlock && currentBlock !== bottomBlock) {
-          const next = currentBlock.nextElementSibling;
-          currentBlock.remove();
-          currentBlock = next;
+  // 2. Intelligently expand the range to include any partially selected wrappers.
+  const wrapperSelector = '.image-wrapper, .graph-wrapper, .math-wrapper, .template-wrapper';
+  const ancestor = range.commonAncestorContainer;
+  const parentEl = (ancestor.nodeType === Node.ELEMENT_NODE ? ancestor : ancestor.parentElement) as HTMLElement;
+  
+  if (parentEl) {
+    const wrappers = pageContainerRef.current.querySelectorAll(wrapperSelector);
+    wrappers.forEach(wrapper => {
+      if (range.intersectsNode(wrapper)) {
+        if (range.comparePoint(wrapper, 0) > 0) {
+          range.setStartBefore(wrapper);
         }
-
-        if (bottomBlock) {
-          const bottomRange = document.createRange();
-          bottomRange.setStart(bottomBlock, 0);
-          bottomRange.setEnd(eNode, eOffset);
-          bottomRange.deleteContents();
-          
-          while (bottomBlock.firstChild) {
-            topBlock.appendChild(bottomBlock.firstChild);
-          }
-          bottomBlock.remove();
+        if (range.comparePoint(wrapper, 1) < 0) {
+          range.setEndAfter(wrapper);
         }
       }
+    });
+  }
+
+  // 3. Perform a single, clean deletion using the adjusted, expanded range.
+  range.deleteContents();
+
+  // 4. If we deleted from a split paragraph, MANUALLY MERGE the pieces. This is required.
+  if (isSplitParagraphDeletion && paragraphId) {
+    const allPieces = Array.from(
+      pageContainerRef.current.querySelectorAll(`p[data-paragraph-id="${paragraphId}"]`)
+    ) as HTMLElement[];
+
+    if (allPieces.length > 1) {
+      const firstPiece = allPieces[0];
       
-      if (topBlock) {
-        if (topBlock.textContent === '' && topBlock.children.length === 0) {
-          topBlock.innerHTML = '<br>';
-        }
-        const finalRange = document.createRange();
-        finalRange.selectNodeContents(topBlock);
-        finalRange.collapse(false);
+      // Merge all subsequent pieces into the first piece
+      for (let i = 1; i < allPieces.length; i++) {
+        const piece = allPieces[i];
         
-        finalCursorNode = finalRange.startContainer;
-        finalCursorOffset = finalRange.startOffset;
-      }
-      
-      if (finalCursorNode) {
-        pageToFocus = (finalCursorNode.nodeType === Node.ELEMENT_NODE ? finalCursorNode as HTMLElement : finalCursorNode.parentElement)?.closest('.page-content') || null;
-      }
-    }
-
-    clearSelection();
-
-    if (finalCursorNode) {
-      try {
-        if (document.body.contains(finalCursorNode)) {
-          const newRange = document.createRange();
-          const nodeLength = finalCursorNode.nodeType === Node.TEXT_NODE 
-            ? (finalCursorNode as Text).length 
-            : finalCursorNode.childNodes.length;
-          newRange.setStart(finalCursorNode, Math.min(finalCursorOffset, nodeLength));
-          newRange.collapse(true);
-          selection.removeAllRanges();
-          selection.addRange(newRange);
+        // Add a space before merging to preserve word boundaries if necessary
+        if (firstPiece.lastChild && piece.firstChild) {
+          const lastText = firstPiece.lastChild.textContent || '';
+          const firstText = piece.firstChild.textContent || '';
+          
+          if (lastText && firstText && 
+              !lastText.endsWith(' ') && !lastText.endsWith('\n') &&
+              !firstText.startsWith(' ') && !firstText.startsWith('\n')) {
+            firstPiece.appendChild(document.createTextNode(' '));
+          }
         }
-      } catch (e) { 
-        console.error("Error restoring cursor.", e); 
+        
+        // Move all content from this piece to the first piece
+        while (piece.firstChild) {
+          firstPiece.appendChild(piece.firstChild);
+        }
+        piece.remove();
       }
       
-      setTimeout(() => {
-        pageToFocus?.focus();
-      }, 0);
+      // Remove split attributes since it's now merged
+      firstPiece.removeAttribute('data-paragraph-id');
+      firstPiece.removeAttribute('data-split-point');
     }
+  }
 
-    if (save) {
-      saveToHistory(true);
+  // 5. Universal cleanup and cursor restoration
+  if (pageContainerRef.current) {
+    pageContainerRef.current.querySelectorAll(wrapperSelector).forEach(el => {
+      if (!el.querySelector('img, .template-block, .math-rendered, .math-editor, .graph-container')) {
+        el.remove();
+      }
+    });
+  }
+
+  if (selectedResizableElement && !document.body.contains(selectedResizableElement)) setSelectedResizableElement(null);
+  if (selectedGraphElement && !document.body.contains(selectedGraphElement)) setSelectedGraphElement(null);
+  if (selectedMathElement && !document.body.contains(selectedMathElement)) setSelectedMathElement(null);
+
+  clearSelection();
+
+  if (document.body.contains(start.node)) {
+    try {
+      const newRange = document.createRange();
+      // Ensure the offset is valid after potential node merging
+      const newOffset = Math.min(start.offset, start.node.textContent?.length || 0);
+      newRange.setStart(start.node, newOffset);
+      newRange.collapse(true);
+      selection.removeAllRanges();
+      selection.addRange(newRange);
+      
+      const parentContentEditable = (start.node.nodeType === Node.ELEMENT_NODE ? start.node as HTMLElement : start.node.parentElement)?.closest<HTMLElement>('[contenteditable="true"]');
+      parentContentEditable?.focus();
+    } catch (e) {
+      console.error("Error restoring cursor after deletion.", e);
     }
+  }
+
+  if (save) {
+    saveToHistory(true);
+  }
+  
+  // 6. Trigger the CORRECT reflow logic
+  const startPageElement = allPages[startPage];
+  if (startPageElement) {
+    // After merging, the paragraph on the start page might be too long.
+    // We need to PUSH content down, which is what reflowPage does.
+    reflowPage(startPageElement);
     
-    const startPageElement = allPages[startPage];
-    if (startPageElement) {
-      setTimeout(() => reflowBackwardFromPage(startPageElement), 50);
-    }
+    // Then, run a backward reflow to pull up content on subsequent pages if space was created.
+    reflowBackwardFromPage(startPageElement);
     runParagraphAnalysis();
+  }
 
-  }, [customSelection, pageContainerRef, clearSelection, saveToHistory, reflowBackwardFromPage, runParagraphAnalysis, getLineHeightValue]);
+}, [
+  customSelection, pageContainerRef, clearSelection, saveToHistory, reflowPage, reflowBackwardFromPage, 
+  runParagraphAnalysis,
+  selectedResizableElement, setSelectedResizableElement,
+  selectedGraphElement, setSelectedGraphElement,
+  selectedMathElement, setSelectedMathElement
+]);
   
   useEffect(() => {
     const container = pageContainerRef.current;
@@ -1260,49 +1248,57 @@ export const DocumentEditor = forwardRef<DocumentEditorHandle, DocumentEditorPro
         return;
       }
 
-      if (target.closest('.image-toolbar, .template-toolbar, .graph-toolbar, [data-resize-handle]')) {
+      if (target.closest('.image-toolbar, .template-toolbar, .graph-toolbar, .math-toolbar, [data-resize-handle]')) {
         return;
       }
 
+      const mathWrapper = target.closest('.math-wrapper') as HTMLElement | null;
       const graphWrapper = target.closest('.graph-wrapper') as HTMLElement | null;
-      const imageWrapper = target.closest('.image-wrapper, .template-wrapper') as HTMLElement | null;
+      const imageOrTemplateWrapper = target.closest('.image-wrapper, .template-wrapper') as HTMLElement | null;
+
+      if (mathWrapper) {
+        if (selectedMathElement !== mathWrapper) {
+          clearSelection();
+          setSelectedResizableElement(null);
+          setSelectedGraphElement(null);
+          setSelectedMathElement(mathWrapper);
+        }
+        return;
+      }
 
       if (graphWrapper) {
         if (selectedGraphElement !== graphWrapper) {
           clearSelection();
-          setSelectedImageElement(null);
+          setSelectedResizableElement(null);
+          setSelectedMathElement(null);
           setSelectedGraphElement(graphWrapper);
         }
         return;
       }
       
-      if (imageWrapper) {
-        let elementToSelect: HTMLImageElement | null = null;
-        
-        if (imageWrapper.classList.contains('template-wrapper')) {
-            elementToSelect = imageWrapper.firstElementChild as HTMLImageElement;
-        } else {
-            elementToSelect = imageWrapper.querySelector('img');
-        }
-
-        if (selectedImageElement !== elementToSelect) {
+      if (imageOrTemplateWrapper) {
+        const elementToSelect = imageOrTemplateWrapper.querySelector('img') || imageOrTemplateWrapper;
+        if (selectedResizableElement !== elementToSelect) {
           clearSelection();
           setSelectedGraphElement(null);
-          setSelectedImageElement(elementToSelect);
+          setSelectedMathElement(null);
+          setSelectedResizableElement(elementToSelect);
         }
         return;
       }
 
       if (container.contains(target)) {
-        if (selectedGraphElement || selectedImageElement) {
+        if (selectedGraphElement || selectedResizableElement || selectedMathElement) {
           setSelectedGraphElement(null);
-          setSelectedImageElement(null);
+          setSelectedResizableElement(null);
+          setSelectedMathElement(null);
         }
         startTextSelection(e);
       } 
       else {
         setSelectedGraphElement(null);
-        setSelectedImageElement(null);
+        setSelectedResizableElement(null);
+        setSelectedMathElement(null);
         clearSelection();
       }
     };
@@ -1312,89 +1308,274 @@ export const DocumentEditor = forwardRef<DocumentEditorHandle, DocumentEditorPro
     return () => {
       document.removeEventListener('mousedown', handleGlobalMouseDown);
     };
-  }, [clearSelection, startTextSelection, selectedGraphElement, selectedImageElement]);
+  }, [clearSelection, startTextSelection, selectedGraphElement, selectedResizableElement, selectedMathElement]);
+
+  const cleanupParagraphStructure = useCallback((paragraph: HTMLElement) => {
+  // Remove empty spans and merge adjacent text nodes
+  const walker = document.createTreeWalker(
+    paragraph,
+    NodeFilter.SHOW_ELEMENT | NodeFilter.SHOW_TEXT
+  );
+
+  const nodesToRemove: Node[] = [];
+  let node: Node | null;
+
+  while ((node = walker.nextNode())) {
+    if (node.nodeType === Node.ELEMENT_NODE) {
+      const element = node as HTMLElement;
+      
+      // Remove empty spans
+      if (element.tagName === 'SPAN' && !element.textContent?.trim()) {
+        nodesToRemove.push(element);
+      }
+      
+      // Unwrap spans that only contain other spans with no meaningful styling
+      if (element.tagName === 'SPAN' && element.children.length === 1 && 
+          element.firstElementChild?.tagName === 'SPAN') {
+        const child = element.firstElementChild as HTMLElement;
+        const parentStyle = element.style.cssText;
+        const childStyle = child.style.cssText;
+        
+        if (!parentStyle || parentStyle === childStyle) {
+          while (child.firstChild) {
+            element.parentNode?.insertBefore(child.firstChild, element);
+          }
+          nodesToRemove.push(element);
+        }
+      }
+    }
+  }
+
+  // Remove flagged nodes
+  nodesToRemove.forEach(n => n.parentNode?.removeChild(n));
+
+  // Normalize to merge adjacent text nodes
+  paragraph.normalize();
+}, []);
   
   useEffect(() => {
     const container = pageContainerRef.current;
     if (!container) return;
 
-    const handleCopy = (event: ClipboardEvent) => {
-      if (!customSelection) return;
-      event.preventDefault();
-      
-      const { start, end } = customSelection;
-      const range = document.createRange();
-      range.setStart(start.node, start.offset);
-      range.setEnd(end.node, end.offset);
-      const fragment = range.cloneContents();
-      const tempDiv = document.createElement('div');
-      tempDiv.appendChild(fragment);
-      const htmlContent = tempDiv.innerHTML;
+    const isEventRelevant = () => {
+      const activeEl = document.activeElement;
+      return (activeEl && container.contains(activeEl)) ||
+             selectedResizableElement ||
+             selectedGraphElement ||
+             selectedMathElement;
+    };
 
-      if (event.clipboardData) {
-        event.clipboardData.setData('text/html', htmlContent);
-        event.clipboardData.setData('text/plain', selectedText);
+    const handleCopy = (event: ClipboardEvent) => {
+      if (!isEventRelevant() || !customSelection) return;
+    
+      event.preventDefault();
+    
+      const { start, end, startPage, endPage } = customSelection;
+      if (startPage === -1 || endPage === -1) return;
+    
+      const allPages = Array.from(container.querySelectorAll<HTMLElement>('.page-content'));
+      const masterFragment = document.createDocumentFragment();
+      const intersectingWrappers: Element[] = [];
+      const wrapperSelector = '.image-wrapper, .graph-wrapper, .math-wrapper, .template-wrapper';
+    
+      try {
+        const originalRange = document.createRange();
+        originalRange.setStart(start.node, start.offset);
+        originalRange.setEnd(end.node, end.offset);
+    
+        container.querySelectorAll(wrapperSelector).forEach((wrapper, index) => {
+          if (originalRange.intersectsNode(wrapper)) {
+            wrapper.setAttribute('data-copy-id', `copy-${index}`);
+            intersectingWrappers.push(wrapper);
+          }
+        });
+    
+        for (let i = startPage; i <= endPage; i++) {
+          const pageContent = allPages[i];
+          if (!pageContent) continue;
+    
+          const pageRange = document.createRange();
+          if (i === startPage) pageRange.setStart(start.node, start.offset);
+          else pageRange.setStart(pageContent, 0);
+    
+          if (i === endPage) pageRange.setEnd(end.node, end.offset);
+          else pageRange.setEnd(pageContent, pageContent.childNodes.length);
+    
+          masterFragment.appendChild(pageRange.cloneContents());
+        }
+    
+        const tempDiv = document.createElement('div');
+        tempDiv.appendChild(masterFragment);
+    
+        tempDiv.querySelectorAll('[data-copy-id]').forEach(partialWrapper => {
+          const id = partialWrapper.getAttribute('data-copy-id');
+          const originalWrapper = container.querySelector(`[data-copy-id="${id}"]`);
+          if (originalWrapper) {
+            const cleanClone = originalWrapper.cloneNode(true) as HTMLElement;
+            cleanClone.removeAttribute('data-copy-id');
+            partialWrapper.replaceWith(cleanClone);
+          }
+        });
+    
+        const startPieces = tempDiv.querySelectorAll<HTMLParagraphElement>('p[data-paragraph-id][data-split-point="start"]');
+        startPieces.forEach(startPiece => {
+          const paragraphId = startPiece.dataset.paragraphId;
+          let currentPiece: Element | null = startPiece;
+          
+          while (currentPiece?.nextElementSibling?.matches('p') && (currentPiece.nextElementSibling as HTMLElement).dataset.paragraphId === paragraphId) {
+            const nextPiece = currentPiece.nextElementSibling;
+            startPiece.append(...Array.from(nextPiece.childNodes));
+            nextPiece.remove();
+          }
+          
+          startPiece.removeAttribute('data-paragraph-id');
+          startPiece.removeAttribute('data-split-point');
+        });
+    
+        tempDiv.querySelectorAll('.image-resize-overlay, .image-toolbar, .graph-resize-overlay, .graph-toolbar, .math-resize-overlay, .math-toolbar, .template-resize-overlay, .template-toolbar').forEach(uiEl => uiEl.remove());
+        tempDiv.querySelectorAll('.graph-selected, .math-selected, .template-selected').forEach(el => el.classList.remove('graph-selected', 'math-selected', 'template-selected'));
+        tempDiv.querySelectorAll(wrapperSelector).forEach(el => {
+          if (el instanceof HTMLElement) {
+            el.style.position = '';
+            el.style.opacity = '';
+            if (!el.getAttribute('style')?.trim()) {
+              el.removeAttribute('style');
+            }
+          }
+        });
+    
+        const contentToCopy = tempDiv.innerHTML;
+        const textToCopy = customSelection.text;
+    
+        if (contentToCopy && event.clipboardData) {
+          event.clipboardData.setData('text/html', contentToCopy);
+          event.clipboardData.setData('text/plain', textToCopy);
+          event.clipboardData.setData('application/x-editor-internal', 'true');
+        }
+      } finally {
+        intersectingWrappers.forEach(wrapper => {
+          wrapper.removeAttribute('data-copy-id');
+        });
       }
     };
     
     const handleCut = (event: ClipboardEvent) => {
-      if (!customSelection) return;
-      event.preventDefault();
+      if (!isEventRelevant()) return;
+      
       handleCopy(event);
-      deleteSelectionManually(true);
+      event.preventDefault();
+
+      if (customSelection) {
+        deleteSelectionManually(true);
+      } else if (selectedResizableElement || selectedGraphElement || selectedMathElement) {
+        const selectedWrapper = selectedResizableElement?.closest('.image-wrapper, .template-wrapper') || selectedGraphElement || selectedMathElement;
+        const page = selectedWrapper?.closest('.page');
+        selectedWrapper?.remove();
+        setSelectedResizableElement(null);
+        setSelectedGraphElement(null);
+        setSelectedMathElement(null);
+        saveToHistory(true);
+        if (page) {
+          reflowBackwardFromPage(page as HTMLElement);
+        } else {
+          scheduleReflow();
+        }
+      }
     };
+
 
     const handlePaste = (event: ClipboardEvent) => {
-      event.preventDefault();
-      const clipboardData = event.clipboardData;
-      if (!clipboardData) return;
+  const activeEl = document.activeElement;
+  if (!activeEl || !container.contains(activeEl)) return;
 
-      let pastedHtml = clipboardData.getData('text/html');
-      const pastedText = clipboardData.getData('text/plain');
+  event.preventDefault();
+  const clipboardData = event.clipboardData;
+  if (!clipboardData) return;
 
-      if (!pastedHtml || pastedHtml.trim() === '') {
-        document.execCommand('insertText', false, pastedText);
-        saveToHistory(true);
-        scheduleReflow();
-        return;
+  if (clipboardData.files && clipboardData.files.length > 0) {
+    const imageFile = Array.from(clipboardData.files).find(file => file.type.startsWith('image/'));
+    if (imageFile) {
+      const reader = new FileReader();
+      reader.onload = (e) => {
+        if (e.target && typeof e.target.result === 'string') {
+          const imageUrl = e.target.result;
+          const img = new Image();
+          img.onload = () => {
+            const MAX_INSERT_WIDTH = 300;
+            const aspectRatio = img.height / img.width;
+            const width = Math.min(img.width, MAX_INSERT_WIDTH);
+            const height = width * aspectRatio;
+            insertImage({ src: imageUrl, width, height, alt: imageFile.name });
+          };
+          img.src = imageUrl;
+        }
+      };
+      reader.readAsDataURL(imageFile);
+      return;
+    }
+  }
+
+  const isInternalPaste = clipboardData.types.includes('application/x-editor-internal');
+  let pastedHtml = clipboardData.getData('text/html');
+  if (pastedHtml) {
+    insertContent([pastedHtml], false, isInternalPaste);
+    
+    // Clean up pasted paragraphs to remove empty spans and normalize text nodes
+    setTimeout(() => {
+      if (pageContainerRef.current) {
+        const paragraphs = pageContainerRef.current.querySelectorAll('p');
+        paragraphs.forEach(p => {
+          if (p instanceof HTMLElement) {
+            cleanupParagraphStructure(p);
+          }
+        });
       }
+      saveToHistory(true);
+      scheduleReflow();
+    }, 100);
+    return;
+  }
 
-      const tempDiv = document.createElement('div');
-      tempDiv.innerHTML = pastedHtml;
-
-      tempDiv.querySelectorAll('*').forEach(el => {
-        el.removeAttribute('class');
-        el.removeAttribute('id');
-        el.removeAttribute('style');
-        el.removeAttribute('width');
-        el.removeAttribute('height');
-      });
-
-      tempDiv.querySelectorAll('b').forEach(b => {
-        const strong = document.createElement('strong');
-        strong.innerHTML = b.innerHTML;
-        b.replaceWith(strong);
-      });
-      tempDiv.querySelectorAll('i').forEach(i => {
-        const em = document.createElement('em');
-        em.innerHTML = i.innerHTML;
-        i.replaceWith(em);
-      });
-
-      tempDiv.querySelectorAll('script, style, link, meta, header, footer, nav').forEach(el => el.remove());
-      
-      const sanitizedHtml = tempDiv.innerHTML;
-
-      document.execCommand('insertHTML', false, sanitizedHtml);
-
-      setTimeout(() => {
-        saveToHistory(true);
-        scheduleReflow();
-        runParagraphAnalysis();
-      }, 50);
-    };
+  const pastedText = clipboardData.getData('text/plain');
+  if (pastedText) {
+    document.execCommand('insertText', false, pastedText);
+    saveToHistory(true);
+    scheduleReflow();
+  }
+};
     
     const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Backspace' || event.key === 'Delete') {
+        const target = event.target as HTMLElement;
+        // Check if focus is inside an editable part of a template OR a math block
+        const isEditingTemplate = target.closest('[contenteditable="true"]') && selectedResizableElement?.closest('.template-wrapper');
+        const isEditingMath = target.closest('.math-editor') && selectedMathElement;
+        
+        if ((selectedResizableElement || selectedGraphElement || selectedMathElement) && !isEditingTemplate && !isEditingMath) {
+            event.preventDefault();
+            
+            const selectedWrapper = selectedResizableElement?.closest('.image-wrapper, .template-wrapper') || selectedGraphElement || selectedMathElement;
+            if (selectedWrapper) {
+                const page = selectedWrapper.closest('.page') as HTMLElement | null;
+
+                selectedWrapper.remove();
+                
+                setSelectedResizableElement(null);
+                setSelectedGraphElement(null);
+                setSelectedMathElement(null);
+                
+                saveToHistory(true);
+
+                if (page) {
+                    reflowBackwardFromPage(page);
+                } else {
+                    scheduleReflow();
+                }
+            }
+            return;
+        }
+      }
+
       const isCtrlOrMeta = event.metaKey || event.ctrlKey;
 
       if (isCtrlOrMeta) {
@@ -1427,16 +1608,44 @@ export const DocumentEditor = forwardRef<DocumentEditorHandle, DocumentEditorPro
       }
 
       if (customSelection && selectedText) {
+        if (event.key === 'Backspace' || event.key === 'Delete') {
+          const { start, end } = customSelection;
+          const range = document.createRange();
+          range.setStart(start.node, start.offset);
+          range.setEnd(end.node, end.offset);
+          
+          const ancestor = range.commonAncestorContainer;
+          const parentEl = (ancestor.nodeType === Node.ELEMENT_NODE ? ancestor : ancestor.parentElement);
+          
+          let isComplex = false;
+          if (parentEl && pageContainerRef.current) {
+            const wrapperSelector = '.image-wrapper, .graph-wrapper, .math-wrapper, .template-wrapper';
+            const intersectsWrapper = Array.from(pageContainerRef.current.querySelectorAll(wrapperSelector)).some(w => range.intersectsNode(w));
+            
+            const startPara = (start.node.parentElement)?.closest('p');
+            const endPara = (end.node.parentElement)?.closest('p');
+            const isDeletingAcrossSplit = startPara && endPara && startPara !== endPara && startPara.dataset.paragraphId && startPara.dataset.paragraphId === endPara.dataset.paragraphId;
+
+            if (intersectsWrapper || isDeletingAcrossSplit) {
+              isComplex = true;
+            }
+          }
+
+          if (isComplex) {
+            event.preventDefault();
+            deleteSelectionManually(true);
+          } else {
+            // Let the browser handle simple text deletion, then save history.
+            setTimeout(() => saveToHistory(true), 10);
+          }
+          return;
+        }
+
         if (event.key.length === 1 && !isCtrlOrMeta && !event.altKey) {
           event.preventDefault();
           deleteSelectionManually(false);
           document.execCommand('insertText', false, event.key);
           saveToHistory(true);
-          return;
-        }
-        if (event.key === 'Backspace' || event.key === 'Delete') {
-          event.preventDefault();
-          deleteSelectionManually(true);
           return;
         }
       }
@@ -1640,7 +1849,7 @@ export const DocumentEditor = forwardRef<DocumentEditorHandle, DocumentEditorPro
       
       if (event.key === 'Backspace') {
         const selection = window.getSelection();
-        if (selection && selection.isCollapsed) {
+        if (selection && selection.isCollapsed && selection.rangeCount > 0) {
             const range = selection.getRangeAt(0);
             const startElement = (range.startContainer.nodeType === Node.ELEMENT_NODE ? range.startContainer : range.startContainer.parentElement) as HTMLElement;
             
@@ -1694,6 +1903,7 @@ export const DocumentEditor = forwardRef<DocumentEditorHandle, DocumentEditorPro
                         }
                       }
                       saveToHistory(true);
+                      
                       scheduleReflow();
                     }, 0);
                     return;
@@ -1720,6 +1930,7 @@ export const DocumentEditor = forwardRef<DocumentEditorHandle, DocumentEditorPro
             const currentParagraph = startElement?.closest<HTMLElement>('p[data-split-point="end"]');
             if (currentParagraph && currentParagraph.dataset.paragraphId && range.startOffset === 0) {
                 event.preventDefault();
+                
                 checkAndReflowSplitParagraph(currentParagraph);
                 return;
             }
@@ -1734,6 +1945,7 @@ export const DocumentEditor = forwardRef<DocumentEditorHandle, DocumentEditorPro
                     const previousPage = currentPage?.previousElementSibling as HTMLElement;
                     if (previousPage) {
                         event.preventDefault();
+                        
                         handleBackspaceAtPageStart(currentPage, previousPage);
                         return;
                     }
@@ -1741,7 +1953,12 @@ export const DocumentEditor = forwardRef<DocumentEditorHandle, DocumentEditorPro
             }
         }
         saveToHistory();
-        setTimeout(() => reflowBackwardFromPage((window.getSelection()?.anchorNode?.parentElement?.closest('.page') as HTMLElement)), 50);
+        setTimeout(() => {
+          console.log('brothers and sisters')
+          reflowBackwardFromPage((window.getSelection()?.anchorNode?.parentElement?.closest('.page') as HTMLElement))
+
+        }, 50);
+        
         return;
       }
       
@@ -1778,17 +1995,17 @@ export const DocumentEditor = forwardRef<DocumentEditorHandle, DocumentEditorPro
     };
 
     container.addEventListener('keydown', handleKeyDown);
-    container.addEventListener('cut', handleCut);
-    container.addEventListener('paste', handlePaste);
-    container.addEventListener('copy', handleCopy);
+    document.addEventListener('cut', handleCut);
+    document.addEventListener('paste', handlePaste);
+    document.addEventListener('copy', handleCopy);
     container.addEventListener('mouseup', handleMouseUp);
     document.addEventListener('selectionchange', handleSelectionChange);
     
     return () => {
       container.removeEventListener('keydown', handleKeyDown);
-      container.removeEventListener('cut', handleCut);
-      container.removeEventListener('paste', handlePaste);
-      container.removeEventListener('copy', handleCopy);
+      document.removeEventListener('cut', handleCut);
+      document.removeEventListener('paste', handlePaste);
+      document.removeEventListener('copy', handleCopy);
       container.removeEventListener('mouseup', handleMouseUp);
       document.removeEventListener('selectionchange', handleSelectionChange);
     };
@@ -1797,7 +2014,8 @@ export const DocumentEditor = forwardRef<DocumentEditorHandle, DocumentEditorPro
     updateToolbarState, undo, redo, scheduleReflow, immediateReflow, 
     updateOverflowWarning, handleBackspaceAtPageStart, reflowBackwardFromPage, reflowWithCursor,
     runParagraphAnalysis, selectedText, deleteSelectionManually, customSelection, applyCommand, applyStyle,
-    checkAndReflowOnOverflow, checkAndReflowSplitParagraph, forceRecalculateRects
+    checkAndReflowOnOverflow, checkAndReflowSplitParagraph, forceRecalculateRects,
+    selectedResizableElement, selectedGraphElement, selectedMathElement, insertImage, insertContent
   ]);
 
 
@@ -1812,12 +2030,24 @@ export const DocumentEditor = forwardRef<DocumentEditorHandle, DocumentEditorPro
   };
 
   const handleInsertImage = useCallback(() => fileInputRef.current?.click(), []);
+  
   const handleImageUpload = useCallback((event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     if (file) {
       const reader = new FileReader();
       reader.onload = (e) => {
-        if (e.target?.result) insertImage({ src: e.target.result as string, width: 300, height: 200, alt: file.name });
+        if (e.target && typeof e.target.result === 'string') {
+          const imageUrl = e.target.result;
+          const img = new Image();
+          img.onload = () => {
+            const MAX_INSERT_WIDTH = 300;
+            const aspectRatio = img.height / img.width;
+            const width = Math.min(img.width, MAX_INSERT_WIDTH);
+            const height = width * aspectRatio;
+            insertImage({ src: imageUrl, width, height, alt: file.name });
+          };
+          img.src = imageUrl;
+        }
       };
       reader.readAsDataURL(file);
     }
@@ -1876,7 +2106,7 @@ export const DocumentEditor = forwardRef<DocumentEditorHandle, DocumentEditorPro
             onCodeBlock={() => applyCommand('formatBlock', 'pre')} onInsertTable={handleInsertTable}
             onTableMenuOpen={saveSelection} onTextColorChange={handleTextColorChange} onColorMenuOpen={saveSelection}
             onLineSpacingChange={handleLineSpacingChange} onLineSpacingMenuOpen={saveSelection}
-            onInsertMath={() => insertMath(true)}
+            onInsertMath={() => insertMath()}
             canUndo={canUndo} canRedo={canRedo} isBold={isBold} isItalic={isItalic} isUnderline={isUnderline}
             isHighlighted={isHighlighted} textAlign={textAlign} currentBlockType={currentBlockType}
             currentFont={currentFont} currentSize={currentSize} currentTextColor={currentTextColor}
@@ -1930,14 +2160,20 @@ export const DocumentEditor = forwardRef<DocumentEditorHandle, DocumentEditorPro
         <ImageResizer 
           pageContainerRef={scrollContainerRef}
           saveToHistory={saveToHistory} 
-          selectedImageElement={selectedImageElement} 
-          onImageSelect={setSelectedImageElement} 
+          selectedElement={selectedResizableElement} 
+          onElementSelect={setSelectedResizableElement} 
         />
         <GraphResizer
           pageContainerRef={scrollContainerRef}
           saveToHistory={saveToHistory}
           selectedGraphElement={selectedGraphElement}
           onGraphSelect={setSelectedGraphElement}
+        />
+        <MathResizer
+          pageContainerRef={scrollContainerRef}
+          saveToHistory={saveToHistory}
+          selectedMathElement={selectedMathElement}
+          onMathSelect={setSelectedMathElement}
         />
       </div>
 

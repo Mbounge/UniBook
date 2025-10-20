@@ -1,3 +1,5 @@
+//src/components/editor/GraphResizer.tsx
+
 'use client';
 
 import React, { useEffect, useRef, useState, useCallback } from 'react';

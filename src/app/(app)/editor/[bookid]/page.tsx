@@ -71,7 +71,8 @@ const EditorComponent = () => {
     selectedText,
     clearSelection,
     forceRecalculateRects,
-    startTextSelection
+    startTextSelection,
+    
   } = useEditor(pageContainerRef);
 
   const { data: bookData, isLoading: isBookLoading, isError } = useQuery({
@@ -153,8 +154,26 @@ const EditorComponent = () => {
   };
 
   const handleImport = (htmlBlocks: string[], createChapters: boolean) => { 
-    insertContent(htmlBlocks, createChapters); 
-  };
+  insertContent(htmlBlocks, createChapters);
+  
+  // Give extra time for large imports, then force a complete reflow
+  setTimeout(() => {
+    if (pageContainerRef.current) {
+      const allPages = Array.from(pageContainerRef.current.querySelectorAll('.page')) as HTMLElement[];
+      console.log(`🔄 Post-import reflow check: ${allPages.length} pages`);
+      
+      // Reflow all pages sequentially
+      allPages.forEach((page, index) => {
+        reflowPage(page);
+      });
+      
+      // Then backward pass to optimize
+      if (allPages.length > 0) {
+        reflowBackwardFromPage(allPages[0]);
+      }
+    }
+  }, 300);
+};
 
   const handleSaveDraft = () => {
     if (!pageContainerRef.current) {
@@ -314,6 +333,7 @@ const EditorComponent = () => {
             clearSelection={clearSelection}
             forceRecalculateRects={forceRecalculateRects}
             startTextSelection={startTextSelection}
+            insertContent={insertContent}
           />
         </div>
 

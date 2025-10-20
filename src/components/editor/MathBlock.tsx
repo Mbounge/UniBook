@@ -1,5 +1,3 @@
-//src/components/editor/MathBlock.tsx
-
 "use client";
 
 import React, { useState, useRef, useEffect } from 'react';
@@ -8,7 +6,7 @@ import 'katex/dist/katex.min.css';
 
 interface MathBlockProps {
   initialTex: string;
-  isInline?: boolean;
+  fontSize: number;
   onUpdate: (newTex: string) => void;
   onRemove: () => void;
 }
@@ -20,7 +18,6 @@ const initializeMhchem = () => {
   if (mhchemInitialized) return Promise.resolve();
   
   return new Promise<void>((resolve) => {
-    // Try to load mhchem extension
     const script = document.createElement('script');
     script.src = 'https://cdn.jsdelivr.net/npm/katex@0.16.8/dist/contrib/mhchem.min.js';
     script.onload = () => {
@@ -28,7 +25,6 @@ const initializeMhchem = () => {
       resolve();
     };
     script.onerror = () => {
-      // Fallback: try to import locally
       try {
         require('katex/dist/contrib/mhchem.js');
         mhchemInitialized = true;
@@ -43,66 +39,57 @@ const initializeMhchem = () => {
 
 export const MathBlock: React.FC<MathBlockProps> = ({
   initialTex,
-  isInline = false,
+  fontSize,
   onUpdate,
   onRemove
 }) => {
   const [isEditing, setIsEditing] = useState(initialTex === '');
   const [tex, setTex] = useState(initialTex);
-  const containerRef = useRef<HTMLSpanElement>(null);
+  const containerRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const [mhchemReady, setMhchemReady] = useState(mhchemInitialized);
+  const isPastingRef = useRef(false);
 
   useEffect(() => {
     if (!mhchemInitialized) {
-      initializeMhchem().then(() => {
-        setMhchemReady(true);
-      });
+      initializeMhchem().then(() => setMhchemReady(true));
     }
   }, []);
+
+  useEffect(() => {
+    const currentRef = isEditing ? textareaRef.current?.parentElement : containerRef.current;
+    if (!currentRef) return;
+
+    const handleEdit = () => setIsEditing(true);
+    const handleUpdateFontSize = (e: CustomEvent<{ fontSize: number }>) => {
+      if (containerRef.current) {
+        containerRef.current.style.fontSize = `${e.detail.fontSize}px`;
+      }
+    };
+
+    currentRef.addEventListener('editMath', handleEdit);
+    currentRef.addEventListener('updateMath', handleUpdateFontSize as EventListener);
+
+    return () => {
+      currentRef.removeEventListener('editMath', handleEdit);
+      currentRef.removeEventListener('updateMath', handleUpdateFontSize as EventListener);
+    };
+  }, [isEditing]);
 
   const renderMath = () => {
     if (containerRef.current) {
       try {
-        // Clear the container first
         containerRef.current.innerHTML = '';
-        
         katex.render(tex, containerRef.current, {
           throwOnError: false,
-          displayMode: !isInline,
+          displayMode: true,
           strict: false,
-          trust: true, // Allow all trusted functions including chemistry
-          macros: {
-            // Add fallback macros in case mhchem isn't loaded
-            "\\ce": "\\mathrm{#1}",
-            "\\pu": "\\mathrm{#1}"
-          }
+          trust: true,
+          macros: { "\\ce": "\\mathrm{#1}", "\\pu": "\\mathrm{#1}" }
         });
       } catch (error: any) {
-        // Fallback rendering for chemistry formulas
-        console.warn('KaTeX rendering failed:', error);
-        
-        if (tex.includes('\\ce{') || tex.includes('\\pu{')) {
-          // Manual chemistry formula parsing as fallback
-          let displayTex = tex;
-          
-          // Simple replacements for common chemistry notation
-          displayTex = displayTex.replace(/\\ce\{([^}]+)\}/g, (match, content) => {
-            return content
-              .replace(/->/g, ' → ')
-              .replace(/<->/g, ' ⇌ ')
-              .replace(/\+/g, ' + ')
-              .replace(/_(\d+)/g, '₋$1')
-              .replace(/\^(\d+)/g, '⁺$1')
-              .replace(/\^(\+)/g, '⁺')
-              .replace(/\^(-)/g, '⁻');
-          });
-          
-          containerRef.current.innerHTML = `<span style="font-family: 'Times New Roman', serif;">${displayTex}</span>`;
-        } else {
-          containerRef.current.innerText = `Error: ${error.message}`;
-          containerRef.current.style.color = 'red';
-        }
+        containerRef.current.innerText = `Error: ${error.message}`;
+        containerRef.current.style.color = 'red';
       }
     }
   };
@@ -110,15 +97,14 @@ export const MathBlock: React.FC<MathBlockProps> = ({
   useEffect(() => {
     if (!isEditing && mhchemReady) {
       renderMath();
-    } else if (!isEditing && !mhchemReady) {
-      // Render with fallback while waiting for mhchem
-      setTimeout(renderMath, 100);
-    } else if (isEditing) {
+    } else if (isEditing && textareaRef.current) {
       const textarea = textareaRef.current;
-      if (textarea) {
-        textarea.focus();
-        textarea.selectionStart = textarea.selectionEnd = textarea.value.length;
+      textarea.focus();
+      if (initialTex) {
+        textarea.select();
       }
+      textarea.style.height = 'auto';
+      textarea.style.height = `${textarea.scrollHeight}px`;
     }
   }, [isEditing, tex, mhchemReady]);
 
@@ -141,58 +127,82 @@ export const MathBlock: React.FC<MathBlockProps> = ({
       handleBlur();
     }
   };
+  
+  const handleTextareaInput = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
+    if (isPastingRef.current) {
+      isPastingRef.current = false;
+      return;
+    }
+    setTex(e.target.value);
+    const textarea = e.currentTarget;
+    textarea.style.height = 'auto';
+    textarea.style.height = `${textarea.scrollHeight}px`;
+  };
+
+  const handlePaste = (e: React.ClipboardEvent<HTMLTextAreaElement>) => {
+    e.preventDefault();
+    isPastingRef.current = true;
+    const pastedText = e.clipboardData.getData('text/plain');
+    const sanitizedText = pastedText.trim();
+    setTex(sanitizedText);
+  };
 
   if (isEditing) {
     return (
-      <span 
-        className={`math-editor ${isInline ? 'inline' : 'block'}`}
+      <div 
+        ref={containerRef}
+        className="math-editor"
         contentEditable={false}
       >
+        {/* --- MODIFICATION: Inject a style tag to fix highlighting --- */}
+        <style>
+          {`.math-textarea::selection { background-color: #ACCEF7; }`}
+        </style>
         <textarea
           ref={textareaRef}
           value={tex}
-          onChange={(e) => setTex(e.target.value)}
+          onChange={handleTextareaInput}
           onBlur={handleBlur}
           onKeyDown={handleKeyDown}
+          onPaste={handlePaste}
           className="math-textarea"
           aria-label="LaTeX formula input"
           placeholder="Enter LaTeX..."
           style={{
             fontFamily: 'monospace',
-            fontSize: isInline ? '0.9em' : '1em',
-            padding: isInline ? '2px 4px' : '8px',
+            fontSize: '16px',
+            padding: '8px',
             border: '1px solid #cbd5e1',
             borderRadius: '4px',
             backgroundColor: '#f8fafc',
             resize: 'none',
             width: '100%',
-            minHeight: isInline ? 'auto' : '50px',
+            minHeight: '50px',
             boxSizing: 'border-box',
             color: '#334155',
+            overflow: 'hidden',
           }}
         />
-      </span>
+      </div>
     );
   }
 
   return (
-    <span
+    <div
       ref={containerRef}
       contentEditable={false}
-      onClick={() => setIsEditing(true)}
-      className={`math-rendered ${isInline ? 'inline' : 'block'}`}
-      title="Click to edit formula"
+      className="math-rendered"
+      title="Click to select, then click the edit icon"
       style={{
+        fontSize: `${fontSize}px`,
         cursor: 'pointer',
         padding: '4px',
         borderRadius: '4px',
         transition: 'background-color 0.2s',
-        display: isInline ? 'inline-block' : 'block',
-        textAlign: isInline ? 'inherit' : 'center',
+        display: 'block',
+        textAlign: 'center',
         minHeight: '1.2em',
       }}
-      onMouseEnter={e => e.currentTarget.style.backgroundColor = '#eff6ff'}
-      onMouseLeave={e => e.currentTarget.style.backgroundColor = 'transparent'}
     />
   );
 };

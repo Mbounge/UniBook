@@ -10,6 +10,7 @@ import { useHistory } from './useHistory';
 import { useTextReflow } from './useTextReflow';
 import { useMultiPageSelection } from './useMultiPageSelection';
 
+// ... (rest of the file is unchanged until the insertContent function) ...
 const createNewPage = (): HTMLElement => {
   const newPageDiv = document.createElement('div');
   newPageDiv.className = 'page';
@@ -81,7 +82,8 @@ export const useEditor = (editorRef: React.RefObject<HTMLDivElement | null>) => 
       const wrapper = el as HTMLElement;
       if (reactRootsRef.current.has(wrapper)) return;
       const initialTex = wrapper.dataset.tex || '';
-      const isInline = wrapper.dataset.inline === 'true';
+      const initialFontSize = parseFloat(wrapper.dataset.fontSize || '16');
+      
       const handleUpdate = (newTex: string) => { 
         wrapper.dataset.tex = newTex; 
         saveToHistory(true);
@@ -94,7 +96,7 @@ export const useEditor = (editorRef: React.RefObject<HTMLDivElement | null>) => 
         saveToHistory(true);
         scheduleReflow();
       };
-      mountReactComponent(<MathBlock initialTex={initialTex} isInline={isInline} onUpdate={handleUpdate} onRemove={handleRemove} />, wrapper);
+      mountReactComponent(<MathBlock initialTex={initialTex} fontSize={initialFontSize} onUpdate={handleUpdate} onRemove={handleRemove} />, wrapper);
     });
   }, [mountReactComponent, saveToHistory, scheduleReflow]);
 
@@ -282,17 +284,18 @@ export const useEditor = (editorRef: React.RefObject<HTMLDivElement | null>) => 
     }
   };
 
-  const insertMath = useCallback((isInline = false) => {
+  const insertMath = useCallback((isInline?: boolean) => {
     saveToHistory(true);
     let target = findInsertionTarget();
     if (!target) { addNewChapter(); target = findInsertionTarget(); if (!target) return; }
-    const wrapper = document.createElement('span');
+    
+    const wrapper = document.createElement('div');
     wrapper.className = 'math-wrapper';
     wrapper.contentEditable = 'false';
     wrapper.dataset.tex = '';
-    wrapper.dataset.inline = String(isInline);
-    wrapper.style.display = isInline ? 'inline-block' : 'block';
-    if (!isInline) wrapper.style.margin = '1em 0';
+    wrapper.dataset.fontSize = '16';
+    wrapper.style.margin = '1em 0';
+
     const handleUpdate = (newTex: string) => { 
       wrapper.dataset.tex = newTex; 
       saveToHistory(true);
@@ -301,38 +304,32 @@ export const useEditor = (editorRef: React.RefObject<HTMLDivElement | null>) => 
     const handleRemove = () => {
       const root = reactRootsRef.current.get(wrapper);
       if (root) { root.unmount(); reactRootsRef.current.delete(wrapper); }
-      const nextNode = wrapper.nextSibling;
-      if (nextNode && nextNode.nodeType === Node.TEXT_NODE && nextNode.textContent === '\u200B') { nextNode.remove(); }
       wrapper.remove();
       saveToHistory(true);
       scheduleReflow();
     };
-    mountReactComponent(<MathBlock initialTex="" isInline={isInline} onUpdate={handleUpdate} onRemove={handleRemove} />, wrapper);
+    
+    mountReactComponent(<MathBlock initialTex="" fontSize={16} onUpdate={handleUpdate} onRemove={handleRemove} />, wrapper);
+    
     const selection = window.getSelection();
     if (target.range) {
-      target.range.insertNode(wrapper);
-      const zeroWidthSpace = document.createTextNode('\u200B');
-      wrapper.after(zeroWidthSpace);
-      target.range.setStartAfter(zeroWidthSpace);
-      target.range.collapse(true);
-      selection?.removeAllRanges();
-      selection?.addRange(target.range);
+      let node = target.range.commonAncestorContainer;
+      let blockElement = (node.nodeType === Node.ELEMENT_NODE ? node : node.parentElement) as HTMLElement;
+      while (blockElement && blockElement.parentElement && blockElement.parentElement !== target.container) {
+        blockElement = blockElement.parentElement;
+      }
+      const isEffectivelyEmpty = blockElement && (blockElement.textContent ?? '').trim() === '' && blockElement.querySelectorAll('img, .graph-wrapper, .template-wrapper, .math-wrapper').length === 0;
+
+      if (isEffectivelyEmpty && blockElement.parentElement === target.container) {
+        blockElement.parentElement.replaceChild(wrapper, blockElement);
+      } else {
+        target.range.insertNode(wrapper);
+      }
     } else {
       target.container.appendChild(wrapper);
     }
-    if (!isInline) {
-      const nextEl = wrapper.nextElementSibling;
-      if (!nextEl || nextEl.tagName !== 'P') {
-        const newPara = document.createElement('p');
-        newPara.innerHTML = '<br>';
-        wrapper.insertAdjacentElement('afterend', newPara);
-        const newRange = document.createRange();
-        newRange.setStart(newPara, 0);
-        newRange.collapse(true);
-        selection?.removeAllRanges();
-        selection?.addRange(newRange);
-      }
-    }
+
+    ensureCursorFriendlyBlocks(wrapper, selection);
     setTimeout(() => {
       saveToHistory(true);
       scheduleReflow();
@@ -430,94 +427,123 @@ export const useEditor = (editorRef: React.RefObject<HTMLDivElement | null>) => 
     }, 100);
   }, [saveToHistory, findInsertionTarget, addNewChapter, scheduleReflow]);
 
-  const insertContent = useCallback((htmlBlocks: string[], createChapters: boolean) => {
+  const insertContent = useCallback((htmlBlocks: string[], createChapters: boolean, isInternal: boolean = false) => {
     if (!editorRef.current) return;
     saveToHistory(true);
 
-    const sanitizeAndStyle = (html: string): DocumentFragment => {
-      const fragment = document.createDocumentFragment();
-      const tempDiv = document.createElement('div');
-      tempDiv.innerHTML = html;
-      tempDiv.querySelectorAll('script, style, link').forEach(el => el.remove());
-      tempDiv.querySelectorAll('*').forEach(el => { el.removeAttribute('onclick'); el.removeAttribute('onload'); el.removeAttribute('onerror'); el.removeAttribute('id'); });
-      tempDiv.querySelectorAll('img').forEach(img => {
-        if (img.parentElement?.classList.contains('image-wrapper')) return;
-        const wrapper = document.createElement('div');
-        wrapper.className = 'image-wrapper';
-        wrapper.dataset.float = 'none';
-        wrapper.contentEditable = 'false';
-        wrapper.style.cssText = 'display: block; margin: 12px auto; text-align: center; max-width: 80%; width: fit-content;';
-        img.className = 'editor-image';
-        img.style.cssText = 'max-width: 100%; height: auto;';
-        img.parentNode?.insertBefore(wrapper, img);
-        wrapper.appendChild(img);
+    const sanitizeAndStyle = (html: string): string => {
+      if (isInternal) {
+        const tempDiv = document.createElement('div');
+        tempDiv.innerHTML = html;
+        tempDiv.querySelectorAll('.image-resize-overlay, .image-toolbar, .graph-resize-overlay, .graph-toolbar, .math-resize-overlay, .math-toolbar').forEach(uiEl => uiEl.remove());
+        return tempDiv.innerHTML;
+      }
+
+      const parser = new DOMParser();
+      const doc = parser.parseFromString(`<body>${html}</body>`, 'text/html');
+
+      doc.body.querySelectorAll('script, style, meta, title, link, head').forEach(el => el.remove());
+
+      const allowedTags = new Set(['P', 'B', 'STRONG', 'I', 'EM', 'U', 'A', 'UL', 'OL', 'LI', 'BR', 'H1', 'H2', 'H3', 'H4', 'IMG']);
+      const walker = doc.createTreeWalker(doc.body, NodeFilter.SHOW_ELEMENT);
+      const nodesToProcess = [];
+      while(walker.nextNode()) {
+        nodesToProcess.push(walker.currentNode as HTMLElement);
+      }
+
+      nodesToProcess.forEach(el => {
+        for (const attr of Array.from(el.attributes)) {
+          const attrName = attr.name.toLowerCase();
+          if (el.tagName === 'A' && attrName === 'href') continue;
+          if (el.tagName === 'IMG' && (attrName === 'src' || attrName === 'alt')) continue;
+          el.removeAttribute(attr.name);
+        }
+        
+        if (!allowedTags.has(el.tagName)) {
+          el.replaceWith(...el.childNodes);
+        }
       });
-      tempDiv.querySelectorAll('.template-block').forEach(template => { template.setAttribute('contenteditable', 'true'); template.setAttribute('data-template-inserted', 'true'); });
-      Array.from(tempDiv.childNodes).forEach(node => fragment.appendChild(node.cloneNode(true)));
-      return fragment;
+
+      const newBody = doc.createElement('body');
+      const topLevelNodes = Array.from(doc.body.childNodes);
+      let currentParagraph: HTMLParagraphElement | null = null;
+
+      topLevelNodes.forEach(node => {
+        if (node.nodeType === Node.ELEMENT_NODE && ['P', 'UL', 'OL', 'H1', 'H2', 'H3', 'H4'].includes((node as HTMLElement).tagName)) {
+          if (currentParagraph) {
+            newBody.appendChild(currentParagraph);
+            currentParagraph = null;
+          }
+          newBody.appendChild(node.cloneNode(true));
+        } else if (node.nodeType === Node.TEXT_NODE && node.textContent?.trim()) {
+          if (!currentParagraph) {
+            currentParagraph = doc.createElement('p');
+          }
+          currentParagraph.appendChild(node.cloneNode(true));
+        } else if (node.nodeType === Node.ELEMENT_NODE) {
+          if (!currentParagraph) {
+            currentParagraph = doc.createElement('p');
+          }
+          currentParagraph.appendChild(node.cloneNode(true));
+        }
+      });
+
+      if (currentParagraph) {
+        newBody.appendChild(currentParagraph);
+      }
+
+      return newBody.innerHTML;
     };
 
-    if (createChapters) {
-      htmlBlocks.forEach(block => {
-        const newPageDiv = createNewPage();
-        const newPageContent = newPageDiv.querySelector('.page-content') as HTMLElement;
-        const contentFragment = sanitizeAndStyle(block);
-        newPageContent.appendChild(contentFragment);
-        editorRef.current?.appendChild(newPageDiv);
-      });
-      const lastPage = editorRef.current.querySelector('.page:last-child');
-      lastPage?.scrollIntoView({ behavior: 'smooth', block: 'start' });
-      setTimeout(() => immediateReflow(), 100);
-
-    } else {
+    const sanitizedHtml = sanitizeAndStyle(htmlBlocks.join(''));
+    
+    const selection = window.getSelection();
+    if (!selection || selection.rangeCount === 0) {
       let target = findInsertionTarget();
       if (!target) { addNewChapter(); target = findInsertionTarget(); if (!target) return; }
-      
-      let { container: currentTargetPageContent, range } = target;
-      if (!currentTargetPageContent) return;
-
-      if (range && !range.collapsed) {
-        range.deleteContents();
-      }
-
-      const combinedHtml = htmlBlocks.join('<br>');
-      const contentFragment = sanitizeAndStyle(combinedHtml);
-      const contentChunks = Array.from(contentFragment.childNodes);
-      const availableHeight = getAvailableHeight();
-
-      for (const chunk of contentChunks) {
-        if (range) {
-          range.insertNode(chunk);
-          range.setStartAfter(chunk);
-          range.collapse(true);
-        } else {
-          currentTargetPageContent.appendChild(chunk);
-        }
-
-        const currentHeight = getContentHeight(currentTargetPageContent);
-        if (currentHeight > availableHeight) {
-          const currentPageElement = currentTargetPageContent.closest('.page') as HTMLElement;
-          
-          reflowPage(currentPageElement);
-
-          const nextPageElement = currentPageElement.nextElementSibling as HTMLElement;
-          if (nextPageElement && nextPageElement.classList.contains('page')) {
-            currentTargetPageContent = nextPageElement.querySelector('.page-content') as HTMLElement;
-            range = document.createRange();
-            range.selectNodeContents(currentTargetPageContent);
-            range.collapse(false);
-            const selection = window.getSelection();
-            selection?.removeAllRanges();
-            selection?.addRange(range);
-          }
-        }
+      if (target.range) {
+        selection?.removeAllRanges();
+        selection?.addRange(target.range);
+      } else {
+        const p = document.createElement('p');
+        p.innerHTML = '<br>';
+        target.container.appendChild(p);
+        const newRange = document.createRange();
+        newRange.setStart(p, 0);
+        selection?.removeAllRanges();
+        selection?.addRange(newRange);
       }
     }
+    
+    document.execCommand('insertHTML', false, sanitizedHtml);
 
+    if (editorRef.current) {
+      rehydrateMathBlocks(editorRef.current);
+      rehydrateGraphBlocks(editorRef.current);
+      
+      // --- FIX: Add null checks and type assertions ---
+      const currentSelection = window.getSelection();
+      if (currentSelection && currentSelection.anchorNode) {
+        const startNode = currentSelection.anchorNode;
+        const pageElement = (startNode.nodeType === Node.ELEMENT_NODE 
+          ? (startNode as HTMLElement).closest('.page')
+          : startNode.parentElement?.closest('.page')) as HTMLElement | null;
+        
+        if (pageElement) {
+          reflowPage(pageElement);
+          reflowBackwardFromPage(pageElement);
+        } else {
+          immediateReflow();
+        }
+      } else {
+        immediateReflow();
+      }
+    }
     saveToHistory(true);
     
-  }, [editorRef, saveToHistory, findInsertionTarget, addNewChapter, immediateReflow, getContentHeight, getAvailableHeight, reflowPage]);
+  }, [editorRef, saveToHistory, findInsertionTarget, addNewChapter, immediateReflow, reflowPage, reflowBackwardFromPage, rehydrateGraphBlocks, rehydrateMathBlocks]);
 
+  // ... (rest of useEditor hook remains the same) ...
   const insertTemplate = useCallback((templateHtml: string) => {
     if (!editorRef.current) return;
     saveToHistory(true);

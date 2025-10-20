@@ -1,5 +1,3 @@
-//src/components/ai/ChatAssistant.tsx
-
 "use client";
 
 import React, {
@@ -141,7 +139,6 @@ const ContentCreationLoadingSkeleton = () => (
   </div>
 );
 
-// --- MODIFICATION START: GraphPreviewComponent is now draggable ---
 const GraphPreviewComponent = ({
   graphData,
   onInsert,
@@ -167,10 +164,8 @@ const GraphPreviewComponent = ({
 
   const handleDragStart = (e: DragEvent) => {
     e.dataTransfer.effectAllowed = 'copy';
-    // Add a unique signature for the drop handler to identify this as a graph
     e.dataTransfer.setData('application/ai-graph-item', JSON.stringify(graphData));
 
-    // Create a custom drag image for a better UX
     const dragImage = document.createElement('div');
     dragImage.className = 'bg-white/90 backdrop-blur-sm rounded-lg px-4 py-2 text-sm font-medium text-blue-700 shadow-lg flex items-center gap-2 border border-gray-200';
     dragImage.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-bar-chart-3"><path d="M3 3v18h18"/><path d="M18 17V9"/><path d="M13 17V5"/><path d="M8 17v-3"/></svg> AI Generated Graph`;
@@ -184,13 +179,18 @@ const GraphPreviewComponent = ({
 
   return (
     <div 
-      className="bg-white rounded-lg mt-2 mb-1 border border-gray-200 shadow-sm max-w-full overflow-hidden cursor-grab"
-      draggable={true}
-      onDragStart={handleDragStart}
+      className="bg-white rounded-lg mt-2 mb-1 border border-gray-200 shadow-sm max-w-full overflow-hidden flex items-center gap-3 p-4"
     >
-      <div className="p-4">
+      <div 
+        draggable={true} 
+        onDragStart={handleDragStart} 
+        className="cursor-grab"
+      >
+        <GripVertical className="w-5 h-5 text-gray-400 flex-shrink-0" />
+      </div>
+      <div className="flex-1 min-w-0">
         <h4 className="font-semibold text-gray-900 text-sm mb-3">Generated Graph</h4>
-        <div className="bg-gray-50 p-2 rounded-lg mb-4 h-64"> {/* Give a fixed height for preview */}
+        <div className="bg-gray-50 p-2 rounded-lg mb-4 h-64">
           {renderChart()}
         </div>
         <button
@@ -204,7 +204,6 @@ const GraphPreviewComponent = ({
     </div>
   );
 };
-// --- MODIFICATION END ---
 
 const AIMessage = ({
   content,
@@ -234,7 +233,7 @@ const AIMessage = ({
     let workingContent = content;
     if (isStreaming) {
       const incompleteJsonMatch = content.match(/(```json\s*[\s\S]*?)$/);
-      if (incompleteJsonMatch && !incompleteJsonMatch[1].endsWith("```")) {
+      if (incompleteJsonMatch && !incompleteJsonMatch[0].endsWith("```")) {
         workingContent = content.replace(incompleteJsonMatch[1], "");
         setIsComponentLoading(true);
       } else {
@@ -393,11 +392,15 @@ const ContentCreationComponent = ({
 
   return (
     <div 
-      className="bg-white rounded-lg mt-2 mb-1 border border-gray-200 shadow-sm max-w-full overflow-hidden cursor-grab flex items-center gap-3 p-4"
-      draggable={true}
-      onDragStart={handleDragStart}
+      className="bg-white rounded-lg mt-2 mb-1 border border-gray-200 shadow-sm max-w-full overflow-hidden flex items-center gap-3 p-4"
     >
-      <GripVertical className="w-5 h-5 text-gray-400 flex-shrink-0" />
+      <div 
+        draggable={true} 
+        onDragStart={handleDragStart} 
+        className="cursor-grab"
+      >
+        <GripVertical className="w-5 h-5 text-gray-400 flex-shrink-0" />
+      </div>
       
       <div className="flex-1 min-w-0">
         <div className="flex items-center justify-between mb-3">
@@ -678,23 +681,27 @@ const ChatAssistant: React.FC<ChatAssistantProps> = ({
       }
     }
   };
+  
   const handleDragOver = (e: DragEvent) => {
-    e.preventDefault();
-    e.stopPropagation();
     if (e.dataTransfer.types.includes("application/oer-content-item")) {
+      e.preventDefault();
+      e.stopPropagation();
       setIsDropZoneActive(true);
     }
   };
   const handleDragEnter = (e: DragEvent) => {
-    e.preventDefault();
-    e.stopPropagation();
     if (e.dataTransfer.types.includes("application/oer-content-item")) {
+      e.preventDefault();
+      e.stopPropagation();
       setIsDropZoneActive(true);
     }
   };
+
   const handleDragLeave = (e: DragEvent) => {
-    e.preventDefault();
-    e.stopPropagation();
+    if (e.dataTransfer.types.includes("application/oer-content-item")) {
+      e.preventDefault();
+      e.stopPropagation();
+    }
     if (
       dropZoneRef.current &&
       !dropZoneRef.current.contains(e.relatedTarget as Node)
@@ -702,6 +709,7 @@ const ChatAssistant: React.FC<ChatAssistantProps> = ({
       setIsDropZoneActive(false);
     }
   };
+
   const handleDrop = async (e: DragEvent) => {
     e.preventDefault();
     e.stopPropagation();
@@ -811,12 +819,20 @@ const ChatAssistant: React.FC<ChatAssistantProps> = ({
 
   return (
     <div
-      className="bg-white border-l border-gray-200 flex flex-col h-full w-[480px] flex-shrink-0 shadow-lg animate-in slide-in-from-right duration-300 relative"
+      className="chat-assistant-panel bg-white border-l border-gray-200 flex flex-col h-full w-[480px] flex-shrink-0 shadow-lg animate-in slide-in-from-right duration-300 relative"
       onDragOver={handleDragOver}
       onDragEnter={handleDragEnter}
       onDragLeave={handleDragLeave}
       onDrop={handleDrop}
     >
+      {/* --- MODIFICATION: Using system highlight colors --- */}
+      <style jsx global>{`
+        .chat-assistant-panel ::selection {
+          background-color: Highlight;
+          color: HighlightText;
+        }
+      `}</style>
+
       <div
         ref={dropZoneRef}
         className={`absolute inset-0 z-50 transition-all duration-200 ${

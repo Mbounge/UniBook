@@ -127,6 +127,9 @@ const moveContentToNextPage = (
   const lastChild = children[children.length - 1] as HTMLElement;
   if (!lastChild) return false;
 
+  // RED LINE THRESHOLD - Use 950px as the absolute maximum
+  const RED_LINE_THRESHOLD = 950;
+
   if (lastChild.tagName === 'UL' || lastChild.tagName === 'OL') {
     const list = lastChild;
     const listItems = Array.from(list.children) as HTMLElement[];
@@ -138,7 +141,10 @@ const moveContentToNextPage = (
       const itemRect = item.getBoundingClientRect();
       const itemBottomRelativeToContent = itemRect.bottom - (contentAreaRect.top + paddingTop);
 
-      if (itemBottomRelativeToContent > availableContentHeight) {
+      // Use the stricter of the two: red line or available height
+      const effectiveLimit = Math.min(RED_LINE_THRESHOLD, availableContentHeight);
+      
+      if (itemBottomRelativeToContent > effectiveLimit) {
         splitItemIndex = i;
         break;
       }
@@ -160,7 +166,6 @@ const moveContentToNextPage = (
         const originalStart = parseInt(list.getAttribute('start') || '1', 10);
         nextPageList.setAttribute('start', String(originalStart + remainingItemsCount));
       }
-      // Return early to prevent paragraph logic from running on this list.
       return moved;
     }
   }
@@ -172,6 +177,16 @@ const moveContentToNextPage = (
       const nextPageFirstChild = toContent.firstElementChild as HTMLElement;
 
       if (nextPageFirstChild && nextPageFirstChild.dataset.paragraphId === paragraphId) {
+        // Preserve whitespace when merging
+        const lastText = lastChild.lastChild?.textContent || '';
+        const firstText = nextPageFirstChild.firstChild?.textContent || '';
+        
+        if (lastText && firstText &&
+            !lastText.endsWith(' ') && !lastText.endsWith('\n') &&
+            !firstText.startsWith(' ') && !firstText.startsWith('\n')) {
+          lastChild.appendChild(document.createTextNode(' '));
+        }
+        
         while (nextPageFirstChild.firstChild) {
           lastChild.appendChild(nextPageFirstChild.firstChild);
         }
@@ -195,7 +210,10 @@ const moveContentToNextPage = (
       
       const lineBottomRelativeToContentBox = lineBottom - (contentAreaRect.top + paddingTop);
       
-      if (lineBottomRelativeToContentBox > availableContentHeight) {
+      // Use the stricter threshold: RED LINE or available height
+      const effectiveLimit = Math.min(RED_LINE_THRESHOLD, availableContentHeight);
+      
+      if (lineBottomRelativeToContentBox > effectiveLimit) {
         splitLineIndex = i;
         break;
       }
@@ -210,11 +228,24 @@ const moveContentToNextPage = (
         moveRange.setStart(splitPoint.node, splitPoint.offset);
         moveRange.setEndAfter(lastChild.lastChild!);
         
+        // Check if we need to preserve whitespace at the split point
+        const textBeforeSplit = lastChild.textContent?.substring(0, splitPoint.offset) || '';
+        const textAfterSplit = moveRange.toString();
+        
         const fragmentToMove = moveRange.extractContents();
         const newParagraph = document.createElement('p');
         
         newParagraph.style.cssText = lastChild.style.cssText;
         newParagraph.className = lastChild.className;
+        
+        // Add space if needed at the split boundary
+        if (textBeforeSplit && textAfterSplit &&
+            !textBeforeSplit.endsWith(' ') && !textBeforeSplit.endsWith('\n') &&
+            !textAfterSplit.startsWith(' ') && !textAfterSplit.startsWith('\n')) {
+          // Insert space at the beginning of the moved fragment
+          const spaceNode = document.createTextNode(' ');
+          fragmentToMove.insertBefore(spaceNode, fragmentToMove.firstChild);
+        }
         
         newParagraph.appendChild(fragmentToMove);
 
@@ -294,7 +325,9 @@ const moveContentToPreviousPage = useCallback((
   
   if (!fromContent || !toContent || !fromContent.firstElementChild) return false;
 
-  
+  // RED LINE THRESHOLD - Use 950px as the absolute maximum
+  const RED_LINE_THRESHOLD = 950;
+  const effectiveLimit = Math.min(RED_LINE_THRESHOLD, availableHeight);
 
   let moved = false;
   let firstChild = fromContent.firstElementChild as HTMLElement;
@@ -307,7 +340,7 @@ const moveContentToPreviousPage = useCallback((
     if (fromListItems.length === 0) return false;
 
     const currentContentHeight = getContentHeight(toContent);
-    const remainingHeight = availableHeight - currentContentHeight;
+    const remainingHeight = effectiveLimit - currentContentHeight;
 
     const firstItemToPull = fromListItems[0];
     const itemRect = firstItemToPull.getBoundingClientRect();
@@ -323,59 +356,104 @@ const moveContentToPreviousPage = useCallback((
       if (fromList.tagName === 'OL' && fromList.hasAttribute('start')) {
         fromList.removeAttribute('start');
       }
-      // Return early to prevent paragraph logic from running on this list.
       return moved;
     }
   }
 
+  // Handle split paragraphs - check if they share the same paragraph ID
   if (lastChildOnToPage && 
       lastChildOnToPage.tagName === 'P' && 
-      lastChildOnToPage.dataset.splitPoint === 'start' &&
+      lastChildOnToPage.dataset.paragraphId &&
       firstChild.tagName === 'P' && 
       firstChild.dataset.paragraphId === lastChildOnToPage.dataset.paragraphId) {
     
     const currentContentHeight = getContentHeight(toContent);
-    const remainingHeight = availableHeight - currentContentHeight;
-    const lineInfo = measureLineHeights(firstChild);
+    const remainingHeight = effectiveLimit - currentContentHeight;
     
-    let linesToPull = 0;
-    let accumulatedHeight = 0;
-    
-    for (let i = 0; i < lineInfo.length; i++) {
-      if (accumulatedHeight + lineInfo[i].lineHeight <= remainingHeight) {
-        linesToPull++;
-        accumulatedHeight += lineInfo[i].lineHeight;
-      } else {
-        break;
+    if (remainingHeight > 25) {
+      const lineInfo = measureLineHeights(firstChild);
+      
+      let linesToPull = 0;
+      let accumulatedHeight = 0;
+      
+      for (let i = 0; i < lineInfo.length; i++) {
+        // Check if adding this line would exceed the red line
+        if (currentContentHeight + accumulatedHeight + lineInfo[i].lineHeight <= effectiveLimit) {
+          linesToPull++;
+          accumulatedHeight += lineInfo[i].lineHeight;
+        } else {
+          break;
+        }
       }
-    }
 
-    if (linesToPull > 0) {
-      moved = true;
+      if (linesToPull > 0) {
+        moved = true;
 
-      if (linesToPull === lineInfo.length) {
-        while (firstChild.firstChild) {
-          lastChildOnToPage.appendChild(firstChild.firstChild);
-        }
-        firstChild.remove();
-        
-        const nextPiece = fromContent.firstElementChild as HTMLElement;
-        if (!nextPiece || nextPiece.dataset.paragraphId !== lastChildOnToPage.dataset.paragraphId) {
-          lastChildOnToPage.removeAttribute('data-split-point');
-          lastChildOnToPage.removeAttribute('data-paragraph-id');
-        }
-
-      } else {
-        const splitLineTop = lineInfo[linesToPull].lineTop;
-        const splitPoint = findLineStartOffset(firstChild, splitLineTop);
-        
-        if (splitPoint) {
-          const rangeToMove = document.createRange();
-          rangeToMove.setStart(firstChild.firstChild!, 0);
-          rangeToMove.setEnd(splitPoint.node, splitPoint.offset);
+        if (linesToPull === lineInfo.length) {
+          // Pull ALL content - ensure we preserve whitespace
+          const lastTextNode = lastChildOnToPage.lastChild;
+          const firstTextNode = firstChild.firstChild;
           
-          const fragmentToMove = rangeToMove.extractContents();
-          lastChildOnToPage.appendChild(fragmentToMove);
+          // Add space if needed to preserve word boundaries
+          if (lastTextNode && firstTextNode) {
+            const lastText = lastTextNode.textContent || '';
+            const firstText = firstTextNode.textContent || '';
+            
+            if (lastText && firstText &&
+                !lastText.endsWith(' ') && !lastText.endsWith('\n') &&
+                !firstText.startsWith(' ') && !firstText.startsWith('\n')) {
+              lastChildOnToPage.appendChild(document.createTextNode(' '));
+            }
+          }
+          
+          while (firstChild.firstChild) {
+            lastChildOnToPage.appendChild(firstChild.firstChild);
+          }
+          firstChild.remove();
+          
+          // Normalize to merge adjacent text nodes
+          lastChildOnToPage.normalize();
+          
+          const nextPiece = fromContent.firstElementChild as HTMLElement;
+          if (!nextPiece || nextPiece.dataset.paragraphId !== lastChildOnToPage.dataset.paragraphId) {
+            lastChildOnToPage.removeAttribute('data-split-point');
+            lastChildOnToPage.removeAttribute('data-paragraph-id');
+          }
+
+        } else {
+          // Pull partial content
+          const splitLineTop = lineInfo[linesToPull].lineTop;
+          const splitPoint = findLineStartOffset(firstChild, splitLineTop);
+          
+          if (splitPoint) {
+            const rangeToMove = document.createRange();
+            rangeToMove.setStart(firstChild.firstChild!, 0);
+            rangeToMove.setEnd(splitPoint.node, splitPoint.offset);
+            
+            // Check if we need to add space before extracting
+            const lastText = lastChildOnToPage.lastChild?.textContent || '';
+            const textToMove = rangeToMove.toString();
+            
+            const fragmentToMove = rangeToMove.extractContents();
+            
+            // Add space if needed at the boundary
+            if (lastText && textToMove &&
+                !lastText.endsWith(' ') && !lastText.endsWith('\n') &&
+                !textToMove.startsWith(' ') && !textToMove.startsWith('\n')) {
+              lastChildOnToPage.appendChild(document.createTextNode(' '));
+            }
+            
+            lastChildOnToPage.appendChild(fragmentToMove);
+            
+            // Normalize to merge adjacent text nodes
+            lastChildOnToPage.normalize();
+          }
+        }
+        
+        // Verify we didn't exceed the red line
+        const finalHeight = getContentHeight(toContent);
+        if (finalHeight > effectiveLimit) {
+          console.warn('Content exceeded red line during backward reflow, may need adjustment');
         }
       }
     }
@@ -383,7 +461,7 @@ const moveContentToPreviousPage = useCallback((
   }
 
   const currentContentHeight = getContentHeight(toContent);
-  const remainingHeight = availableHeight - currentContentHeight;
+  const remainingHeight = effectiveLimit - currentContentHeight;
 
   if (remainingHeight < 5) return false;
 
@@ -397,7 +475,8 @@ const moveContentToPreviousPage = useCallback((
     let accumulatedHeight = 0;
     
     for (let i = 0; i < lineInfo.length; i++) {
-      if (accumulatedHeight + lineInfo[i].lineHeight <= remainingHeight) {
+      // Check if adding this line would exceed the red line
+      if (currentContentHeight + accumulatedHeight + lineInfo[i].lineHeight <= effectiveLimit) {
         linesToPull++;
         accumulatedHeight += lineInfo[i].lineHeight;
       } else {
@@ -406,8 +485,12 @@ const moveContentToPreviousPage = useCallback((
     }
 
     if (linesToPull === lineInfo.length) {
-      toContent.appendChild(firstChild);
-      moved = true;
+      // Only move entire paragraph if it fits within the red line
+      const paragraphHeight = firstChild.getBoundingClientRect().height;
+      if (currentContentHeight + paragraphHeight <= effectiveLimit) {
+        toContent.appendChild(firstChild);
+        moved = true;
+      }
     } else if (linesToPull > 0) {
       const splitLineTop = lineInfo[linesToPull].lineTop;
       const splitPoint = findLineStartOffset(firstChild, splitLineTop);
@@ -417,11 +500,26 @@ const moveContentToPreviousPage = useCallback((
         rangeToMove.setStart(firstChild.firstChild!, 0);
         rangeToMove.setEnd(splitPoint.node, splitPoint.offset);
         
+        // Get text before and after split
+        const textToMove = rangeToMove.toString();
+        const remainingText = firstChild.textContent?.substring(splitPoint.offset) || '';
+        
         const fragmentToMove = rangeToMove.extractContents();
         const newParagraph = document.createElement('p');
         newParagraph.style.cssText = firstChild.style.cssText;
         newParagraph.className = firstChild.className;
+        
+        // Add space at the split boundary if needed
+        if (textToMove && remainingText &&
+            !textToMove.endsWith(' ') && !textToMove.endsWith('\n') &&
+            !remainingText.startsWith(' ') && !remainingText.startsWith('\n')) {
+          fragmentToMove.appendChild(document.createTextNode(' '));
+        }
+        
         newParagraph.appendChild(fragmentToMove);
+        
+        // Normalize to merge adjacent text nodes
+        newParagraph.normalize();
         
         const newId = `para-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
         newParagraph.setAttribute('data-paragraph-id', newId);
@@ -431,11 +529,18 @@ const moveContentToPreviousPage = useCallback((
         
         toContent.appendChild(newParagraph);
         moved = true;
+        
+        // Verify we didn't exceed the red line
+        const finalHeight = getContentHeight(toContent);
+        if (finalHeight > effectiveLimit) {
+          console.warn('Content exceeded red line during backward reflow, may need adjustment');
+        }
       }
     }
   } else {
     const firstChildRect = firstChild.getBoundingClientRect();
-    if (firstChildRect.height < remainingHeight) {
+    // Only move if it fits within the red line
+    if (currentContentHeight + firstChildRect.height <= effectiveLimit) {
       toContent.appendChild(firstChild);
       moved = true;
     }
@@ -577,31 +682,32 @@ const moveContentToPreviousPage = useCallback((
   }, [containerRef, getContentHeight, getAvailableHeight, reflowBackwardFromPage, saveToHistory, DEFAULT_OPTIONS]);
 
   const reflowSplitParagraph = useCallback((paragraphId: string): boolean => {
-    if (!containerRef.current || isReflowingRef.current) return false;
+  if (!containerRef.current || isReflowingRef.current) return false;
 
-    isReflowingRef.current = true;
+  isReflowingRef.current = true;
 
-    const allPieces = Array.from(
-      containerRef.current.querySelectorAll(`p[data-paragraph-id="${paragraphId}"]`)
-    ) as HTMLElement[];
+  const allPieces = Array.from(
+    containerRef.current.querySelectorAll(`p[data-paragraph-id="${paragraphId}"]`)
+  ) as HTMLElement[];
 
-    if (allPieces.length === 0) {
-      isReflowingRef.current = false;
-      return false;
-    }
-
-    const firstPiece = allPieces[0];
-    const startPage = firstPiece.closest('.page') as HTMLElement;
-
-    if (startPage) {
-      reflowBackwardFromPage(startPage);
-    }
-
+  if (allPieces.length === 0) {
     isReflowingRef.current = false;
-    
-    // The reflowBackwardFromPage function now handles its own history saving.
-    return true; 
-  }, [containerRef, reflowBackwardFromPage]);
+    return false;
+  }
+
+  const firstPiece = allPieces[0];
+  const startPage = firstPiece.closest('.page') as HTMLElement;
+
+  if (startPage) {
+    // Use backward reflow to intelligently merge what fits
+    reflowBackwardFromPage(startPage);
+  }
+
+  isReflowingRef.current = false;
+  
+  // The reflowBackwardFromPage function now handles its own history saving.
+  return true; 
+}, [containerRef, reflowBackwardFromPage]);
 
   const scheduleReflow = useCallback((delay: number = 100) => {
     if (reflowTimeoutRef.current) {

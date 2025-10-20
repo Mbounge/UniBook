@@ -4,7 +4,7 @@
 
 import React, { useEffect, useRef, useState, useCallback } from 'react';
 
-// --- HELPER FUNCTIONS ---
+// --- HELPER FUNCTIONS (unchanged) ---
 const getFloatIcon = (type: string) => {
   const icons = {
     left: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="17" y1="10" x2="3" y2="10"></line><line x1="21" y1="6" x2="3" y2="6"></line><line x1="21" y1="14" x2="3" y2="14"></line><line x1="17" y1="18" x2="3" y2="18"></line></svg>',
@@ -24,8 +24,9 @@ const getDeleteIcon = () => `<svg width="16" height="16" viewBox="0 0 24 24" fil
 interface ImageResizerProps {
   pageContainerRef: React.RefObject<HTMLDivElement | null>;
   saveToHistory: (force?: boolean) => void;
-  selectedImageElement?: HTMLImageElement | null;
-  onImageSelect?: (image: HTMLImageElement | null) => void;
+  // --- MODIFICATION: Make props generic ---
+  selectedElement?: HTMLElement | null;
+  onElementSelect?: (element: HTMLElement | null) => void;
 }
 
 type ImageFloat = 'none' | 'left' | 'right' | 'center';
@@ -33,15 +34,15 @@ type ImageFloat = 'none' | 'left' | 'right' | 'center';
 export const ImageResizer: React.FC<ImageResizerProps> = ({ 
   pageContainerRef,
   saveToHistory, 
-  selectedImageElement,
-  onImageSelect 
+  selectedElement,
+  onElementSelect 
 }) => {
   const [selection, setSelection] = useState<HTMLElement | null>(null);
   const [isResizing, setIsResizing] = useState(false);
   
   const selectionRef = useRef<HTMLElement | null>(null);
   const isResizingRef = useRef(false);
-  const propsRef = useRef({ saveToHistory, onImageSelect });
+  const propsRef = useRef({ saveToHistory, onElementSelect });
 
   const resizeHandleRef = useRef<string | null>(null);
   const resizeStart = useRef({ width: 0, height: 0, x: 0, y: 0, aspectRatio: 1 });
@@ -54,8 +55,8 @@ export const ImageResizer: React.FC<ImageResizerProps> = ({
   }>({ float: 'none', hasCaption: false });
 
   useEffect(() => {
-    propsRef.current = { saveToHistory, onImageSelect };
-  }, [saveToHistory, onImageSelect]);
+    propsRef.current = { saveToHistory, onElementSelect };
+  }, [saveToHistory, onElementSelect]);
 
   useEffect(() => {
     selectionRef.current = selection;
@@ -66,11 +67,12 @@ export const ImageResizer: React.FC<ImageResizerProps> = ({
   }, [isResizing]);
 
   useEffect(() => {
-    //console.log("[ImageResizer] selectedImageElement prop changed:", selectedImageElement);
-    const newSelection = selectedImageElement ? selectedImageElement.closest('.image-wrapper, .template-wrapper') as HTMLElement : null;
+    // --- MODIFICATION: Use generic selectedElement prop ---
+    const newSelection = selectedElement ? selectedElement.closest('.image-wrapper, .template-wrapper') as HTMLElement : null;
     setSelection(newSelection);
-  }, [selectedImageElement]);
+  }, [selectedElement]);
 
+  // ... (rest of the component is unchanged) ...
   const applyButtonStates = useCallback((element: HTMLElement, force: boolean = false) => {
     const toolbar = element.querySelector('.image-toolbar, .template-toolbar');
     if (!toolbar) return;
@@ -149,7 +151,6 @@ export const ImageResizer: React.FC<ImageResizerProps> = ({
 
   const cleanupControls = useCallback((element: HTMLElement | null) => {
     if (!element || !document.body.contains(element)) return;
-    //console.log("[ImageResizer] Cleaning up controls for:", element);
     disconnectCaptionListener();
     const overlay = element.querySelector('.image-resize-overlay, .template-resize-overlay');
     const toolbar = element.querySelector('.image-toolbar, .template-toolbar');
@@ -161,7 +162,6 @@ export const ImageResizer: React.FC<ImageResizerProps> = ({
 
   const createControls = useCallback((element: HTMLElement) => {
     if (element.querySelector('.image-resize-overlay, .template-resize-overlay')) return;
-    //console.log("[ImageResizer] Creating controls for:", element);
     const isImage = element.classList.contains('image-wrapper');
     const isTemplate = element.classList.contains('template-wrapper');
 
@@ -374,7 +374,7 @@ export const ImageResizer: React.FC<ImageResizerProps> = ({
         } else if (actionButton.hasAttribute('data-delete-button')) {
           currentSelection.remove();
           setSelection(null);
-          propsRef.current.onImageSelect?.(null);
+          propsRef.current.onElementSelect?.(null);
           propsRef.current.saveToHistory(true);
         } else if (actionButton.hasAttribute('data-float-type')) {
           const floatType = actionButton.getAttribute('data-float-type') as ImageFloat;
