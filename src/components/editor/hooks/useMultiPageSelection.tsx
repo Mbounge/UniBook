@@ -16,7 +16,7 @@ export interface CustomSelection {
   endPage: number;
 }
 
-// Helper function to get rects for a single, contiguous range.
+
 const getRectsWithinRange = (range: Range): DOMRect[] => {
   const rects: DOMRect[] = [];
   const selector = 'p, h1, h2, h3, h4, li, blockquote, pre, .image-wrapper, .graph-wrapper, .math-wrapper, .template-wrapper';
@@ -47,7 +47,7 @@ const getRectsWithinRange = (range: Range): DOMRect[] => {
     rects.push(...Array.from(intersectionRange.getClientRects()));
   }
   
-  // If no block elements were found, fall back to the basic method
+ 
   if (rects.length === 0) {
     rects.push(...Array.from(range.getClientRects()));
   }
@@ -55,7 +55,6 @@ const getRectsWithinRange = (range: Range): DOMRect[] => {
   return rects.filter(r => r.width > 0 && r.height > 0);
 };
 
-// --- REWRITTEN: Page-aware function to get rects for the entire custom selection ---
 const getPreciseRectsForSelection = (
   selection: CustomSelection | null,
   container: HTMLElement | null
@@ -66,6 +65,11 @@ const getPreciseRectsForSelection = (
   const allPages = Array.from(container.querySelectorAll<HTMLElement>('.page-content'));
   const finalRects: DOMRect[] = [];
 
+  if (!document.body.contains(start.node) || !document.body.contains(end.node)) {
+    console.warn("getPreciseRectsForSelection: Stale selection node detected. Aborting.");
+    return [];
+  }
+
   const minPage = Math.min(startPage, endPage);
   const maxPage = Math.max(startPage, endPage);
 
@@ -75,23 +79,43 @@ const getPreciseRectsForSelection = (
 
     const pageRange = document.createRange();
 
-    // Determine the start point for this page's range
-    if (i === startPage) {
-      pageRange.setStart(start.node, start.offset);
-    } else {
-      pageRange.setStart(pageContent, 0);
-    }
+    try {
+      
+      if (i === startPage) {
+       
+        const startNodeLength = start.node.textContent?.length ?? 0;
+        if (start.offset > startNodeLength) {
+          console.warn(`Correcting stale start offset: ${start.offset} > ${startNodeLength}`);
+          pageRange.setStart(start.node, startNodeLength);
+        } else {
+          pageRange.setStart(start.node, start.offset);
+        }
+      } else {
+        pageRange.setStart(pageContent, 0);
+      }
 
-    // Determine the end point for this page's range
-    if (i === endPage) {
-      pageRange.setEnd(end.node, end.offset);
-    } else {
-      pageRange.setEnd(pageContent, pageContent.childNodes.length);
-    }
+     
+      if (i === endPage) {
+        
+        const endNodeLength = end.node.textContent?.length ?? 0;
+        if (end.offset > endNodeLength) {
+          console.warn(`Correcting stale end offset: ${end.offset} > ${endNodeLength}`);
+          pageRange.setEnd(end.node, endNodeLength);
+        } else {
+          pageRange.setEnd(end.node, end.offset);
+        }
+      } else {
+        pageRange.setEnd(pageContent, pageContent.childNodes.length);
+      }
 
-    // Get rectangles for this specific page's portion of the selection
-    const pageRects = getRectsWithinRange(pageRange);
-    finalRects.push(...pageRects);
+      const pageRects = getRectsWithinRange(pageRange);
+      finalRects.push(...pageRects);
+
+    } catch (error) {
+      console.error("Error creating range in getPreciseRectsForSelection:", error, { startNode: start.node, startOffset: start.offset, endNode: end.node, endOffset: end.offset });
+      // Continue to the next page if this one fails
+      continue;
+    }
   }
 
   return finalRects;
@@ -114,23 +138,23 @@ const mergeRects = (rects: DOMRect[]): DOMRect[] => {
   for (const rect of sortedRects) {
     let wasMerged = false;
     
-    // Try to merge with existing rectangles
+    
     for (let i = 0; i < merged.length; i++) {
       const existingRect = merged[i];
       
-      // Check if rectangles are on the same line (similar vertical position)
+      
       const onSameLine = Math.abs(rect.top - existingRect.top) < 5 && 
                          Math.abs(rect.height - existingRect.height) < 5;
       
       if (onSameLine) {
-        // Check for horizontal overlap or proximity
+       
         const horizontalOverlap = !(rect.right < existingRect.left || rect.left > existingRect.right);
         const horizontalGap = horizontalOverlap ? 0 : Math.min(
           Math.abs(rect.left - existingRect.right),
           Math.abs(existingRect.left - rect.right)
         );
         
-        // Merge if overlapping or very close (within 15px)
+        
         if (horizontalOverlap || horizontalGap < 15) {
           const newLeft = Math.min(existingRect.left, rect.left);
           const newRight = Math.max(existingRect.right, rect.right);
@@ -149,12 +173,12 @@ const mergeRects = (rects: DOMRect[]): DOMRect[] => {
         }
       }
       
-      // Check for complete vertical overlap (one rect contains the other)
+      
       const verticalOverlap = !(rect.bottom < existingRect.top || rect.top > existingRect.bottom);
       const horizontalOverlap = !(rect.right < existingRect.left || rect.left > existingRect.right);
       
       if (verticalOverlap && horizontalOverlap) {
-        // These rectangles overlap in 2D space - merge them
+       
         const newLeft = Math.min(existingRect.left, rect.left);
         const newRight = Math.max(existingRect.right, rect.right);
         const newTop = Math.min(existingRect.top, rect.top);
@@ -177,7 +201,7 @@ const mergeRects = (rects: DOMRect[]): DOMRect[] => {
     }
   }
 
-  // Second pass: merge any remaining overlaps
+  
   const finalMerged: DOMRect[] = [];
   
   for (const rect of merged) {

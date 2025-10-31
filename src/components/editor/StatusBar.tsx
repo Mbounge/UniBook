@@ -1,33 +1,33 @@
-//src/components/editor/StatusBar.tsx
-
 'use client';
 
 import React, { useState, useEffect } from 'react';
 import { FileText, ChevronLeft, ChevronRight } from 'lucide-react';
 
 interface StatusBarProps {
-  currentChapter: number;
-  totalChapters: number;
-  onChapterChange: (chapter: number) => void;
+  // --- RENAMED: Props from chapter to page ---
+  currentPage: number;
+  totalPages: number;
+  onPageChange: (page: number) => void;
   isContentHubOpen: boolean;
   isHubExpanded: boolean;
 }
 
 export const StatusBar: React.FC<StatusBarProps> = ({ 
-  currentChapter, 
-  totalChapters, 
-  onChapterChange,
+  // --- RENAMED: Props from chapter to page ---
+  currentPage, 
+  totalPages, 
+  onPageChange,
   isContentHubOpen,
   isHubExpanded
 }) => {
-  const [inputValue, setInputValue] = useState(currentChapter.toString());
+  const [inputValue, setInputValue] = useState(currentPage.toString());
   const [isFocused, setIsFocused] = useState(false);
 
   useEffect(() => {
     if (!isFocused) {
-      setInputValue(currentChapter.toString());
+      setInputValue(currentPage.toString());
     }
-  }, [currentChapter, isFocused]);
+  }, [currentPage, isFocused]);
 
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     setInputValue(e.target.value);
@@ -35,22 +35,25 @@ export const StatusBar: React.FC<StatusBarProps> = ({
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
     if (e.key === 'Enter') {
-      const chapterNum = parseInt(inputValue, 10);
-      if (!isNaN(chapterNum) && chapterNum >= 1 && chapterNum <= totalChapters) {
-        onChapterChange(chapterNum);
+      const pageNum = parseInt(inputValue, 10);
+      if (!isNaN(pageNum) && pageNum >= 1 && pageNum <= totalPages) {
+        // --- RENAMED: Call onPageChange ---
+        onPageChange(pageNum);
       } else {
-        setInputValue(currentChapter.toString());
+        setInputValue(currentPage.toString());
       }
       e.currentTarget.blur();
     }
   };
 
-  const goToPrevChapter = () => {
-    if (currentChapter > 1) onChapterChange(currentChapter - 1);
+  // --- RENAMED: Function from goToPrevChapter to goToPrevPage ---
+  const goToPrevPage = () => {
+    if (currentPage > 1) onPageChange(currentPage - 1);
   };
 
-  const goToNextChapter = () => {
-    if (currentChapter < totalChapters) onChapterChange(currentChapter + 1);
+  // --- RENAMED: Function from goToNextChapter to goToNextPage ---
+  const goToNextPage = () => {
+    if (currentPage < totalPages) onPageChange(currentPage + 1);
   };
 
   const calculateRightPosition = () => {
@@ -67,10 +70,12 @@ export const StatusBar: React.FC<StatusBarProps> = ({
     >
       <div className="flex items-center px-3 py-2">
         <button 
-          onClick={goToPrevChapter}
-          disabled={currentChapter <= 1}
+          // --- RENAMED: Call goToPrevPage ---
+          onClick={goToPrevPage}
+          disabled={currentPage <= 1}
           className="w-0 opacity-0 group-hover:w-8 group-hover:opacity-100 disabled:opacity-30 disabled:cursor-not-allowed transition-all duration-300 flex items-center justify-center"
-          aria-label="Previous Chapter"
+          // --- MODIFIED: UI Text ---
+          aria-label="Previous Page"
         >
           <ChevronLeft className="w-5 h-5" />
         </button>
@@ -87,14 +92,17 @@ export const StatusBar: React.FC<StatusBarProps> = ({
             onBlur={() => setIsFocused(false)}
             className="w-10 text-center mx-1.5 bg-gray-50/50 border-b-2 border-transparent rounded-md focus:outline-none focus:bg-white focus:border-blue-500 transition-all duration-200"
           />
-          <span className="font-medium text-gray-500">of {totalChapters}</span>
+          {/* --- RENAMED: Use totalPages prop --- */}
+          <span className="font-medium text-gray-500">of {totalPages}</span>
         </div>
 
         <button 
-          onClick={goToNextChapter}
-          disabled={currentChapter >= totalChapters}
+          // --- RENAMED: Call goToNextPage ---
+          onClick={goToNextPage}
+          disabled={currentPage >= totalPages}
           className="w-0 opacity-0 group-hover:w-8 group-hover:opacity-100 disabled:opacity-30 disabled:cursor-not-allowed transition-all duration-300 flex items-center justify-center"
-          aria-label="Next Chapter"
+          // --- MODIFIED: UI Text ---
+          aria-label="Next Page"
         >
           <ChevronRight className="w-5 h-5" />
         </button>

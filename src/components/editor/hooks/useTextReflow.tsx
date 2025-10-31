@@ -1,5 +1,3 @@
-//src/components/editor/hooks/useTextReflow.tsx
-
 'use client';
 
 import { useCallback, useRef } from 'react';
@@ -94,19 +92,6 @@ const getUniqueLineTops = (rects: DOMRectList | DOMRect[]): number[] => {
   return Array.from(tops).sort((a, b) => a - b);
 };
 
-const measureLineHeights = (paragraph: HTMLElement): { lineTop: number; lineHeight: number }[] => {
-  const range = document.createRange();
-  range.selectNodeContents(paragraph);
-  const lineRects = Array.from(range.getClientRects());
-  const lineTops = getUniqueLineTops(lineRects);
-  
-  return lineTops.map(lineTop => {
-    const lineRectsForThisLine = lineRects.filter(r => Math.round(r.top) === lineTop);
-    const lineHeight = Math.max(...lineRectsForThisLine.map(r => r.bottom)) - lineTop;
-    return { lineTop, lineHeight };
-  });
-};
-
 const moveContentToNextPage = (
   fromPage: HTMLElement, 
   toPage: HTMLElement, 
@@ -117,32 +102,37 @@ const moveContentToNextPage = (
   
   if (!fromContent || !toContent) return false;
 
-  let moved = false;
   const children = Array.from(fromContent.children);
-  
-  const contentAreaRect = fromContent.getBoundingClientRect();
-  const computedStyle = window.getComputedStyle(fromContent);
-  const paddingTop = parseFloat(computedStyle.paddingTop);
+  if (children.length === 0) return false;
 
   const lastChild = children[children.length - 1] as HTMLElement;
   if (!lastChild) return false;
 
-  // RED LINE THRESHOLD - Use 950px as the absolute maximum
-  const RED_LINE_THRESHOLD = 950;
+  if (children.length === 1) {
+    toContent.insertBefore(lastChild, toContent.firstChild);
+    return true;
+  }
+
+  const contentAreaRect = fromContent.getBoundingClientRect();
+  const computedStyle = window.getComputedStyle(fromContent);
+  const paddingTop = parseFloat(computedStyle.paddingTop);
+  
+  const SAFETY_BUFFER = 10;
+  const effectiveLimit = availableContentHeight - SAFETY_BUFFER;
 
   if (lastChild.tagName === 'UL' || lastChild.tagName === 'OL') {
     const list = lastChild;
     const listItems = Array.from(list.children) as HTMLElement[];
-    if (listItems.length === 0) return false;
+    if (listItems.length === 0) {
+        toContent.insertBefore(lastChild, toContent.firstChild);
+        return true;
+    }
 
     let splitItemIndex = -1;
     for (let i = 0; i < listItems.length; i++) {
       const item = listItems[i];
       const itemRect = item.getBoundingClientRect();
       const itemBottomRelativeToContent = itemRect.bottom - (contentAreaRect.top + paddingTop);
-
-      // Use the stricter of the two: red line or available height
-      const effectiveLimit = Math.min(RED_LINE_THRESHOLD, availableContentHeight);
       
       if (itemBottomRelativeToContent > effectiveLimit) {
         splitItemIndex = i;
@@ -159,136 +149,79 @@ const moveContentToNextPage = (
 
       const itemsToMove = listItems.slice(splitItemIndex);
       itemsToMove.forEach(item => nextPageList.insertBefore(item, nextPageList.firstChild));
-      moved = true;
 
       if (list.tagName === 'OL') {
         const remainingItemsCount = list.children.length;
         const originalStart = parseInt(list.getAttribute('start') || '1', 10);
         nextPageList.setAttribute('start', String(originalStart + remainingItemsCount));
       }
-      return moved;
+      return true;
     }
   }
 
   if (lastChild.tagName === 'P' && lastChild.textContent?.trim()) {
-    const paragraphId = lastChild.dataset.paragraphId;
-    
-    if (paragraphId) {
-      const nextPageFirstChild = toContent.firstElementChild as HTMLElement;
-
-      if (nextPageFirstChild && nextPageFirstChild.dataset.paragraphId === paragraphId) {
-        // Preserve whitespace when merging
-        const lastText = lastChild.lastChild?.textContent || '';
-        const firstText = nextPageFirstChild.firstChild?.textContent || '';
+      const range = document.createRange();
+      range.selectNodeContents(lastChild);
+      const lineRects = Array.from(range.getClientRects());
+      const lineTops = getUniqueLineTops(lineRects);
+      
+      let firstOverflowLineIndex = -1;
+      for (let i = 0; i < lineTops.length; i++) {
+        const lineTop = lineTops[i];
+        const rectsForThisLine = lineRects.filter(r => Math.round(r.top) === lineTop);
+        const lineBottom = Math.max(...rectsForThisLine.map(r => r.bottom));
+        const lineBottomRelativeToContentBox = lineBottom - (contentAreaRect.top + paddingTop);
         
-        if (lastText && firstText &&
-            !lastText.endsWith(' ') && !lastText.endsWith('\n') &&
-            !firstText.startsWith(' ') && !firstText.startsWith('\n')) {
-          lastChild.appendChild(document.createTextNode(' '));
+        if (lineBottomRelativeToContentBox > effectiveLimit) {
+          firstOverflowLineIndex = i;
+          break;
         }
-        
-        while (nextPageFirstChild.firstChild) {
-          lastChild.appendChild(nextPageFirstChild.firstChild);
-        }
-        nextPageFirstChild.remove();
       }
-    }
 
-    const range = document.createRange();
-    range.selectNodeContents(lastChild);
-    const lineRects = Array.from(range.getClientRects());
-    
-    if (lineRects.length === 0) return false;
+      if (firstOverflowLineIndex > 0) {
+        const overflowLineTop = lineTops[firstOverflowLineIndex];
+        const splitPoint = findLineStartOffset(lastChild, overflowLineTop);
 
-    const lineTops = getUniqueLineTops(lineRects);
-    
-    let splitLineIndex = -1;
-    for (let i = 0; i < lineTops.length; i++) {
-      const lineTop = lineTops[i];
-      const lineRectsForThisLine = lineRects.filter(r => Math.round(r.top) === lineTop);
-      const lineBottom = Math.max(...lineRectsForThisLine.map(r => r.bottom));
-      
-      const lineBottomRelativeToContentBox = lineBottom - (contentAreaRect.top + paddingTop);
-      
-      // Use the stricter threshold: RED LINE or available height
-      const effectiveLimit = Math.min(RED_LINE_THRESHOLD, availableContentHeight);
-      
-      if (lineBottomRelativeToContentBox > effectiveLimit) {
-        splitLineIndex = i;
-        break;
-      }
-    }
-
-    if (splitLineIndex > 0) {
-      const overflowLineTop = lineTops[splitLineIndex];
-      const splitPoint = findLineStartOffset(lastChild, overflowLineTop);
-      
-      if (splitPoint) {
-        const moveRange = document.createRange();
-        moveRange.setStart(splitPoint.node, splitPoint.offset);
-        moveRange.setEndAfter(lastChild.lastChild!);
-        
-        // Check if we need to preserve whitespace at the split point
-        const textBeforeSplit = lastChild.textContent?.substring(0, splitPoint.offset) || '';
-        const textAfterSplit = moveRange.toString();
-        
-        const fragmentToMove = moveRange.extractContents();
-        const newParagraph = document.createElement('p');
-        
-        newParagraph.style.cssText = lastChild.style.cssText;
-        newParagraph.className = lastChild.className;
-        
-        // Add space if needed at the split boundary
-        if (textBeforeSplit && textAfterSplit &&
-            !textBeforeSplit.endsWith(' ') && !textBeforeSplit.endsWith('\n') &&
-            !textAfterSplit.startsWith(' ') && !textAfterSplit.startsWith('\n')) {
-          // Insert space at the beginning of the moved fragment
-          const spaceNode = document.createTextNode(' ');
-          fragmentToMove.insertBefore(spaceNode, fragmentToMove.firstChild);
-        }
-        
-        newParagraph.appendChild(fragmentToMove);
-
-        const existingId = lastChild.dataset.paragraphId;
-        const isAlreadySplit = !!existingId;
-
-        if (isAlreadySplit) {
-          newParagraph.setAttribute('data-paragraph-id', existingId);
-          newParagraph.setAttribute('data-split-point', 'end');
-          lastChild.setAttribute('data-split-point', 'start');
+        if (splitPoint) {
+          const moveRange = document.createRange();
+          moveRange.setStart(splitPoint.node, splitPoint.offset);
+          moveRange.setEndAfter(lastChild.lastChild!);
           
-          const nextPiece = toContent.firstElementChild as HTMLElement;
-          if (nextPiece && nextPiece.dataset.paragraphId === existingId) {
-            newParagraph.setAttribute('data-split-point', 'middle');
+          const fragmentToMove = moveRange.extractContents();
+          const existingId = lastChild.dataset.paragraphId || `para-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+          lastChild.dataset.paragraphId = existingId;
+          lastChild.dataset.splitPoint = 'start';
+          
+          // --- MODIFICATION: Let CSS handle padding ---
+          lastChild.style.marginBottom = '0px';
+          // (lastChild.style as any).paddingBottom = '0'; // REMOVED THIS LINE
+
+          const firstChildOnNextPage = toContent.firstElementChild as HTMLElement;
+          if (firstChildOnNextPage && firstChildOnNextPage.dataset.paragraphId === existingId) {
+            firstChildOnNextPage.insertBefore(fragmentToMove, firstChildOnNextPage.firstChild);
+            if (lastChild.textContent && !/\s$/.test(lastChild.textContent) && firstChildOnNextPage.textContent && !/^\s/.test(firstChildOnNextPage.textContent)) {
+                const space = document.createTextNode(' ');
+                lastChild.appendChild(space);
+            }
+          } else {
+            const newParagraph = document.createElement('p');
+            newParagraph.style.cssText = lastChild.style.cssText;
+            if (lastChild.className) newParagraph.className = lastChild.className;
+            newParagraph.dataset.paragraphId = existingId;
+            newParagraph.dataset.splitPoint = 'end';
+            newParagraph.appendChild(fragmentToMove);
+            toContent.insertBefore(newParagraph, toContent.firstChild);
           }
-        } else {
-          const newId = `para-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
-          lastChild.setAttribute('data-paragraph-id', newId);
-          lastChild.setAttribute('data-split-point', 'start');
-          newParagraph.setAttribute('data-paragraph-id', newId);
-          newParagraph.setAttribute('data-split-point', 'end');
+          
+          console.log(`[Reflow Debug] Successfully split paragraph, leaving ${firstOverflowLineIndex} line(s) behind.`);
+          return true;
         }
-        
-        toContent.insertBefore(newParagraph, toContent.firstChild);
-        moved = true;
       }
-    } else if (splitLineIndex === 0) {
-      toContent.insertBefore(lastChild, toContent.firstChild);
-      moved = true;
-    } else {
-      if (paragraphId) {
-        lastChild.removeAttribute('data-paragraph-id');
-        lastChild.removeAttribute('data-split-point');
-      }
-    }
-    
-    return moved;
   }
   
+  console.log(`[Reflow Debug] Could not split last element gradually. Moving whole element: <${lastChild.tagName}>`);
   toContent.insertBefore(lastChild, toContent.firstChild);
-  moved = true;
-
-  return moved;
+  return true;
 };
 
 export const useTextReflow = (
@@ -305,15 +238,105 @@ export const useTextReflow = (
   };
   
   const getContentHeight = useCallback((pageContent: HTMLElement): number => {
-    const range = document.createRange();
-    range.selectNodeContents(pageContent);
-    const rect = range.getBoundingClientRect();
-    return rect.height;
+    const children = Array.from(pageContent.children) as HTMLElement[];
+    if (children.length === 0) return 0;
+
+    // Get the bounding rectangle of the parent content area itself.
+    const parentRect = pageContent.getBoundingClientRect();
+    
+    // Get the bounding rectangle of the very last element inside.
+    const lastChild = children[children.length - 1];
+    const lastRect = lastChild.getBoundingClientRect();
+
+    // Calculate the height from the top of the parent's content box (including its padding)
+    // to the bottom of the very last element. This is immune to margin-collapsing issues
+    // of the first child.
+    const contentHeight = lastRect.bottom - parentRect.top;
+    
+    // We also need to subtract the parent's top padding to get the pure content height.
+    const parentStyle = window.getComputedStyle(pageContent);
+    const paddingTop = parseFloat(parentStyle.paddingTop);
+
+    return contentHeight - paddingTop;
   }, []);
 
   const getAvailableHeight = useCallback((options: ReflowOptions = DEFAULT_OPTIONS): number => {
     return options.pageHeight - options.marginTop - options.marginBottom;
   }, [DEFAULT_OPTIONS]);
+
+
+const reflowPage = useCallback((pageElement: HTMLElement, options: ReflowOptions = DEFAULT_OPTIONS): boolean => {
+    if (!containerRef.current || isReflowingRef.current) return false;
+    console.log('called')
+    
+    isReflowingRef.current = true;
+    const container = containerRef.current;
+    const availableHeight = getAvailableHeight(options);
+    let hasChanges = false;
+    let attempts = 0;
+
+    const pageContent = pageElement.querySelector('.page-content') as HTMLElement;
+    if (!pageContent) {
+      isReflowingRef.current = false;
+      return false;
+    }
+
+    const allPages = Array.from(container.querySelectorAll('.page'));
+    const pageIndex = allPages.indexOf(pageElement);
+    let currentContentHeight = getContentHeight(pageContent);
+    const overflowAmount = currentContentHeight - availableHeight;
+
+    if (overflowAmount > 0) {
+        console.log('we made it here')
+        console.log(
+            `%c[Reflow Debug] Page ${pageIndex + 1} is overflowing.`,
+            'color: #e11d48; font-weight: bold;',
+            `\n  - Available Height: ${availableHeight.toFixed(2)}px`,
+            `\n  - Used Height:      ${currentContentHeight.toFixed(2)}px`,
+            `\n  - Overflow Amount:  ${overflowAmount.toFixed(2)}px`,
+            `\n  - Attempting to move content...`
+        );
+    }
+    
+    while (getContentHeight(pageContent) > availableHeight && attempts < 50) {
+      let nextPage = pageElement.nextElementSibling as HTMLElement;
+      if (!nextPage) {
+        nextPage = createNewPage();
+        container.appendChild(nextPage);
+      }
+      
+      if (pageContent.children.length === 1) {
+        nextPage.querySelector('.page-content')?.insertBefore(pageContent.firstElementChild!, null);
+        hasChanges = true;
+        break; 
+      }
+
+      if (moveContentToNextPage(pageElement, nextPage, availableHeight)) {
+        hasChanges = true;
+      } else {
+        console.warn("Reflow loop broke: moveContentToNextPage failed on an overflowing page.", pageElement);
+        break;
+      }
+      attempts++;
+    }
+    if (attempts >= 50) console.warn("Reflow safety net triggered in reflowPage.");
+
+    const finalContentHeight = getContentHeight(pageContent);
+    const RED_LINE_THRESHOLD = 950;
+    if (finalContentHeight <= RED_LINE_THRESHOLD) {
+      pageContent.classList.remove('overflow-warning');
+    } else {
+      if (!pageContent.classList.contains('overflow-warning')) {
+        pageContent.classList.add('overflow-warning');
+      }
+    }
+    
+    isReflowingRef.current = false;
+    if(hasChanges) {
+      saveToHistory(true);
+    }
+    return hasChanges;
+  }, [containerRef, getAvailableHeight, getContentHeight, saveToHistory, DEFAULT_OPTIONS]);
 
 const moveContentToPreviousPage = useCallback((
   fromPage: HTMLElement,
@@ -325,263 +348,120 @@ const moveContentToPreviousPage = useCallback((
   
   if (!fromContent || !toContent || !fromContent.firstElementChild) return false;
 
-  // RED LINE THRESHOLD - Use 950px as the absolute maximum
-  const RED_LINE_THRESHOLD = 950;
-  const effectiveLimit = Math.min(RED_LINE_THRESHOLD, availableHeight);
+  const SAFETY_BUFFER = 2; // A small buffer to prevent pixel-perfect overflows
+  const effectiveLimit = availableHeight - SAFETY_BUFFER;
 
-  let moved = false;
-  let firstChild = fromContent.firstElementChild as HTMLElement;
-  const lastChildOnToPage = toContent.lastElementChild as HTMLElement;
+  const elementToPull = fromContent.firstElementChild as HTMLElement;
+  if (!elementToPull) return false;
 
-  if (lastChildOnToPage && (lastChildOnToPage.tagName === 'UL' || lastChildOnToPage.tagName === 'OL') && lastChildOnToPage.tagName === firstChild.tagName) {
-    const toList = lastChildOnToPage;
-    const fromList = firstChild;
-    const fromListItems = Array.from(fromList.children) as HTMLElement[];
-    if (fromListItems.length === 0) return false;
-
-    const currentContentHeight = getContentHeight(toContent);
-    const remainingHeight = effectiveLimit - currentContentHeight;
-
-    const firstItemToPull = fromListItems[0];
-    const itemRect = firstItemToPull.getBoundingClientRect();
-
-    if (itemRect.height <= remainingHeight) {
-      toList.appendChild(firstItemToPull);
-      moved = true;
-
-      if (fromList.children.length === 0) {
-        fromList.remove();
-      }
-      
-      if (fromList.tagName === 'OL' && fromList.hasAttribute('start')) {
-        fromList.removeAttribute('start');
-      }
-      return moved;
-    }
-  }
-
-  // Handle split paragraphs - check if they share the same paragraph ID
-  if (lastChildOnToPage && 
-      lastChildOnToPage.tagName === 'P' && 
-      lastChildOnToPage.dataset.paragraphId &&
-      firstChild.tagName === 'P' && 
-      firstChild.dataset.paragraphId === lastChildOnToPage.dataset.paragraphId) {
-    
-    const currentContentHeight = getContentHeight(toContent);
-    const remainingHeight = effectiveLimit - currentContentHeight;
-    
-    if (remainingHeight > 25) {
-      const lineInfo = measureLineHeights(firstChild);
-      
-      let linesToPull = 0;
-      let accumulatedHeight = 0;
-      
-      for (let i = 0; i < lineInfo.length; i++) {
-        // Check if adding this line would exceed the red line
-        if (currentContentHeight + accumulatedHeight + lineInfo[i].lineHeight <= effectiveLimit) {
-          linesToPull++;
-          accumulatedHeight += lineInfo[i].lineHeight;
-        } else {
-          break;
-        }
-      }
-
-      if (linesToPull > 0) {
-        moved = true;
-
-        if (linesToPull === lineInfo.length) {
-          // Pull ALL content - ensure we preserve whitespace
-          const lastTextNode = lastChildOnToPage.lastChild;
-          const firstTextNode = firstChild.firstChild;
-          
-          // Add space if needed to preserve word boundaries
-          if (lastTextNode && firstTextNode) {
-            const lastText = lastTextNode.textContent || '';
-            const firstText = firstTextNode.textContent || '';
-            
-            if (lastText && firstText &&
-                !lastText.endsWith(' ') && !lastText.endsWith('\n') &&
-                !firstText.startsWith(' ') && !firstText.startsWith('\n')) {
-              lastChildOnToPage.appendChild(document.createTextNode(' '));
-            }
-          }
-          
-          while (firstChild.firstChild) {
-            lastChildOnToPage.appendChild(firstChild.firstChild);
-          }
-          firstChild.remove();
-          
-          // Normalize to merge adjacent text nodes
-          lastChildOnToPage.normalize();
-          
-          const nextPiece = fromContent.firstElementChild as HTMLElement;
-          if (!nextPiece || nextPiece.dataset.paragraphId !== lastChildOnToPage.dataset.paragraphId) {
-            lastChildOnToPage.removeAttribute('data-split-point');
-            lastChildOnToPage.removeAttribute('data-paragraph-id');
-          }
-
-        } else {
-          // Pull partial content
-          const splitLineTop = lineInfo[linesToPull].lineTop;
-          const splitPoint = findLineStartOffset(firstChild, splitLineTop);
-          
-          if (splitPoint) {
-            const rangeToMove = document.createRange();
-            rangeToMove.setStart(firstChild.firstChild!, 0);
-            rangeToMove.setEnd(splitPoint.node, splitPoint.offset);
-            
-            // Check if we need to add space before extracting
-            const lastText = lastChildOnToPage.lastChild?.textContent || '';
-            const textToMove = rangeToMove.toString();
-            
-            const fragmentToMove = rangeToMove.extractContents();
-            
-            // Add space if needed at the boundary
-            if (lastText && textToMove &&
-                !lastText.endsWith(' ') && !lastText.endsWith('\n') &&
-                !textToMove.startsWith(' ') && !textToMove.startsWith('\n')) {
-              lastChildOnToPage.appendChild(document.createTextNode(' '));
-            }
-            
-            lastChildOnToPage.appendChild(fragmentToMove);
-            
-            // Normalize to merge adjacent text nodes
-            lastChildOnToPage.normalize();
-          }
-        }
-        
-        // Verify we didn't exceed the red line
-        const finalHeight = getContentHeight(toContent);
-        if (finalHeight > effectiveLimit) {
-          console.warn('Content exceeded red line during backward reflow, may need adjustment');
-        }
-      }
-    }
-    return moved;
-  }
+  // --- PRECISE MEASUREMENT SETUP ---
+  const toContentRect = toContent.getBoundingClientRect();
+  const contentBoxTop = toContentRect.top;
+  // --- END SETUP ---
 
   const currentContentHeight = getContentHeight(toContent);
   const remainingHeight = effectiveLimit - currentContentHeight;
 
-  if (remainingHeight < 5) return false;
-
-  firstChild = fromContent.firstElementChild as HTMLElement;
-  if (!firstChild) return false;
-
-  if (firstChild.tagName === 'P' && firstChild.textContent?.trim()) {
-    const lineInfo = measureLineHeights(firstChild);
-    
-    let linesToPull = 0;
-    let accumulatedHeight = 0;
-    
-    for (let i = 0; i < lineInfo.length; i++) {
-      // Check if adding this line would exceed the red line
-      if (currentContentHeight + accumulatedHeight + lineInfo[i].lineHeight <= effectiveLimit) {
-        linesToPull++;
-        accumulatedHeight += lineInfo[i].lineHeight;
-      } else {
-        break;
-      }
-    }
-
-    if (linesToPull === lineInfo.length) {
-      // Only move entire paragraph if it fits within the red line
-      const paragraphHeight = firstChild.getBoundingClientRect().height;
-      if (currentContentHeight + paragraphHeight <= effectiveLimit) {
-        toContent.appendChild(firstChild);
-        moved = true;
-      }
-    } else if (linesToPull > 0) {
-      const splitLineTop = lineInfo[linesToPull].lineTop;
-      const splitPoint = findLineStartOffset(firstChild, splitLineTop);
-      
-      if (splitPoint) {
-        const rangeToMove = document.createRange();
-        rangeToMove.setStart(firstChild.firstChild!, 0);
-        rangeToMove.setEnd(splitPoint.node, splitPoint.offset);
-        
-        // Get text before and after split
-        const textToMove = rangeToMove.toString();
-        const remainingText = firstChild.textContent?.substring(splitPoint.offset) || '';
-        
-        const fragmentToMove = rangeToMove.extractContents();
-        const newParagraph = document.createElement('p');
-        newParagraph.style.cssText = firstChild.style.cssText;
-        newParagraph.className = firstChild.className;
-        
-        // Add space at the split boundary if needed
-        if (textToMove && remainingText &&
-            !textToMove.endsWith(' ') && !textToMove.endsWith('\n') &&
-            !remainingText.startsWith(' ') && !remainingText.startsWith('\n')) {
-          fragmentToMove.appendChild(document.createTextNode(' '));
-        }
-        
-        newParagraph.appendChild(fragmentToMove);
-        
-        // Normalize to merge adjacent text nodes
-        newParagraph.normalize();
-        
-        const newId = `para-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
-        newParagraph.setAttribute('data-paragraph-id', newId);
-        newParagraph.setAttribute('data-split-point', 'start');
-        firstChild.setAttribute('data-paragraph-id', newId);
-        firstChild.setAttribute('data-split-point', 'end');
-        
-        toContent.appendChild(newParagraph);
-        moved = true;
-        
-        // Verify we didn't exceed the red line
-        const finalHeight = getContentHeight(toContent);
-        if (finalHeight > effectiveLimit) {
-          console.warn('Content exceeded red line during backward reflow, may need adjustment');
-        }
-      }
-    }
-  } else {
-    const firstChildRect = firstChild.getBoundingClientRect();
-    // Only move if it fits within the red line
-    if (currentContentHeight + firstChildRect.height <= effectiveLimit) {
-      toContent.appendChild(firstChild);
-      moved = true;
-    }
+  // Fast path: If the entire next element fits with plenty of room, move it.
+  const elementRect = elementToPull.getBoundingClientRect();
+  if (elementRect.height <= remainingHeight) {
+    toContent.appendChild(elementToPull);
+    return true;
   }
 
-  return moved;
+  // If it's not a paragraph, we can't split it. Fail if it's too big.
+  if (elementToPull.tagName !== 'P') {
+    return false;
+  }
+
+  // Smart path: The element is a paragraph. We must perform an incremental, word-by-word pull.
+  const lastParaOnToPage = toContent.lastElementChild as HTMLElement;
+
+  const targetParagraph = (lastParaOnToPage?.tagName === 'P' && lastParaOnToPage.dataset.paragraphId === elementToPull.dataset.paragraphId)
+    ? lastParaOnToPage
+    : document.createElement('p');
+
+  if (targetParagraph !== lastParaOnToPage) {
+    targetParagraph.style.cssText = elementToPull.style.cssText;
+    if (elementToPull.className) targetParagraph.className = elementToPull.className;
+    toContent.appendChild(targetParagraph);
+  }
+
+  let movedSomething = false;
+  while (elementToPull.firstChild) {
+    const nodeToPull = elementToPull.firstChild;
+    
+    // Use a temporary SPAN wrapper to reliably measure the position of the incoming content.
+    const tempWrapper = document.createElement('span');
+    const tempNode = nodeToPull.cloneNode(true);
+
+    if (tempNode.nodeType === Node.TEXT_NODE) {
+      const text = tempNode.textContent || '';
+      const firstWord = text.trim().split(/\s+/)[0] || '';
+      if (!firstWord) { // If it's just whitespace, move it and continue
+          targetParagraph.appendChild(nodeToPull);
+          continue;
+      }
+      tempWrapper.textContent = firstWord;
+    } else {
+      // It's a non-text node like <b>, <i>, etc.
+      tempWrapper.appendChild(tempNode);
+    }
+
+    // --- THE NEW, PRECISE CHECK ---
+    // Temporarily add the wrapper and measure its exact bottom position relative to the content box.
+    targetParagraph.appendChild(tempWrapper);
+    const tempWrapperRect = tempWrapper.getBoundingClientRect();
+    const newBottomRelativeToContentBox = tempWrapperRect.bottom - contentBoxTop;
+    targetParagraph.removeChild(tempWrapper); // Immediately remove the temporary piece.
+
+    // If the bottom of this new word would cross our page limit, we stop.
+    if (newBottomRelativeToContentBox > effectiveLimit) {
+      break;
+    }
+    // --- END OF NEW CHECK ---
+
+    // It fits! Move the word/node for real.
+    if (nodeToPull.nodeType === Node.TEXT_NODE) {
+      const text = nodeToPull.textContent || '';
+      // Grab the first word along with any leading/trailing space to maintain flow.
+      const firstWordWithSpaceMatch = text.match(/^(\s*\S+\s*)/);
+      const partToMove = firstWordWithSpaceMatch ? firstWordWithSpaceMatch[0] : text;
+      
+      targetParagraph.appendChild(document.createTextNode(partToMove));
+      
+      // Remove the moved part from the source paragraph.
+      nodeToPull.textContent = text.substring(partToMove.length);
+      if (!nodeToPull.textContent) {
+        nodeToPull.remove();
+      }
+    } else {
+      // If it's not a text node (e.g., a <span>), move the whole thing.
+      targetParagraph.appendChild(nodeToPull);
+    }
+    movedSomething = true;
+  }
+
+  // Cleanup logic
+  if (!movedSomething && targetParagraph !== lastParaOnToPage) {
+    targetParagraph.remove();
+  } else if (movedSomething) {
+    const existingId = elementToPull.dataset.paragraphId || `para-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+    targetParagraph.dataset.paragraphId = existingId;
+    elementToPull.dataset.paragraphId = existingId;
+    targetParagraph.dataset.splitPoint = 'start';
+    elementToPull.dataset.splitPoint = 'end';
+  }
+
+  if (!elementToPull.hasChildNodes() && !elementToPull.querySelector('br')) {
+    elementToPull.remove();
+  }
+
+  return movedSomething;
 }, [getContentHeight]);
 
-  const reflowPage = useCallback((pageElement: HTMLElement, options: ReflowOptions = DEFAULT_OPTIONS): boolean => {
-    if (!containerRef.current || isReflowingRef.current) return false;
-    
-    isReflowingRef.current = true;
-    const container = containerRef.current;
-    const availableHeight = getAvailableHeight(options);
-    let hasChanges = false;
-
-    const pageContent = pageElement.querySelector('.page-content') as HTMLElement;
-    if (pageContent) {
-      const allPages = Array.from(container.querySelectorAll('.page'));
-      const pageIndex = allPages.indexOf(pageElement);
-      analyzeParagraphs(pageContent, pageIndex + 1);
-    }
-
-    let nextPage = pageElement.nextElementSibling as HTMLElement;
-    if (!nextPage) {
-      nextPage = createNewPage();
-      container.appendChild(nextPage);
-    }
-    
-    if (moveContentToNextPage(pageElement, nextPage, availableHeight)) {
-      hasChanges = true;
-    }
-    
-    isReflowingRef.current = false;
-    if(hasChanges) {
-      saveToHistory(true);
-    }
-    return hasChanges;
-  }, [containerRef, getAvailableHeight, saveToHistory, DEFAULT_OPTIONS]);
-
-  // --- MODIFIED: The final, robust, iterative reflow logic ---
+  
+  
   const reflowBackwardFromPage = useCallback((startPageElement: HTMLElement, options: ReflowOptions = DEFAULT_OPTIONS): boolean => {
     if (!containerRef.current || isReflowingRef.current) return false;
 
@@ -594,44 +474,49 @@ const moveContentToPreviousPage = useCallback((
       let nextPage = currentPage.nextElementSibling as HTMLElement;
       if (!nextPage) break; // End of document
 
-      let movedContentInIteration = false;
-      // Keep pulling content from the next page as long as there's space and content to pull
+      // Step 1: Pull content backward from the next page until it's full.
       while (true) {
         if (!moveContentToPreviousPage(nextPage, currentPage, availableHeight)) {
-          break; // Stop if we couldn't move anything
+          break; // Stop if we couldn't move anything.
         }
-        movedContentInIteration = true;
         overallChanges = true;
       }
 
-      // After pulling, check if the next page is now empty
-      const nextPageContent = nextPage.querySelector('.page-content') as HTMLElement;
-      if (nextPageContent && nextPageContent.children.length === 0 && nextPageContent.textContent?.trim() === '') {
-        nextPage.remove();
-        overallChanges = true;
-        // The loop will continue with the same currentPage, and the page after the deleted one is now the "nextPage"
-        continue; 
-      }
-      
-      // If we didn't move any content in this iteration, we are done with this chain
-      if (!movedContentInIteration) {
-        break;
-      }
-      
-      // We might have over-pulled, so do a quick correction
+      // Step 2: VERIFY. After pulling, check if the current page has overflowed.
+      // This is the critical safety check that fixes the bug.
       const currentContent = currentPage.querySelector('.page-content') as HTMLElement;
       if (getContentHeight(currentContent) > availableHeight) {
-        let pageToPushTo = currentPage.nextElementSibling as HTMLElement;
-        // If there's no next page (because we deleted it), we must create one
-        if (!pageToPushTo) {
-          pageToPushTo = createNewPage();
-          containerRef.current?.appendChild(pageToPushTo);
-        }
-        moveContentToNextPage(currentPage, pageToPushTo, availableHeight);
+        // If we overflowed, run a forward reflow to push content back down.
+        reflowPage(currentPage);
+      }
+       
+      // Step 3: CLEANUP. Only after verifying the layout, check if the next page
+      // is now truly empty and can be deleted.
+      const nextPageContent = nextPage.querySelector('.page-content') as HTMLElement;
+      if (nextPageContent && nextPageContent.children.length === 0 && nextPageContent.textContent?.trim() === '') {
+        const pageAfterNext = nextPage.nextElementSibling;
+        nextPage.remove();
+        overallChanges = true;
+        // If we deleted a page, we need to re-evaluate from the current page
+        // with the new "next" page.
+        nextPage = pageAfterNext as HTMLElement; 
+        if (!nextPage) break;
       }
       
-      // Move to the next page in the document to continue the reflow chain if needed
-      currentPage = currentPage.nextElementSibling as HTMLElement;
+      currentPage = nextPage;
+    }
+
+    // Final pass to update overflow warnings
+    let checkPage: HTMLElement | null = startPageElement;
+    while (checkPage) {
+      const pageContent = checkPage.querySelector('.page-content') as HTMLElement;
+      if (pageContent) {
+        const contentHeight = getContentHeight(pageContent);
+        if (contentHeight <= availableHeight) {
+          pageContent.classList.remove('overflow-warning');
+        }
+      }
+      checkPage = checkPage.nextElementSibling as HTMLElement;
     }
 
     isReflowingRef.current = false;
@@ -639,39 +524,42 @@ const moveContentToPreviousPage = useCallback((
       saveToHistory(true);
     }
     return overallChanges;
-  }, [containerRef, getAvailableHeight, getContentHeight, moveContentToPreviousPage, saveToHistory, DEFAULT_OPTIONS]);
+  }, [containerRef, getAvailableHeight, getContentHeight, moveContentToPreviousPage, reflowPage, saveToHistory, DEFAULT_OPTIONS]);
 
   const reflowContent = useCallback((options: ReflowOptions = DEFAULT_OPTIONS) => {
     if (!containerRef.current || isReflowingRef.current) return;
     
     isReflowingRef.current = true;
     const container = containerRef.current;
-    let pages = Array.from(container.querySelectorAll('.page')) as HTMLElement[];
     const availableHeight = getAvailableHeight(options);
-    
     let hasChanges = false;
 
-    for (let i = 0; i < pages.length; i++) {
-      const currentPage = pages[i];
+    let currentPage: HTMLElement | null = container.querySelector('.page');
+    while (currentPage) {
       const currentContent = currentPage.querySelector('.page-content') as HTMLElement;
-      if (!currentContent) continue;
-      
-      const contentHeight = getContentHeight(currentContent);
-      if (contentHeight > availableHeight) {
-        let nextPage = pages[i + 1];
-        if (!nextPage) {
-          nextPage = createNewPage();
-          container.appendChild(nextPage);
-          pages = Array.from(container.querySelectorAll('.page')) as HTMLElement[];
-        }
-        if (moveContentToNextPage(currentPage, nextPage, availableHeight)) {
-          hasChanges = true;
+      if (currentContent) {
+        // Keep moving content forward until the current page is no longer overflowing
+        while (getContentHeight(currentContent) > availableHeight) {
+          let nextPage = currentPage.nextElementSibling as HTMLElement;
+          if (!nextPage) {
+            nextPage = createNewPage();
+            container.appendChild(nextPage);
+          }
+          if (moveContentToNextPage(currentPage, nextPage, availableHeight)) {
+            hasChanges = true;
+          } else {
+            // Safety break if content can't be moved
+            break;
+          }
         }
       }
+      currentPage = currentPage.nextElementSibling as HTMLElement | null;
     }
 
-    for (let i = pages.length - 2; i >= 0; i--) {
-      reflowBackwardFromPage(pages[i], options);
+    // The backward pass can now start from the last page for a full document balance
+    const allPages = Array.from(container.querySelectorAll('.page')) as HTMLElement[];
+    for (let i = allPages.length - 2; i >= 0; i--) {
+      reflowBackwardFromPage(allPages[i], options);
     }
 
     isReflowingRef.current = false;
@@ -680,34 +568,58 @@ const moveContentToPreviousPage = useCallback((
       saveToHistory(true);
     }
   }, [containerRef, getContentHeight, getAvailableHeight, reflowBackwardFromPage, saveToHistory, DEFAULT_OPTIONS]);
+  
 
   const reflowSplitParagraph = useCallback((paragraphId: string): boolean => {
-  if (!containerRef.current || isReflowingRef.current) return false;
-
-  isReflowingRef.current = true;
-
-  const allPieces = Array.from(
-    containerRef.current.querySelectorAll(`p[data-paragraph-id="${paragraphId}"]`)
-  ) as HTMLElement[];
-
-  if (allPieces.length === 0) {
-    isReflowingRef.current = false;
-    return false;
-  }
-
-  const firstPiece = allPieces[0];
-  const startPage = firstPiece.closest('.page') as HTMLElement;
-
-  if (startPage) {
-    // Use backward reflow to intelligently merge what fits
-    reflowBackwardFromPage(startPage);
-  }
-
-  isReflowingRef.current = false;
+    if (!containerRef.current || isReflowingRef.current) return false;
   
-  // The reflowBackwardFromPage function now handles its own history saving.
-  return true; 
-}, [containerRef, reflowBackwardFromPage]);
+    isReflowingRef.current = true;
+  
+    const allPieces = Array.from(
+      containerRef.current.querySelectorAll(`p[data-paragraph-id="${paragraphId}"]`)
+    ) as HTMLElement[];
+  
+    if (allPieces.length <= 1) {
+      allPieces[0]?.removeAttribute('data-paragraph-id');
+      allPieces[0]?.removeAttribute('data-split-point');
+      isReflowingRef.current = false;
+      return false;
+    }
+  
+    const firstPiece = allPieces[0];
+    const startPage = firstPiece.closest('.page') as HTMLElement;
+   
+    // Merge all pieces into the first piece
+    for (let i = 1; i < allPieces.length; i++) {
+      const nextPiece = allPieces[i];
+      
+      const lastText = firstPiece.textContent || '';
+      const nextText = nextPiece.textContent || '';
+      if (lastText && nextText && !/\s$/.test(lastText) && !/^\s/.test(nextText)) {
+        firstPiece.appendChild(document.createTextNode(' '));
+      }
+      
+      while (nextPiece.firstChild) {
+        firstPiece.appendChild(nextPiece.firstChild);
+      }
+      nextPiece.remove();
+    }
+  
+    // Clean up the now-merged paragraph
+    firstPiece.removeAttribute('data-paragraph-id');
+    firstPiece.removeAttribute('data-split-point');
+    firstPiece.normalize();
+  
+    // IMPORTANT: Now, trigger a forward reflow on the page containing the
+    // merged paragraph. This will cause it to re-split perfectly.
+    if (startPage) {
+      reflowPage(startPage);
+    }
+  
+    isReflowingRef.current = false;
+    saveToHistory(true);
+    return true; 
+  }, [containerRef, reflowPage, saveToHistory]);
 
   const scheduleReflow = useCallback((delay: number = 100) => {
     if (reflowTimeoutRef.current) {
@@ -729,12 +641,10 @@ const moveContentToPreviousPage = useCallback((
   return {
     scheduleReflow,
     immediateReflow,
-    reflowContent,
     reflowPage,
     reflowBackwardFromPage, 
     reflowSplitParagraph,
     isReflowing: () => isReflowingRef.current,
-    // --- NEW: EXPORTING HELPER FUNCTIONS ---
     getContentHeight,
     getAvailableHeight,
   };

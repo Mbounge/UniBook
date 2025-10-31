@@ -62,7 +62,6 @@ body {
 .page-content {
   padding: 1in 1in 0.1in 1in;
   width: 100%;
-  min-height: 9.75in;
   outline: none;
   font-family: 'Inter', sans-serif;
   font-size: 14pt;
@@ -143,9 +142,29 @@ body {
 }
 
 .page-content p {
-  margin-bottom: 1.25rem;
+  margin-bottom: 0;
+  padding-bottom: 1.25rem;
   orphans: 2;
   widows: 2;
+}
+
+.page-content > *:last-child {
+  padding-bottom: 0 !important;
+}
+
+.page-content p[data-split-point="start"],
+.page-content p[data-split-point="middle"] {
+  padding-bottom: 0; 
+}
+
+/* Only the final piece gets bottom padding */
+.page-content p[data-split-point="end"] {
+  padding-bottom: 1.25rem;
+}
+
+/* Regular paragraphs (not split) keep their padding */
+.page-content p:not([data-split-point]) {
+  padding-bottom: 1.25rem;
 }
 
 .page-content ul, .page-content ol {

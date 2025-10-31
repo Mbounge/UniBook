@@ -4,7 +4,7 @@
 
 import React, { useState, useEffect, useRef } from "react";
 import { useRouter, useParams } from "next/navigation";
-import { ArrowLeft, Save, Loader2, ChevronRight, ChevronLeft as ChevronLeftIcon } from "lucide-react";
+import { ArrowLeft, Save, Loader2, ChevronRight, ChevronLeft as ChevronLeftIcon, Trash2 } from "lucide-react";
 import { useSidebar } from "../../layout";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 
@@ -12,18 +12,17 @@ import { DocumentEditor } from "@/components/editor/DocumentEditor";
 import ChatAssistant from "@/components/ai/ChatAssistant";
 import { TableOfContentsPanel } from "@/components/editor/TableOfContentsPanel";
 import { TemplateGallery } from "@/components/editor/TemplateGallery";
-import ContentHubPanel from "@/components/editor/ContentHubPanel";
+import ContentHubPanel, { StagingModal } from "@/components/editor/ContentHubPanel";
+import { ContentHubProvider, useContentHub } from "@/components/editor/ContentHubContext";
 import { useEditor } from "@/components/editor/hooks/useEditor";
 import { fetchBookById, updateBook, Book as BookData } from "@/lib/mock-data";
 import { useToast } from "@/hooks/use-toast";
 import { GraphData } from "@/components/editor/GraphBlock";
 
-// --- ContentHubToggle (unchanged) ---
-const ContentHubToggle = ({ isOpen, isExpanded, onClick }: { isOpen: boolean; isExpanded: boolean; onClick: () => void; }) => (
+const ContentHubToggle = ({ isOpen, onClick }: { isOpen: boolean; onClick: () => void; }) => (
   <button
     onClick={onClick}
-    className={`absolute top-28 z-30 flex items-center justify-center bg-white h-20 w-6 rounded-l-lg border-r-0 border-y border-l border-gray-200 shadow-lg hover:bg-gray-50 transition-all duration-300 hover:shadow-xl cursor-pointer`}
-    style={{ right: isOpen ? (isExpanded ? '100%' : '24rem') : '0rem' }}
+    className={`absolute top-28 z-40 flex items-center justify-center bg-white h-20 w-6 rounded-l-lg border-r-0 border-y border-l border-gray-200 shadow-lg hover:bg-gray-50 transition-all duration-300 hover:shadow-xl cursor-pointer left-0 -translate-x-full`}
     title={isOpen ? "Close Content Hub" : "Open Content Hub"}
   >
     {isOpen ? (
@@ -34,7 +33,55 @@ const ContentHubToggle = ({ isOpen, isExpanded, onClick }: { isOpen: boolean; is
   </button>
 );
 
-// --- Main EditorComponent ---
+const StagingModalRenderer = ({ onImport }: { onImport: (htmlBlocks: string[], createNewPages: boolean) => void }) => {
+  const { hubState, setHubState } = useContentHub();
+  const { isStagingModalOpen } = hubState;
+
+  if (!isStagingModalOpen) return null;
+
+  return (
+    <StagingModal
+      onImport={onImport}
+      onClose={() => setHubState(prev => ({ ...prev, isStagingModalOpen: false }))}
+    />
+  );
+};
+
+const ComposeBarRenderer = () => {
+  const { hubState, setHubState } = useContentHub();
+  const { selectedItems } = hubState;
+
+  if (selectedItems.length === 0) {
+    return null;
+  }
+
+  return (
+    <div className="fixed bottom-0 left-0 right-0 bg-white/95 backdrop-blur-sm border-t border-gray-200 p-4 flex items-center justify-between animate-in slide-in-from-bottom shadow-lg z-40">
+      <p className="text-sm font-semibold text-gray-900">
+        <span className="bg-blue-600 text-white rounded-full px-3 py-1.5 mr-3 text-xs font-bold">
+          {selectedItems.length}
+        </span>
+        Item(s) selected
+      </p>
+      <div className="flex items-center gap-3">
+        <button
+          onClick={() => setHubState(prev => ({ ...prev, selectedItems: [] }))}
+          className="p-2 hover:bg-gray-100 rounded-lg transition-colors duration-200 cursor-pointer"
+          title="Clear selection"
+        >
+          <Trash2 className="w-4 h-4 text-gray-600" />
+        </button>
+        <button
+          onClick={() => setHubState(prev => ({ ...prev, isStagingModalOpen: true }))}
+          className="px-5 py-2.5 bg-blue-600 text-white rounded-lg hover:bg-blue-700 font-medium text-sm transition-colors duration-200 cursor-pointer"
+        >
+          Compose & Import
+        </button>
+      </div>
+    </div>
+  );
+};
+
 const EditorComponent = () => {
   const router = useRouter();
   const { setSidebarVisible, setLeftPanelContent, leftPanelContent, isSidebarCollapsed } = useSidebar();
@@ -55,6 +102,7 @@ const EditorComponent = () => {
     insertImage, insertContent, insertTemplate, 
     insertMath, rehydrateMathBlocks,
     insertGraph, rehydrateGraphBlocks,
+    addNewPage,
     resetHistory,
     scheduleReflow,
     immediateReflow,
@@ -62,7 +110,8 @@ const EditorComponent = () => {
     reflowPage,
     reflowBackwardFromPage,
     reflowSplitParagraph,
-    
+    getContentHeight,
+    getAvailableHeight,
     customSelection,
     highlightRects,
     isSelecting,
@@ -72,7 +121,6 @@ const EditorComponent = () => {
     clearSelection,
     forceRecalculateRects,
     startTextSelection,
-    
   } = useEditor(pageContainerRef);
 
   const { data: bookData, isLoading: isBookLoading, isError } = useQuery({
@@ -94,12 +142,17 @@ const EditorComponent = () => {
   useEffect(() => {
     if (bookData && pageContainerRef.current && !isContentLoaded) {
       pageContainerRef.current.innerHTML = bookData.content;
+
       rehydrateMathBlocks(pageContainerRef.current);
       rehydrateGraphBlocks(pageContainerRef.current);
+
+      // After loading, run a full reflow to ensure everything is paginated correctly.
+      // This is the proper way to handle initial layout.
       setTimeout(() => {
-        saveToHistory(true);
         immediateReflow();
-      }, 100);
+        saveToHistory(true);
+      }, 150);
+
       setIsContentLoaded(true);
     }
   }, [bookData, pageContainerRef, isContentLoaded, saveToHistory, rehydrateMathBlocks, rehydrateGraphBlocks, immediateReflow]);
@@ -153,27 +206,13 @@ const EditorComponent = () => {
     setLeftPanelContent(null);
   };
 
-  const handleImport = (htmlBlocks: string[], createChapters: boolean) => { 
-  insertContent(htmlBlocks, createChapters);
-  
-  // Give extra time for large imports, then force a complete reflow
-  setTimeout(() => {
-    if (pageContainerRef.current) {
-      const allPages = Array.from(pageContainerRef.current.querySelectorAll('.page')) as HTMLElement[];
-      console.log(`🔄 Post-import reflow check: ${allPages.length} pages`);
-      
-      // Reflow all pages sequentially
-      allPages.forEach((page, index) => {
-        reflowPage(page);
-      });
-      
-      // Then backward pass to optimize
-      if (allPages.length > 0) {
-        reflowBackwardFromPage(allPages[0]);
-      }
-    }
-  }, 300);
-};
+  const handleImport = (htmlBlocks: string[], createNewPages: boolean) => { 
+    // 1. Insert the content into the editor
+    insertContent(htmlBlocks, createNewPages, true);
+    
+    // 2. Close the main Content Hub panel
+    setShowContentPanel(false);
+  };
 
   const handleSaveDraft = () => {
     if (!pageContainerRef.current) {
@@ -260,91 +299,95 @@ const EditorComponent = () => {
         </div>
       </header>
       
-      <div className="flex-1 flex overflow-hidden relative">
-        {hasLeftPanel && (
-          <div className={`flex-shrink-0 ${leftPanelWidth} transition-all duration-300`}>
-            {showTocPanel && (
-              <TableOfContentsPanel 
-                pageContainerRef={pageContainerRef} 
-                onClose={handleToggleOutline} 
-              />
-            )}
-            {leftPanelContent === 'templates' && (
-              <TemplateGallery 
-                onClose={handleToggleTemplateGallery} 
-                onInsert={handleInsertTemplateAndClose}
-                isExpanded={isLeftPanelExpanded}
-                onToggleExpand={handleToggleLeftPanelExpand}
-              />
-            )}
-            {leftPanelContent === 'ai' && (
-              <ChatAssistant 
-                isPanel={true} 
-                onClose={handleToggleAiPanel} 
-                onInsertContent={(html) => insertContent([html], false)}
-                onInsertTemplate={(html) => {
-                  insertTemplate(html);
-                }}
-                onInsertGraph={(graphData: GraphData) => {
-                  insertGraph(graphData);
-                }}
-              />
-            )}
-          </div>
-        )}
-        
-        <div className={`flex-1 flex flex-col min-w-0 ${isLeftPanelExpanded ? 'hidden' : ''}`}>
-          <DocumentEditor 
-            pageContainerRef={pageContainerRef}
-            onToggleOutline={handleToggleOutline}
-            onToggleTemplateGallery={handleToggleTemplateGallery}
-            onToggleAiPanel={handleToggleAiPanel}
-            isTocOpen={showTocPanel}
-            isTemplateGalleryOpen={leftPanelContent === 'templates'}
-            isAiPanelOpen={leftPanelContent === 'ai'}
-            undo={undo}
-            redo={redo}
-            canUndo={canUndo}
-            canRedo={canRedo}
-            saveToHistory={saveToHistory}
-            insertImage={insertImage}
-            isContentHubOpen={showContentPanel}
-            isHubExpanded={isHubExpanded}
-            onGalleryTemplateDrop={() => setLeftPanelContent(null)}
-            insertMath={insertMath}
-            insertGraph={insertGraph}
-            rehydrateMathBlocks={rehydrateMathBlocks}
-            rehydrateGraphBlocks={rehydrateGraphBlocks}
-            insertTemplate={insertTemplate}
-            resetHistory={resetHistory}
-            scheduleReflow={scheduleReflow}
-            immediateReflow={immediateReflow}
-            isReflowing={isReflowing}
-            reflowPage={reflowPage}
-            reflowBackwardFromPage={reflowBackwardFromPage}
-            reflowSplitParagraph={reflowSplitParagraph}
-            
-            customSelection={customSelection}
-            highlightRects={highlightRects}
-            isSelecting={isSelecting}
-            isMultiPageSelection={isMultiPageSelection}
-            selectedPages={selectedPages}
-            selectedText={selectedText}
-            clearSelection={clearSelection}
-            forceRecalculateRects={forceRecalculateRects}
-            startTextSelection={startTextSelection}
-            insertContent={insertContent}
-          />
-        </div>
-
-        {!isLeftPanelExpanded && (
-          <>
-            <ContentHubToggle 
-              isOpen={showContentPanel} 
-              isExpanded={isHubExpanded} 
-              onClick={handleToggleContentHub} 
+      <ContentHubProvider>
+        <div className="flex-1 flex overflow-hidden relative">
+          {hasLeftPanel && (
+            <div className={`flex-shrink-0 ${leftPanelWidth} transition-all duration-300`}>
+              {showTocPanel && (
+                <TableOfContentsPanel 
+                  pageContainerRef={pageContainerRef} 
+                  onClose={handleToggleOutline} 
+                />
+              )}
+              {leftPanelContent === 'templates' && (
+                <TemplateGallery 
+                  onClose={handleToggleTemplateGallery} 
+                  onInsert={handleInsertTemplateAndClose}
+                  isExpanded={isLeftPanelExpanded}
+                  onToggleExpand={handleToggleLeftPanelExpand}
+                />
+              )}
+              {leftPanelContent === 'ai' && (
+                <ChatAssistant 
+                  isPanel={true} 
+                  onClose={handleToggleAiPanel} 
+                  onInsertContent={(html) => insertContent([html], false)}
+                  onInsertTemplate={(html) => {
+                    insertTemplate(html);
+                  }}
+                  onInsertGraph={(graphData: GraphData) => {
+                    insertGraph(graphData);
+                  }}
+                />
+              )}
+            </div>
+          )}
+          
+          <div className={`flex-1 flex flex-col min-w-0 ${isLeftPanelExpanded ? 'hidden' : ''}`}>
+            <DocumentEditor 
+              pageContainerRef={pageContainerRef}
+              onToggleOutline={handleToggleOutline}
+              onToggleTemplateGallery={handleToggleTemplateGallery}
+              onToggleAiPanel={handleToggleAiPanel}
+              isTocOpen={showTocPanel}
+              isTemplateGalleryOpen={leftPanelContent === 'templates'}
+              isAiPanelOpen={leftPanelContent === 'ai'}
+              undo={undo}
+              redo={redo}
+              canUndo={canUndo}
+              canRedo={canRedo}
+              saveToHistory={saveToHistory}
+              insertImage={insertImage}
+              isContentHubOpen={showContentPanel}
+              isHubExpanded={isHubExpanded}
+              onGalleryTemplateDrop={() => setLeftPanelContent(null)}
+              insertMath={insertMath}
+              insertGraph={insertGraph}
+              rehydrateMathBlocks={rehydrateMathBlocks}
+              rehydrateGraphBlocks={rehydrateGraphBlocks}
+              insertTemplate={insertTemplate}
+              resetHistory={resetHistory}
+              scheduleReflow={scheduleReflow}
+              immediateReflow={immediateReflow}
+              isReflowing={isReflowing}
+              reflowPage={reflowPage}
+              reflowBackwardFromPage={reflowBackwardFromPage}
+              reflowSplitParagraph={reflowSplitParagraph}
+              customSelection={customSelection}
+              highlightRects={highlightRects}
+              isSelecting={isSelecting}
+              isMultiPageSelection={isMultiPageSelection}
+              selectedPages={selectedPages}
+              selectedText={selectedText}
+              clearSelection={clearSelection}
+              forceRecalculateRects={forceRecalculateRects}
+              startTextSelection={startTextSelection}
+              insertContent={insertContent}
+              addNewPage={addNewPage}
             />
-            {showContentPanel && (
+          </div>
+
+          {!isLeftPanelExpanded && (
+            <div
+              className="fixed top-0 bottom-0 right-0 z-30 transition-transform duration-300 ease-in-out"
+              style={{
+                transform: showContentPanel ? 'translateX(0%)' : 'translateX(100%)',
+              }}
+            >
+              <ContentHubToggle 
+                isOpen={showContentPanel} 
+                onClick={handleToggleContentHub} 
+              />
               <ContentHubPanel 
                 onImport={handleImport} 
                 onClose={handleToggleContentHub} 
@@ -353,10 +396,13 @@ const EditorComponent = () => {
                 hasLeftPanel={hasLeftPanel}
                 isSidebarCollapsed={isSidebarCollapsed}
               />
-            )}
-          </>
-        )}
-      </div>
+            </div>
+          )}
+        </div>
+        
+        <ComposeBarRenderer />
+        <StagingModalRenderer onImport={handleImport} />
+      </ContentHubProvider>
     </div>
   );
 }

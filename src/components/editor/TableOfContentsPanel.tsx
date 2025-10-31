@@ -1,9 +1,6 @@
-//src/components/editor/TableOfContentsPanel.tsx
-
 'use client';
 
 import React, { useEffect, useState, useCallback } from 'react';
-// --- MODIFIED: Imported ChevronRight for the accordion toggle ---
 import { X, ListTree, ChevronRight } from 'lucide-react';
 
 export interface Heading {
@@ -12,10 +9,11 @@ export interface Heading {
   element: HTMLElement;
 }
 
-export interface ChapterOutline {
-  chapterNumber: number;
-  chapterTitle: string;
-  chapterElement: HTMLElement;
+// --- RENAMED: from ChapterOutline to PageOutline ---
+export interface PageOutline {
+  pageNumber: number;
+  pageTitle: string;
+  pageElement: HTMLElement;
   headings: Heading[];
 }
 
@@ -25,16 +23,19 @@ interface TableOfContentsPanelProps {
 }
 
 export const TableOfContentsPanel: React.FC<TableOfContentsPanelProps> = ({ pageContainerRef, onClose }) => {
-  const [outline, setOutline] = useState<ChapterOutline[]>([]);
-  // --- NEW: State to track which chapters are collapsed ---
-  const [collapsedChapters, setCollapsedChapters] = useState<number[]>([]);
+  // --- RENAMED: from outline to pageOutlines ---
+  const [pageOutlines, setPageOutlines] = useState<PageOutline[]>([]);
+  // --- RENAMED: from collapsedChapters to collapsedPages ---
+  const [collapsedPages, setCollapsedPages] = useState<number[]>([]);
 
   const updateOutline = useCallback(() => {
     if (!pageContainerRef.current) return;
 
-    const chapterElements = pageContainerRef.current.querySelectorAll<HTMLElement>('.page');
-    const newOutline: ChapterOutline[] = Array.from(chapterElements).map((chapterEl, index) => {
-      const headingElements = chapterEl.querySelectorAll<HTMLElement>('h1, h2, h3, h4');
+    // --- RENAMED: from chapterElements to pageElements ---
+    const pageElements = pageContainerRef.current.querySelectorAll<HTMLElement>('.page');
+    // --- RENAMED: from newOutline to newPageOutlines ---
+    const newPageOutlines: PageOutline[] = Array.from(pageElements).map((pageEl, index) => {
+      const headingElements = pageEl.querySelectorAll<HTMLElement>('h1, h2, h3, h4');
       
       const headings: Heading[] = Array.from(headingElements).map(el => ({
         level: parseInt(el.tagName.substring(1), 10),
@@ -42,18 +43,23 @@ export const TableOfContentsPanel: React.FC<TableOfContentsPanelProps> = ({ page
         element: el,
       }));
 
+      // Find the most prominent heading on the page to use as the title
       const mainHeading = headings.find(h => h.level === 1) || headings.find(h => h.level === 2);
-      const chapterTitle = mainHeading?.text || `Chapter ${index + 1}`;
+      // --- RENAMED: from chapterTitle to pageTitle ---
+      // --- MODIFIED: Fallback text is now "Page X" ---
+      const pageTitle = mainHeading?.text || `Page ${index + 1}`;
 
       return {
-        chapterNumber: index + 1,
-        chapterTitle,
-        chapterElement: chapterEl,
+        // --- RENAMED: from chapterNumber to pageNumber ---
+        pageNumber: index + 1,
+        pageTitle,
+        // --- RENAMED: from chapterElement to pageElement ---
+        pageElement: pageEl,
         headings,
       };
     });
 
-    setOutline(newOutline);
+    setPageOutlines(newPageOutlines);
   }, [pageContainerRef]);
 
   useEffect(() => {
@@ -73,17 +79,21 @@ export const TableOfContentsPanel: React.FC<TableOfContentsPanelProps> = ({ page
 
   const handleNavigate = (element: HTMLElement) => {
     element.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    // This small adjustment helps account for a sticky toolbar at the top
     setTimeout(() => {
-      window.scrollBy(0, -80); 
+      const scrollContainer = pageContainerRef.current?.parentElement;
+      if (scrollContainer) {
+        scrollContainer.scrollBy(0, -80);
+      }
     }, 700);
   };
 
-  // --- NEW: Function to toggle the collapsed state of a chapter ---
-  const toggleChapterCollapse = (chapterNumber: number) => {
-    setCollapsedChapters(prev =>
-      prev.includes(chapterNumber)
-        ? prev.filter(cn => cn !== chapterNumber) // Remove if it's already there (expand)
-        : [...prev, chapterNumber] // Add if it's not there (collapse)
+  // --- RENAMED: from toggleChapterCollapse to togglePageCollapse ---
+  const togglePageCollapse = (pageNumber: number) => {
+    setCollapsedPages(prev =>
+      prev.includes(pageNumber)
+        ? prev.filter(pn => pn !== pageNumber) // Remove if it's already there (expand)
+        : [...prev, pageNumber] // Add if it's not there (collapse)
     );
   };
 
@@ -101,16 +111,16 @@ export const TableOfContentsPanel: React.FC<TableOfContentsPanelProps> = ({ page
         </div>
       </div>
       <div className="flex-1 overflow-y-auto p-4">
-        {outline.length > 0 ? (
+        {pageOutlines.length > 0 ? (
           <ul className="space-y-1">
-            {outline.map((chapter) => {
-              const isCollapsed = collapsedChapters.includes(chapter.chapterNumber);
+            {pageOutlines.map((page) => {
+              const isCollapsed = collapsedPages.includes(page.pageNumber);
               return (
-                <li key={chapter.chapterNumber}>
-                  {/* --- MODIFIED: Chapter title row with accordion button --- */}
+                <li key={page.pageNumber}>
                   <div className="flex items-center group">
                     <button 
-                      onClick={() => toggleChapterCollapse(chapter.chapterNumber)}
+                      // --- RENAMED: Call togglePageCollapse ---
+                      onClick={() => togglePageCollapse(page.pageNumber)}
                       className="p-1 rounded-md hover:bg-gray-200"
                       aria-expanded={!isCollapsed}
                     >
@@ -119,17 +129,17 @@ export const TableOfContentsPanel: React.FC<TableOfContentsPanelProps> = ({ page
                       />
                     </button>
                     <button 
-                      onClick={() => handleNavigate(chapter.chapterElement)} 
+                      // --- RENAMED: Navigate to pageElement ---
+                      onClick={() => handleNavigate(page.pageElement)} 
                       className="flex-1 text-left text-sm font-bold text-gray-800 hover:text-blue-700 p-2 rounded-md transition-colors truncate"
                     >
-                      {chapter.chapterTitle}
+                      {page.pageTitle}
                     </button>
                   </div>
 
-                  {/* --- MODIFIED: Conditionally render headings based on collapsed state --- */}
-                  {!isCollapsed && chapter.headings.length > 0 && (
+                  {!isCollapsed && page.headings.length > 0 && (
                     <ul className="mt-1 space-y-1 border-l-2 border-gray-200 ml-4 pl-2 transition-all duration-300">
-                      {chapter.headings.map((heading, index) => (
+                      {page.headings.map((heading, index) => (
                         <li key={index} style={{ paddingLeft: `${(heading.level - 1) * 0.75}rem` }}>
                           <button 
                             onClick={() => handleNavigate(heading.element)} 
