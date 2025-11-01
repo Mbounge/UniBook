@@ -348,39 +348,42 @@ const moveContentToPreviousPage = useCallback((
   
   if (!fromContent || !toContent || !fromContent.firstElementChild) return false;
 
-  const SAFETY_BUFFER = 2; // A small buffer to prevent pixel-perfect overflows
+  const SAFETY_BUFFER = 2;
   const effectiveLimit = availableHeight - SAFETY_BUFFER;
 
   const elementToPull = fromContent.firstElementChild as HTMLElement;
   if (!elementToPull) return false;
 
-  // --- PRECISE MEASUREMENT SETUP ---
-  const toContentRect = toContent.getBoundingClientRect();
-  const contentBoxTop = toContentRect.top;
-  // --- END SETUP ---
-
   const currentContentHeight = getContentHeight(toContent);
   const remainingHeight = effectiveLimit - currentContentHeight;
 
-  // Fast path: If the entire next element fits with plenty of room, move it.
+  // If there's barely any space, don't even try.
+  if (remainingHeight < 10) return false;
+
+  // --- START: HYBRID LOGIC ---
+
+  // CASE 1: The "fast path". The entire next element fits perfectly. Move it.
   const elementRect = elementToPull.getBoundingClientRect();
   if (elementRect.height <= remainingHeight) {
     toContent.appendChild(elementToPull);
     return true;
   }
 
-  // If it's not a paragraph, we can't split it. Fail if it's too big.
+  // CASE 2: The element is not a paragraph (e.g., an image) and it's too big. We can't split it, so we fail.
   if (elementToPull.tagName !== 'P') {
     return false;
   }
 
-  // Smart path: The element is a paragraph. We must perform an incremental, word-by-word pull.
+  // CASE 3: The "smart path". The element is a paragraph, but it's too big to move entirely.
+  // We must perform an incremental, line-by-line pull.
   const lastParaOnToPage = toContent.lastElementChild as HTMLElement;
 
+  // Determine our target: are we appending to an existing split paragraph, or creating a new one?
   const targetParagraph = (lastParaOnToPage?.tagName === 'P' && lastParaOnToPage.dataset.paragraphId === elementToPull.dataset.paragraphId)
     ? lastParaOnToPage
     : document.createElement('p');
 
+  // If we created a new paragraph, style it and add it to the page.
   if (targetParagraph !== lastParaOnToPage) {
     targetParagraph.style.cssText = elementToPull.style.cssText;
     if (elementToPull.className) targetParagraph.className = elementToPull.className;
@@ -388,51 +391,41 @@ const moveContentToPreviousPage = useCallback((
   }
 
   let movedSomething = false;
+  // Loop word-by-word, pulling content from the source paragraph until the page is full.
   while (elementToPull.firstChild) {
     const nodeToPull = elementToPull.firstChild;
     
-    // Use a temporary SPAN wrapper to reliably measure the position of the incoming content.
-    const tempWrapper = document.createElement('span');
+    // Create a tiny clone of the next piece of content to measure it.
     const tempNode = nodeToPull.cloneNode(true);
-
     if (tempNode.nodeType === Node.TEXT_NODE) {
       const text = tempNode.textContent || '';
       const firstWord = text.trim().split(/\s+/)[0] || '';
-      if (!firstWord) { // If it's just whitespace, move it and continue
+      if (!firstWord) { // If it's just whitespace, move the whole node and continue
           targetParagraph.appendChild(nodeToPull);
           continue;
       }
-      tempWrapper.textContent = firstWord;
-    } else {
-      // It's a non-text node like <b>, <i>, etc.
-      tempWrapper.appendChild(tempNode);
+      tempNode.textContent = firstWord;
     }
 
-    // --- THE NEW, PRECISE CHECK ---
-    // Temporarily add the wrapper and measure its exact bottom position relative to the content box.
-    targetParagraph.appendChild(tempWrapper);
-    const tempWrapperRect = tempWrapper.getBoundingClientRect();
-    const newBottomRelativeToContentBox = tempWrapperRect.bottom - contentBoxTop;
-    targetParagraph.removeChild(tempWrapper); // Immediately remove the temporary piece.
+    // Temporarily add the piece and measure the new height of the page.
+    targetParagraph.appendChild(tempNode);
+    const newHeight = getContentHeight(toContent);
+    targetParagraph.removeChild(tempNode); // Immediately remove the temporary piece.
 
-    // If the bottom of this new word would cross our page limit, we stop.
-    if (newBottomRelativeToContentBox > effectiveLimit) {
+    // If adding this word would overflow the page, we stop.
+    if (newHeight > effectiveLimit) {
       break;
     }
-    // --- END OF NEW CHECK ---
 
     // It fits! Move the word/node for real.
     if (nodeToPull.nodeType === Node.TEXT_NODE) {
       const text = nodeToPull.textContent || '';
-      // Grab the first word along with any leading/trailing space to maintain flow.
-      const firstWordWithSpaceMatch = text.match(/^(\s*\S+\s*)/);
-      const partToMove = firstWordWithSpaceMatch ? firstWordWithSpaceMatch[0] : text;
+      const firstWordWithSpace = text.substring(0, text.indexOf(' ') + 1) || text;
+      targetParagraph.appendChild(document.createTextNode(firstWordWithSpace));
       
-      targetParagraph.appendChild(document.createTextNode(partToMove));
-      
-      // Remove the moved part from the source paragraph.
-      nodeToPull.textContent = text.substring(partToMove.length);
-      if (!nodeToPull.textContent) {
+      // Remove the moved word from the source paragraph.
+      nodeToPull.textContent = text.substring(firstWordWithSpace.length);
+      if (!nodeToPull.textContent?.trim()) {
         nodeToPull.remove();
       }
     } else {
@@ -442,18 +435,20 @@ const moveContentToPreviousPage = useCallback((
     movedSomething = true;
   }
 
-  // Cleanup logic
+  // If we couldn't even fit one word, clean up the temporary paragraph we might have created.
   if (!movedSomething && targetParagraph !== lastParaOnToPage) {
     targetParagraph.remove();
   } else if (movedSomething) {
-    const existingId = elementToPull.dataset.paragraphId || `para-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+    // If we did move content, we now have a split paragraph. Tag both pieces correctly.
+    const existingId = `para-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
     targetParagraph.dataset.paragraphId = existingId;
-    elementToPull.dataset.paragraphId = existingId;
     targetParagraph.dataset.splitPoint = 'start';
+    elementToPull.dataset.paragraphId = existingId;
     elementToPull.dataset.splitPoint = 'end';
   }
 
-  if (!elementToPull.hasChildNodes() && !elementToPull.querySelector('br')) {
+  // If the source paragraph on the next page is now empty, remove it.
+  if (!elementToPull.hasChildNodes()) {
     elementToPull.remove();
   }
 
