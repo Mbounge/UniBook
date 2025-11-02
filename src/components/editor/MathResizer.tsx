@@ -2,38 +2,41 @@
 
 import React, { useEffect, useRef, useState, useCallback } from 'react';
 
-// --- HELPER FUNCTIONS ---
 const getDeleteIcon = () => `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3,6 5,6 21,6"></polyline><path d="m19,6v14a2,2 0 0,1 -2,2H7a2,2 0 0,1 -2,-2V6m3,0V4a2,2 0 0,1 2,-2h4a2,2 0 0,1 2,2v2"></path><line x1="10" y1="11" x2="10" y2="17"></line><line x1="14" y1="11" x2="14" y2="17"></line></svg>`;
 const getEditIcon = () => `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 3a2.828 2.828 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5L17 3z"></path></svg>`;
 
-// --- MathResizer Component ---
 interface MathResizerProps {
   pageContainerRef: React.RefObject<HTMLDivElement | null>;
   saveToHistory: (force?: boolean) => void;
   selectedMathElement?: HTMLElement | null;
   onMathSelect?: (element: HTMLElement | null) => void;
+  // --- NEW PROPS ---
+  reflowBackwardFromPage: (pageElement: HTMLElement) => void;
+  fullDocumentReflow: () => void;
 }
 
 export const MathResizer: React.FC<MathResizerProps> = ({ 
   pageContainerRef,
   saveToHistory, 
   selectedMathElement,
-  onMathSelect 
+  onMathSelect,
+  reflowBackwardFromPage,
+  fullDocumentReflow
 }) => {
   const [selection, setSelection] = useState<HTMLElement | null>(null);
   const [isResizing, setIsResizing] = useState(false);
   
   const selectionRef = useRef<HTMLElement | null>(null);
   const isResizingRef = useRef(false);
-  const propsRef = useRef({ saveToHistory, onMathSelect });
+  const propsRef = useRef({ saveToHistory, onMathSelect, reflowBackwardFromPage, fullDocumentReflow });
 
   const resizeHandleRef = useRef<string | null>(null);
   const resizeStart = useRef({ fontSize: 16, x: 0 });
   const previousSelection = useRef<HTMLElement | null>(null);
 
   useEffect(() => {
-    propsRef.current = { saveToHistory, onMathSelect };
-  }, [saveToHistory, onMathSelect]);
+    propsRef.current = { saveToHistory, onMathSelect, reflowBackwardFromPage, fullDocumentReflow };
+  }, [saveToHistory, onMathSelect, reflowBackwardFromPage, fullDocumentReflow]);
 
   useEffect(() => {
     selectionRef.current = selection;
@@ -55,7 +58,7 @@ export const MathResizer: React.FC<MathResizerProps> = ({
     if (overlay) overlay.remove();
     if (toolbar) toolbar.remove();
     element.classList.remove('math-selected');
-    element.style.position = ''; // Clean up the style
+    element.style.position = '';
   }, []);
 
   const createControls = useCallback((element: HTMLElement) => {
@@ -63,7 +66,6 @@ export const MathResizer: React.FC<MathResizerProps> = ({
 
     const config = { borderColor: '#10b981' };
     
-    // --- MODIFICATION: Add the missing position style ---
     element.style.position = 'relative';
     element.classList.add('math-selected');
 
@@ -117,6 +119,8 @@ export const MathResizer: React.FC<MathResizerProps> = ({
     const handleMouseUp = () => {
       if (isResizingRef.current) {
         propsRef.current.saveToHistory(true);
+        // --- MODIFICATION: Use fullDocumentReflow for final, perfect pagination ---
+        propsRef.current.fullDocumentReflow();
       }
       setIsResizing(false);
       resizeHandleRef.current = null;
@@ -182,6 +186,12 @@ export const MathResizer: React.FC<MathResizerProps> = ({
       const mathBlock = selectionRef.current.querySelector('.math-rendered, .math-editor');
       if (mathBlock) {
         mathBlock.dispatchEvent(new CustomEvent('updateMath', { detail: { fontSize: newFontSize } }));
+      }
+
+      // --- MODIFICATION: Use faster, local reflow during drag for responsiveness ---
+      const page = selectionRef.current.closest('.page') as HTMLElement;
+      if (page) {
+        propsRef.current.reflowBackwardFromPage(page);
       }
     };
     

@@ -1,11 +1,8 @@
-//src/components/editor/GraphResizer.tsx
-
 'use client';
 
 import React, { useEffect, useRef, useState, useCallback } from 'react';
 import { GraphData } from './GraphBlock';
 
-// --- HELPER FUNCTIONS ---
 const getFloatIcon = (type: string) => {
   const icons = {
     left: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="17" y1="10" x2="3" y2="10"></line><line x1="21" y1="6" x2="3" y2="6"></line><line x1="21" y1="14" x2="3" y2="14"></line><line x1="17" y1="18" x2="3" y2="18"></line></svg>',
@@ -18,12 +15,14 @@ const getFloatIcon = (type: string) => {
 
 const getCaptionIcon = () => `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M13 4H4a2 2 0 0 0-2 2v10a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V6a2 2 0 0 0-2-2h-3.5"/><path d="M16 2v4"/><path d="M21 14H8"/><path d="M21 18H8"/><path d="M10 10h.01"/><path d="M10 6h.01"/></svg>`;
 
-// --- GraphResizer Component ---
 interface GraphResizerProps {
   pageContainerRef: React.RefObject<HTMLDivElement | null>;
   saveToHistory: (force?: boolean) => void;
   selectedGraphElement?: HTMLElement | null;
   onGraphSelect?: (element: HTMLElement | null) => void;
+  // --- NEW PROPS ---
+  reflowBackwardFromPage: (pageElement: HTMLElement) => void;
+  fullDocumentReflow: () => void;
 }
 
 type GraphFloat = 'none' | 'left' | 'right' | 'center';
@@ -32,14 +31,16 @@ export const GraphResizer: React.FC<GraphResizerProps> = ({
   pageContainerRef,
   saveToHistory, 
   selectedGraphElement,
-  onGraphSelect 
+  onGraphSelect,
+  reflowBackwardFromPage,
+  fullDocumentReflow
 }) => {
   const [selection, setSelection] = useState<HTMLElement | null>(null);
   const [isResizing, setIsResizing] = useState(false);
   
   const selectionRef = useRef<HTMLElement | null>(null);
   const isResizingRef = useRef(false);
-  const propsRef = useRef({ saveToHistory, onGraphSelect });
+  const propsRef = useRef({ saveToHistory, onGraphSelect, reflowBackwardFromPage, fullDocumentReflow });
 
   const resizeHandleRef = useRef<string | null>(null);
   const resizeStart = useRef({ width: 0, height: 0, x: 0, y: 0, aspectRatio: 1 });
@@ -47,8 +48,8 @@ export const GraphResizer: React.FC<GraphResizerProps> = ({
   const captionBlurHandlerRef = useRef<(() => void) | null>(null);
 
   useEffect(() => {
-    propsRef.current = { saveToHistory, onGraphSelect };
-  }, [saveToHistory, onGraphSelect]);
+    propsRef.current = { saveToHistory, onGraphSelect, reflowBackwardFromPage, fullDocumentReflow };
+  }, [saveToHistory, onGraphSelect, reflowBackwardFromPage, fullDocumentReflow]);
 
   useEffect(() => {
     selectionRef.current = selection;
@@ -59,7 +60,6 @@ export const GraphResizer: React.FC<GraphResizerProps> = ({
   }, [isResizing]);
 
   useEffect(() => {
-    //console.log("[GraphResizer] selectedGraphElement prop changed:", selectedGraphElement);
     const newSelection = selectedGraphElement ? selectedGraphElement.closest('.graph-wrapper') as HTMLElement : null;
     setSelection(newSelection);
   }, [selectedGraphElement]);
@@ -112,7 +112,6 @@ export const GraphResizer: React.FC<GraphResizerProps> = ({
 
   const cleanupControls = useCallback((element: HTMLElement | null) => {
     if (!element || !document.body.contains(element)) return;
-    //console.log("[GraphResizer] Cleaning up controls for:", element);
     disconnectCaptionListener();
     const overlay = element.querySelector('.graph-resize-overlay');
     const toolbar = element.querySelector('.graph-toolbar');
@@ -142,7 +141,6 @@ export const GraphResizer: React.FC<GraphResizerProps> = ({
 
   const createControls = useCallback((element: HTMLElement) => {
     if (element.querySelector('.graph-resize-overlay')) return;
-    //console.log("[GraphResizer] Creating controls for:", element);
     element.draggable = true;
     element.ondragstart = (e) => {
       if ((e.target as HTMLElement).closest('[data-resize-handle]')) {
@@ -252,12 +250,14 @@ export const GraphResizer: React.FC<GraphResizerProps> = ({
 
       const hasCaption = !!element.querySelector('figcaption');
       updateToolbarButtonStates(element, float, hasCaption);
-      setTimeout(() => propsRef.current.saveToHistory(true), 100);
+      setTimeout(() => propsRef.current.fullDocumentReflow(), 100);
     };
 
     const handleMouseUp = () => {
       if (isResizingRef.current) {
         propsRef.current.saveToHistory(true);
+        // --- MODIFICATION: Use fullDocumentReflow for final, perfect pagination ---
+        propsRef.current.fullDocumentReflow();
       }
       setIsResizing(false);
       resizeHandleRef.current = null;
@@ -363,6 +363,12 @@ export const GraphResizer: React.FC<GraphResizerProps> = ({
         selectionRef.current.dispatchEvent(new CustomEvent('updateGraph', { detail: newGraphData }));
       } catch (error) {
         console.error("Failed to update graph data on resize:", error);
+      }
+
+      // --- MODIFICATION: Use faster, local reflow during drag for responsiveness ---
+      const page = selectionRef.current.closest('.page') as HTMLElement;
+      if (page) {
+        propsRef.current.reflowBackwardFromPage(page);
       }
     };
 

@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useRef } from 'react';
+import { useCallback, useRef, useState } from 'react';
 
 interface ReflowOptions {
   pageHeight: number;
@@ -42,16 +42,12 @@ export const analyzeParagraphs = (pageContent: HTMLElement, pageIndex: number) =
   });
 };
 
-const createNewPage = (): HTMLElement => {
-  const newPageDiv = document.createElement('div');
-  newPageDiv.className = 'page';
-  
-  const newPageContent = document.createElement('div');
-  newPageContent.className = 'page-content';
-  newPageContent.contentEditable = 'true';
-  
-  newPageDiv.appendChild(newPageContent);
-  return newPageDiv;
+const getUniqueLineTops = (rects: DOMRectList | DOMRect[]): number[] => {
+  const tops = new Set<number>();
+  for (let i = 0; i < rects.length; i++) {
+    tops.add(Math.round(rects[i].top));
+  }
+  return Array.from(tops).sort((a, b) => a - b);
 };
 
 const findLineStartOffset = (paragraph: HTMLElement, targetLineTop: number): { node: Node; offset: number } | null => {
@@ -84,12 +80,16 @@ const findLineStartOffset = (paragraph: HTMLElement, targetLineTop: number): { n
   return null;
 };
 
-const getUniqueLineTops = (rects: DOMRectList | DOMRect[]): number[] => {
-  const tops = new Set<number>();
-  for (let i = 0; i < rects.length; i++) {
-    tops.add(Math.round(rects[i].top));
-  }
-  return Array.from(tops).sort((a, b) => a - b);
+const createNewPage = (): HTMLElement => {
+  const newPageDiv = document.createElement('div');
+  newPageDiv.className = 'page';
+  
+  const newPageContent = document.createElement('div');
+  newPageContent.className = 'page-content';
+  newPageContent.contentEditable = 'true';
+  
+  newPageDiv.appendChild(newPageContent);
+  return newPageDiv;
 };
 
 const moveContentToNextPage = (
@@ -100,64 +100,18 @@ const moveContentToNextPage = (
   const fromContent = fromPage.querySelector('.page-content') as HTMLElement;
   const toContent = toPage.querySelector('.page-content') as HTMLElement;
   
-  if (!fromContent || !toContent) return false;
+  if (!fromContent || !toContent || fromContent.children.length === 0) return false;
 
   const children = Array.from(fromContent.children);
-  if (children.length === 0) return false;
-
   const lastChild = children[children.length - 1] as HTMLElement;
   if (!lastChild) return false;
-
-  if (children.length === 1) {
-    toContent.insertBefore(lastChild, toContent.firstChild);
-    return true;
-  }
 
   const contentAreaRect = fromContent.getBoundingClientRect();
   const computedStyle = window.getComputedStyle(fromContent);
   const paddingTop = parseFloat(computedStyle.paddingTop);
   
-  const SAFETY_BUFFER = 10;
+  const SAFETY_BUFFER = 5;
   const effectiveLimit = availableContentHeight - SAFETY_BUFFER;
-
-  if (lastChild.tagName === 'UL' || lastChild.tagName === 'OL') {
-    const list = lastChild;
-    const listItems = Array.from(list.children) as HTMLElement[];
-    if (listItems.length === 0) {
-        toContent.insertBefore(lastChild, toContent.firstChild);
-        return true;
-    }
-
-    let splitItemIndex = -1;
-    for (let i = 0; i < listItems.length; i++) {
-      const item = listItems[i];
-      const itemRect = item.getBoundingClientRect();
-      const itemBottomRelativeToContent = itemRect.bottom - (contentAreaRect.top + paddingTop);
-      
-      if (itemBottomRelativeToContent > effectiveLimit) {
-        splitItemIndex = i;
-        break;
-      }
-    }
-
-    if (splitItemIndex !== -1) {
-      let nextPageList = toContent.firstElementChild as HTMLElement;
-      if (!nextPageList || nextPageList.tagName !== list.tagName) {
-        nextPageList = document.createElement(list.tagName);
-        toContent.insertBefore(nextPageList, toContent.firstChild);
-      }
-
-      const itemsToMove = listItems.slice(splitItemIndex);
-      itemsToMove.forEach(item => nextPageList.insertBefore(item, nextPageList.firstChild));
-
-      if (list.tagName === 'OL') {
-        const remainingItemsCount = list.children.length;
-        const originalStart = parseInt(list.getAttribute('start') || '1', 10);
-        nextPageList.setAttribute('start', String(originalStart + remainingItemsCount));
-      }
-      return true;
-    }
-  }
 
   if (lastChild.tagName === 'P' && lastChild.textContent?.trim()) {
       const range = document.createRange();
@@ -178,48 +132,40 @@ const moveContentToNextPage = (
         }
       }
 
-      if (firstOverflowLineIndex > 0) {
+      if (firstOverflowLineIndex > 0 && firstOverflowLineIndex < lineTops.length) {
         const overflowLineTop = lineTops[firstOverflowLineIndex];
         const splitPoint = findLineStartOffset(lastChild, overflowLineTop);
 
         if (splitPoint) {
           const moveRange = document.createRange();
           moveRange.setStart(splitPoint.node, splitPoint.offset);
-          moveRange.setEndAfter(lastChild.lastChild!);
+          moveRange.setEndAfter(lastChild.lastChild || lastChild);
           
           const fragmentToMove = moveRange.extractContents();
           const existingId = lastChild.dataset.paragraphId || `para-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
           lastChild.dataset.paragraphId = existingId;
           lastChild.dataset.splitPoint = 'start';
           
-          // --- MODIFICATION: Let CSS handle padding ---
-          lastChild.style.marginBottom = '0px';
-          // (lastChild.style as any).paddingBottom = '0'; // REMOVED THIS LINE
+          lastChild.style.paddingBottom = '0px';
 
           const firstChildOnNextPage = toContent.firstElementChild as HTMLElement;
           if (firstChildOnNextPage && firstChildOnNextPage.dataset.paragraphId === existingId) {
             firstChildOnNextPage.insertBefore(fragmentToMove, firstChildOnNextPage.firstChild);
-            if (lastChild.textContent && !/\s$/.test(lastChild.textContent) && firstChildOnNextPage.textContent && !/^\s/.test(firstChildOnNextPage.textContent)) {
-                const space = document.createTextNode(' ');
-                lastChild.appendChild(space);
-            }
           } else {
             const newParagraph = document.createElement('p');
             newParagraph.style.cssText = lastChild.style.cssText;
             if (lastChild.className) newParagraph.className = lastChild.className;
             newParagraph.dataset.paragraphId = existingId;
             newParagraph.dataset.splitPoint = 'end';
+            newParagraph.style.paddingBottom = '1.25rem';
             newParagraph.appendChild(fragmentToMove);
             toContent.insertBefore(newParagraph, toContent.firstChild);
           }
-          
-          console.log(`[Reflow Debug] Successfully split paragraph, leaving ${firstOverflowLineIndex} line(s) behind.`);
           return true;
         }
       }
   }
   
-  console.log(`[Reflow Debug] Could not split last element gradually. Moving whole element: <${lastChild.tagName}>`);
   toContent.insertBefore(lastChild, toContent.firstChild);
   return true;
 };
@@ -230,6 +176,7 @@ export const useTextReflow = (
 ) => {
   const reflowTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const isReflowingRef = useRef(false);
+  const [isReflowingState, setIsReflowingState] = useState(false);
 
   const DEFAULT_OPTIONS: ReflowOptions = {
     pageHeight: 1056, 
@@ -241,19 +188,10 @@ export const useTextReflow = (
     const children = Array.from(pageContent.children) as HTMLElement[];
     if (children.length === 0) return 0;
 
-    // Get the bounding rectangle of the parent content area itself.
     const parentRect = pageContent.getBoundingClientRect();
-    
-    // Get the bounding rectangle of the very last element inside.
     const lastChild = children[children.length - 1];
     const lastRect = lastChild.getBoundingClientRect();
-
-    // Calculate the height from the top of the parent's content box (including its padding)
-    // to the bottom of the very last element. This is immune to margin-collapsing issues
-    // of the first child.
     const contentHeight = lastRect.bottom - parentRect.top;
-    
-    // We also need to subtract the parent's top padding to get the pure content height.
     const parentStyle = window.getComputedStyle(pageContent);
     const paddingTop = parseFloat(parentStyle.paddingTop);
 
@@ -267,9 +205,9 @@ export const useTextReflow = (
 
 const reflowPage = useCallback((pageElement: HTMLElement, options: ReflowOptions = DEFAULT_OPTIONS): boolean => {
     if (!containerRef.current || isReflowingRef.current) return false;
-    console.log('called')
     
     isReflowingRef.current = true;
+    setIsReflowingState(true);
     const container = containerRef.current;
     const availableHeight = getAvailableHeight(options);
     let hasChanges = false;
@@ -278,43 +216,21 @@ const reflowPage = useCallback((pageElement: HTMLElement, options: ReflowOptions
     const pageContent = pageElement.querySelector('.page-content') as HTMLElement;
     if (!pageContent) {
       isReflowingRef.current = false;
+      setIsReflowingState(false);
       return false;
-    }
-
-    const allPages = Array.from(container.querySelectorAll('.page'));
-    const pageIndex = allPages.indexOf(pageElement);
-    let currentContentHeight = getContentHeight(pageContent);
-    const overflowAmount = currentContentHeight - availableHeight;
-
-    if (overflowAmount > 0) {
-        console.log('we made it here')
-        console.log(
-            `%c[Reflow Debug] Page ${pageIndex + 1} is overflowing.`,
-            'color: #e11d48; font-weight: bold;',
-            `\n  - Available Height: ${availableHeight.toFixed(2)}px`,
-            `\n  - Used Height:      ${currentContentHeight.toFixed(2)}px`,
-            `\n  - Overflow Amount:  ${overflowAmount.toFixed(2)}px`,
-            `\n  - Attempting to move content...`
-        );
     }
     
     while (getContentHeight(pageContent) > availableHeight && attempts < 50) {
       let nextPage = pageElement.nextElementSibling as HTMLElement;
-      if (!nextPage) {
+      if (!nextPage || !nextPage.classList.contains('page')) {
         nextPage = createNewPage();
-        container.appendChild(nextPage);
+        pageElement.after(nextPage);
       }
       
-      if (pageContent.children.length === 1) {
-        nextPage.querySelector('.page-content')?.insertBefore(pageContent.firstElementChild!, null);
-        hasChanges = true;
-        break; 
-      }
-
       if (moveContentToNextPage(pageElement, nextPage, availableHeight)) {
         hasChanges = true;
+        reflowPage(nextPage, options);
       } else {
-        console.warn("Reflow loop broke: moveContentToNextPage failed on an overflowing page.", pageElement);
         break;
       }
       attempts++;
@@ -332,6 +248,7 @@ const reflowPage = useCallback((pageElement: HTMLElement, options: ReflowOptions
     }
     
     isReflowingRef.current = false;
+    setIsReflowingState(false);
     if(hasChanges) {
       saveToHistory(true);
     }
@@ -345,6 +262,7 @@ const moveContentToPreviousPage = useCallback((
 ): boolean => {
   const fromContent = fromPage.querySelector('.page-content') as HTMLElement;
   const toContent = toPage.querySelector('.page-content') as HTMLElement;
+  console.log('called')
   
   if (!fromContent || !toContent || !fromContent.firstElementChild) return false;
 
@@ -357,33 +275,23 @@ const moveContentToPreviousPage = useCallback((
   const currentContentHeight = getContentHeight(toContent);
   const remainingHeight = effectiveLimit - currentContentHeight;
 
-  // If there's barely any space, don't even try.
-  if (remainingHeight < 10) return false;
+  if (remainingHeight < 1) return false;
 
-  // --- START: HYBRID LOGIC ---
-
-  // CASE 1: The "fast path". The entire next element fits perfectly. Move it.
   const elementRect = elementToPull.getBoundingClientRect();
   if (elementRect.height <= remainingHeight) {
     toContent.appendChild(elementToPull);
     return true;
   }
 
-  // CASE 2: The element is not a paragraph (e.g., an image) and it's too big. We can't split it, so we fail.
   if (elementToPull.tagName !== 'P') {
     return false;
   }
 
-  // CASE 3: The "smart path". The element is a paragraph, but it's too big to move entirely.
-  // We must perform an incremental, line-by-line pull.
   const lastParaOnToPage = toContent.lastElementChild as HTMLElement;
-
-  // Determine our target: are we appending to an existing split paragraph, or creating a new one?
   const targetParagraph = (lastParaOnToPage?.tagName === 'P' && lastParaOnToPage.dataset.paragraphId === elementToPull.dataset.paragraphId)
     ? lastParaOnToPage
     : document.createElement('p');
 
-  // If we created a new paragraph, style it and add it to the page.
   if (targetParagraph !== lastParaOnToPage) {
     targetParagraph.style.cssText = elementToPull.style.cssText;
     if (elementToPull.className) targetParagraph.className = elementToPull.className;
@@ -391,63 +299,69 @@ const moveContentToPreviousPage = useCallback((
   }
 
   let movedSomething = false;
-  // Loop word-by-word, pulling content from the source paragraph until the page is full.
   while (elementToPull.firstChild) {
     const nodeToPull = elementToPull.firstChild;
     
-    // Create a tiny clone of the next piece of content to measure it.
     const tempNode = nodeToPull.cloneNode(true);
+    let wordToTest = '';
     if (tempNode.nodeType === Node.TEXT_NODE) {
       const text = tempNode.textContent || '';
-      const firstWord = text.trim().split(/\s+/)[0] || '';
-      if (!firstWord) { // If it's just whitespace, move the whole node and continue
+      wordToTest = text.trim().split(/\s+/)[0] || '[whitespace]';
+      if (!text.trim()) {
           targetParagraph.appendChild(nodeToPull);
           continue;
       }
-      tempNode.textContent = firstWord;
+      tempNode.textContent = wordToTest;
+    } else {
+      wordToTest = `[${(tempNode as HTMLElement).tagName}]`;
     }
 
-    // Temporarily add the piece and measure the new height of the page.
+    // --- DEBUG LOGGING START ---
+    console.groupCollapsed(`[Reflow Debug] Trying to pull word: "${wordToTest}"`);
+    const heightBefore = getContentHeight(toContent);
     targetParagraph.appendChild(tempNode);
     const newHeight = getContentHeight(toContent);
-    targetParagraph.removeChild(tempNode); // Immediately remove the temporary piece.
+    targetParagraph.removeChild(tempNode);
+    
+    console.log(`Height Before: ${heightBefore.toFixed(2)}px`);
+    console.log(`Height After Test: ${newHeight.toFixed(2)}px`);
+    console.log(`Page Limit: ${effectiveLimit.toFixed(2)}px`);
+    console.log(`Remaining Space: ${(effectiveLimit - heightBefore).toFixed(2)}px`);
+    console.groupEnd();
 
-    // If adding this word would overflow the page, we stop.
     if (newHeight > effectiveLimit) {
+      console.log(`%c[Reflow Debug] STOPPING: Word "${wordToTest}" overflows. New height (${newHeight.toFixed(2)}px) > Limit (${effectiveLimit.toFixed(2)}px)`, 'color: #ef4444; font-weight: bold;');
       break;
     }
+    console.log(`%c[Reflow Debug] PULLING: Word "${wordToTest}" fits.`, 'color: #22c55e;');
+    // --- DEBUG LOGGING END ---
 
-    // It fits! Move the word/node for real.
     if (nodeToPull.nodeType === Node.TEXT_NODE) {
       const text = nodeToPull.textContent || '';
       const firstWordWithSpace = text.substring(0, text.indexOf(' ') + 1) || text;
       targetParagraph.appendChild(document.createTextNode(firstWordWithSpace));
       
-      // Remove the moved word from the source paragraph.
       nodeToPull.textContent = text.substring(firstWordWithSpace.length);
       if (!nodeToPull.textContent?.trim()) {
         nodeToPull.remove();
       }
     } else {
-      // If it's not a text node (e.g., a <span>), move the whole thing.
       targetParagraph.appendChild(nodeToPull);
     }
     movedSomething = true;
   }
 
-  // If we couldn't even fit one word, clean up the temporary paragraph we might have created.
   if (!movedSomething && targetParagraph !== lastParaOnToPage) {
     targetParagraph.remove();
   } else if (movedSomething) {
-    // If we did move content, we now have a split paragraph. Tag both pieces correctly.
-    const existingId = `para-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+    const existingId = elementToPull.dataset.paragraphId || `para-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
     targetParagraph.dataset.paragraphId = existingId;
     targetParagraph.dataset.splitPoint = 'start';
+    targetParagraph.style.paddingBottom = '0px';
     elementToPull.dataset.paragraphId = existingId;
     elementToPull.dataset.splitPoint = 'end';
   }
 
-  // If the source paragraph on the next page is now empty, remove it.
   if (!elementToPull.hasChildNodes()) {
     elementToPull.remove();
   }
@@ -455,136 +369,30 @@ const moveContentToPreviousPage = useCallback((
   return movedSomething;
 }, [getContentHeight]);
 
-  
-  
-  const reflowBackwardFromPage = useCallback((startPageElement: HTMLElement, options: ReflowOptions = DEFAULT_OPTIONS): boolean => {
-    if (!containerRef.current || isReflowingRef.current) return false;
-
-    isReflowingRef.current = true;
-    const availableHeight = getAvailableHeight(options);
-    let overallChanges = false;
-    let currentPage = startPageElement;
-
-    while (currentPage) {
-      let nextPage = currentPage.nextElementSibling as HTMLElement;
-      if (!nextPage) break; // End of document
-
-      // Step 1: Pull content backward from the next page until it's full.
-      while (true) {
-        if (!moveContentToPreviousPage(nextPage, currentPage, availableHeight)) {
-          break; // Stop if we couldn't move anything.
-        }
-        overallChanges = true;
-      }
-
-      // Step 2: VERIFY. After pulling, check if the current page has overflowed.
-      // This is the critical safety check that fixes the bug.
-      const currentContent = currentPage.querySelector('.page-content') as HTMLElement;
-      if (getContentHeight(currentContent) > availableHeight) {
-        // If we overflowed, run a forward reflow to push content back down.
-        reflowPage(currentPage);
-      }
-       
-      // Step 3: CLEANUP. Only after verifying the layout, check if the next page
-      // is now truly empty and can be deleted.
-      const nextPageContent = nextPage.querySelector('.page-content') as HTMLElement;
-      if (nextPageContent && nextPageContent.children.length === 0 && nextPageContent.textContent?.trim() === '') {
-        const pageAfterNext = nextPage.nextElementSibling;
-        nextPage.remove();
-        overallChanges = true;
-        // If we deleted a page, we need to re-evaluate from the current page
-        // with the new "next" page.
-        nextPage = pageAfterNext as HTMLElement; 
-        if (!nextPage) break;
-      }
-      
-      currentPage = nextPage;
-    }
-
-    // Final pass to update overflow warnings
-    let checkPage: HTMLElement | null = startPageElement;
-    while (checkPage) {
-      const pageContent = checkPage.querySelector('.page-content') as HTMLElement;
-      if (pageContent) {
-        const contentHeight = getContentHeight(pageContent);
-        if (contentHeight <= availableHeight) {
-          pageContent.classList.remove('overflow-warning');
-        }
-      }
-      checkPage = checkPage.nextElementSibling as HTMLElement;
-    }
-
-    isReflowingRef.current = false;
-    if (overallChanges) {
-      saveToHistory(true);
-    }
-    return overallChanges;
-  }, [containerRef, getAvailableHeight, getContentHeight, moveContentToPreviousPage, reflowPage, saveToHistory, DEFAULT_OPTIONS]);
-
-  const reflowContent = useCallback((options: ReflowOptions = DEFAULT_OPTIONS) => {
-    if (!containerRef.current || isReflowingRef.current) return;
-    
-    isReflowingRef.current = true;
-    const container = containerRef.current;
-    const availableHeight = getAvailableHeight(options);
-    let hasChanges = false;
-
-    let currentPage: HTMLElement | null = container.querySelector('.page');
-    while (currentPage) {
-      const currentContent = currentPage.querySelector('.page-content') as HTMLElement;
-      if (currentContent) {
-        // Keep moving content forward until the current page is no longer overflowing
-        while (getContentHeight(currentContent) > availableHeight) {
-          let nextPage = currentPage.nextElementSibling as HTMLElement;
-          if (!nextPage) {
-            nextPage = createNewPage();
-            container.appendChild(nextPage);
-          }
-          if (moveContentToNextPage(currentPage, nextPage, availableHeight)) {
-            hasChanges = true;
-          } else {
-            // Safety break if content can't be moved
-            break;
-          }
-        }
-      }
-      currentPage = currentPage.nextElementSibling as HTMLElement | null;
-    }
-
-    // The backward pass can now start from the last page for a full document balance
-    const allPages = Array.from(container.querySelectorAll('.page')) as HTMLElement[];
-    for (let i = allPages.length - 2; i >= 0; i--) {
-      reflowBackwardFromPage(allPages[i], options);
-    }
-
-    isReflowingRef.current = false;
-    
-    if (hasChanges) {
-      saveToHistory(true);
-    }
-  }, [containerRef, getContentHeight, getAvailableHeight, reflowBackwardFromPage, saveToHistory, DEFAULT_OPTIONS]);
-  
-
   const reflowSplitParagraph = useCallback((paragraphId: string): boolean => {
     if (!containerRef.current || isReflowingRef.current) return false;
   
     isReflowingRef.current = true;
+    setIsReflowingState(true);
   
     const allPieces = Array.from(
       containerRef.current.querySelectorAll(`p[data-paragraph-id="${paragraphId}"]`)
     ) as HTMLElement[];
   
     if (allPieces.length <= 1) {
-      allPieces[0]?.removeAttribute('data-paragraph-id');
-      allPieces[0]?.removeAttribute('data-split-point');
+      if (allPieces[0]) {
+        allPieces[0].removeAttribute('data-paragraph-id');
+        allPieces[0].removeAttribute('data-split-point');
+        allPieces[0].style.paddingBottom = '1.25rem';
+      }
       isReflowingRef.current = false;
+      setIsReflowingState(false);
       return false;
     }
   
     const firstPiece = allPieces[0];
     const startPage = firstPiece.closest('.page') as HTMLElement;
    
-    // Merge all pieces into the first piece
     for (let i = 1; i < allPieces.length; i++) {
       const nextPiece = allPieces[i];
       
@@ -600,23 +408,91 @@ const moveContentToPreviousPage = useCallback((
       nextPiece.remove();
     }
   
-    // Clean up the now-merged paragraph
     firstPiece.removeAttribute('data-paragraph-id');
     firstPiece.removeAttribute('data-split-point');
+    firstPiece.style.paddingBottom = '1.25rem';
     firstPiece.normalize();
   
-    // IMPORTANT: Now, trigger a forward reflow on the page containing the
-    // merged paragraph. This will cause it to re-split perfectly.
     if (startPage) {
       reflowPage(startPage);
     }
   
     isReflowingRef.current = false;
+    setIsReflowingState(false);
     saveToHistory(true);
     return true; 
   }, [containerRef, reflowPage, saveToHistory]);
+  
+  const reflowBackwardFromPage = useCallback((startPageElement: HTMLElement, options: ReflowOptions = DEFAULT_OPTIONS): boolean => {
+    if (!containerRef.current || isReflowingRef.current) return false;
 
-  const scheduleReflow = useCallback((delay: number = 100) => {
+    isReflowingRef.current = true;
+    setIsReflowingState(true);
+    const availableHeight = getAvailableHeight(options);
+    let overallChanges = false;
+    let currentPage = startPageElement;
+
+    while (currentPage) {
+      let nextPage = currentPage.nextElementSibling as HTMLElement;
+      if (!nextPage || !nextPage.classList.contains('page')) break;
+
+      while (true) {
+        if (!moveContentToPreviousPage(nextPage, currentPage, availableHeight)) {
+          break;
+        }
+        overallChanges = true;
+      }
+
+      const currentContent = currentPage.querySelector('.page-content') as HTMLElement;
+      if (currentContent && getContentHeight(currentContent) > availableHeight) {
+        reflowPage(currentPage, options);
+      }
+       
+      const nextPageContent = nextPage.querySelector('.page-content') as HTMLElement;
+      if (nextPageContent && nextPageContent.children.length === 0 && nextPageContent.textContent?.trim() === '') {
+        const pageAfterNext = nextPage.nextElementSibling;
+        nextPage.remove();
+        overallChanges = true;
+        nextPage = pageAfterNext as HTMLElement; 
+        if (!nextPage) break;
+      }
+      
+      currentPage = nextPage;
+    }
+
+    isReflowingRef.current = false;
+    setIsReflowingState(false);
+    if (overallChanges) {
+      saveToHistory(true);
+    }
+    return overallChanges;
+  }, [containerRef, getAvailableHeight, getContentHeight, moveContentToPreviousPage, reflowPage, saveToHistory, DEFAULT_OPTIONS]);
+
+  const reflowContent = useCallback((options: ReflowOptions = DEFAULT_OPTIONS) => {
+    if (!containerRef.current || isReflowingRef.current) return;
+    
+    isReflowingRef.current = true;
+    setIsReflowingState(true);
+    const container = containerRef.current;
+    
+    let currentPage: HTMLElement | null = container.querySelector('.page');
+    while (currentPage) {
+      reflowPage(currentPage, options);
+      currentPage = currentPage.nextElementSibling as HTMLElement | null;
+    }
+
+    const allPages = Array.from(container.querySelectorAll('.page')) as HTMLElement[];
+    if (allPages.length > 0) {
+      reflowBackwardFromPage(allPages[0], options);
+    }
+
+    isReflowingRef.current = false;
+    setIsReflowingState(false);
+    
+  }, [containerRef, reflowPage, reflowBackwardFromPage, DEFAULT_OPTIONS]);
+  
+
+  const scheduleReflow = useCallback((delay: number = 150) => {
     if (reflowTimeoutRef.current) {
       clearTimeout(reflowTimeoutRef.current);
     }

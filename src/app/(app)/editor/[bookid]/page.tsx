@@ -1,5 +1,3 @@
-//src/app/(app)/editor/[bookid]/page.tsx
-
 "use client";
 
 import React, { useState, useEffect, useRef } from "react";
@@ -18,6 +16,15 @@ import { useEditor } from "@/components/editor/hooks/useEditor";
 import { fetchBookById, updateBook, Book as BookData } from "@/lib/mock-data";
 import { useToast } from "@/hooks/use-toast";
 import { GraphData } from "@/components/editor/GraphBlock";
+
+// --- NEW: Loading Overlay Component ---
+const LoadingOverlay = () => (
+  <div className="fixed inset-0 bg-white/80 backdrop-blur-sm flex flex-col items-center justify-center z-[100] animate-in fade-in duration-300">
+    <Loader2 className="w-12 h-12 text-blue-600 animate-spin mb-4" />
+    <p className="text-lg font-semibold text-gray-700">Importing content...</p>
+    <p className="text-gray-500">Please wait while we paginate your document.</p>
+  </div>
+);
 
 const ContentHubToggle = ({ isOpen, onClick }: { isOpen: boolean; onClick: () => void; }) => (
   <button
@@ -94,6 +101,7 @@ const EditorComponent = () => {
   const [isHubExpanded, setIsHubExpanded] = useState(false);
   const [isContentLoaded, setIsContentLoaded] = useState(false);
   const [isLeftPanelExpanded, setIsLeftPanelExpanded] = useState(false);
+  const [isImporting, setIsImporting] = useState(false); // --- NEW: Loading state ---
   
   const pageContainerRef = useRef<HTMLDivElement | null>(null);
   
@@ -110,8 +118,6 @@ const EditorComponent = () => {
     reflowPage,
     reflowBackwardFromPage,
     reflowSplitParagraph,
-    getContentHeight,
-    getAvailableHeight,
     customSelection,
     highlightRects,
     isSelecting,
@@ -121,6 +127,7 @@ const EditorComponent = () => {
     clearSelection,
     forceRecalculateRects,
     startTextSelection,
+    fullDocumentReflow, // --- NEW: Destructure the new function ---
   } = useEditor(pageContainerRef);
 
   const { data: bookData, isLoading: isBookLoading, isError } = useQuery({
@@ -146,16 +153,14 @@ const EditorComponent = () => {
       rehydrateMathBlocks(pageContainerRef.current);
       rehydrateGraphBlocks(pageContainerRef.current);
 
-      // After loading, run a full reflow to ensure everything is paginated correctly.
-      // This is the proper way to handle initial layout.
       setTimeout(() => {
-        immediateReflow();
+        fullDocumentReflow(); // Use the full reflow on initial load as well
         saveToHistory(true);
       }, 150);
 
       setIsContentLoaded(true);
     }
-  }, [bookData, pageContainerRef, isContentLoaded, saveToHistory, rehydrateMathBlocks, rehydrateGraphBlocks, immediateReflow]);
+  }, [bookData, pageContainerRef, isContentLoaded, saveToHistory, rehydrateMathBlocks, rehydrateGraphBlocks, fullDocumentReflow]);
 
   useEffect(() => {
     if (showTocPanel || leftPanelContent) {
@@ -206,12 +211,23 @@ const EditorComponent = () => {
     setLeftPanelContent(null);
   };
 
+  // --- MODIFIED: Orchestrate the import process ---
   const handleImport = (htmlBlocks: string[], createNewPages: boolean) => { 
-    // 1. Insert the content into the editor
-    insertContent(htmlBlocks, createNewPages, true);
+    setIsImporting(true); // Show loading overlay
     
-    // 2. Close the main Content Hub panel
-    setShowContentPanel(false);
+    // Use setTimeout to allow the UI to update and show the loader
+    setTimeout(() => {
+      try {
+        insertContent(htmlBlocks, createNewPages, true);
+      } catch (error) {
+        console.error("Error during content import:", error);
+        toast({ title: "Import Failed", description: "An error occurred while importing content.", variant: "destructive" });
+      } finally {
+        // The reflow is now handled inside insertContent, so we just hide the loader
+        setIsImporting(false); 
+        setShowContentPanel(false);
+      }
+    }, 50); // A small delay is enough for the loader to render
   };
 
   const handleSaveDraft = () => {
@@ -265,6 +281,7 @@ const EditorComponent = () => {
 
   return (
     <div className="h-screen flex flex-col bg-gray-50">
+      {isImporting && <LoadingOverlay />}
       <header className="bg-white/95 backdrop-blur-sm border-b border-gray-200 px-6 py-4 flex-shrink-0 z-20 shadow-sm">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-4">
@@ -363,6 +380,7 @@ const EditorComponent = () => {
               reflowPage={reflowPage}
               reflowBackwardFromPage={reflowBackwardFromPage}
               reflowSplitParagraph={reflowSplitParagraph}
+              fullDocumentReflow={fullDocumentReflow}
               customSelection={customSelection}
               highlightRects={highlightRects}
               isSelecting={isSelecting}

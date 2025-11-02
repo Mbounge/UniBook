@@ -68,7 +68,7 @@ body {
   line-height: 1.5;
   height: auto;
   box-sizing: border-box;
-  position: relative; /* Added to create a positioning context for the ::before pseudo-element */
+  position: relative;
 }
 
 .page-content > *:last-child {
@@ -152,20 +152,22 @@ body {
   padding-bottom: 0 !important;
 }
 
+/* --- FIX: REMOVED the conflicting data-attribute-based rules --- */
+/* The JavaScript in useTextReflow now handles this styling directly via inline styles. */
+/*
 .page-content p[data-split-point="start"],
 .page-content p[data-split-point="middle"] {
   padding-bottom: 0; 
 }
 
-/* Only the final piece gets bottom padding */
 .page-content p[data-split-point="end"] {
   padding-bottom: 1.25rem;
 }
 
-/* Regular paragraphs (not split) keep their padding */
 .page-content p:not([data-split-point]) {
   padding-bottom: 1.25rem;
 }
+*/
 
 .page-content ul, .page-content ol {
   padding-left: 1.5rem;

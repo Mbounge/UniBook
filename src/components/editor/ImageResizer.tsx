@@ -1,10 +1,7 @@
-//src/components/editor/ImageResizer.tsx
-
 'use client';
 
 import React, { useEffect, useRef, useState, useCallback } from 'react';
 
-// --- HELPER FUNCTIONS (unchanged) ---
 const getFloatIcon = (type: string) => {
   const icons = {
     left: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="17" y1="10" x2="3" y2="10"></line><line x1="21" y1="6" x2="3" y2="6"></line><line x1="21" y1="14" x2="3" y2="14"></line><line x1="17" y1="18" x2="3" y2="18"></line></svg>',
@@ -19,14 +16,14 @@ const getCaptionIcon = () => `<svg width="16" height="16" viewBox="0 0 24 24" fi
 
 const getDeleteIcon = () => `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3,6 5,6 21,6"></polyline><path d="m19,6v14a2,2 0 0,1 -2,2H7a2,2 0 0,1 -2,-2V6m3,0V4a2,2 0 0,1 2,-2h4a2,2 0 0,1 2,2v2"></path><line x1="10" y1="11" x2="10" y2="17"></line><line x1="14" y1="11" x2="14" y2="17"></line></svg>`;
 
-
-// --- ImageResizer Component ---
 interface ImageResizerProps {
   pageContainerRef: React.RefObject<HTMLDivElement | null>;
   saveToHistory: (force?: boolean) => void;
-  // --- MODIFICATION: Make props generic ---
   selectedElement?: HTMLElement | null;
   onElementSelect?: (element: HTMLElement | null) => void;
+  // --- MODIFIED PROPS ---
+  reflowBackwardFromPage: (pageElement: HTMLElement) => void;
+  fullDocumentReflow: () => void;
 }
 
 type ImageFloat = 'none' | 'left' | 'right' | 'center';
@@ -35,14 +32,16 @@ export const ImageResizer: React.FC<ImageResizerProps> = ({
   pageContainerRef,
   saveToHistory, 
   selectedElement,
-  onElementSelect 
+  onElementSelect,
+  reflowBackwardFromPage,
+  fullDocumentReflow
 }) => {
   const [selection, setSelection] = useState<HTMLElement | null>(null);
   const [isResizing, setIsResizing] = useState(false);
   
   const selectionRef = useRef<HTMLElement | null>(null);
   const isResizingRef = useRef(false);
-  const propsRef = useRef({ saveToHistory, onElementSelect });
+  const propsRef = useRef({ saveToHistory, onElementSelect, reflowBackwardFromPage, fullDocumentReflow });
 
   const resizeHandleRef = useRef<string | null>(null);
   const resizeStart = useRef({ width: 0, height: 0, x: 0, y: 0, aspectRatio: 1 });
@@ -55,8 +54,8 @@ export const ImageResizer: React.FC<ImageResizerProps> = ({
   }>({ float: 'none', hasCaption: false });
 
   useEffect(() => {
-    propsRef.current = { saveToHistory, onElementSelect };
-  }, [saveToHistory, onElementSelect]);
+    propsRef.current = { saveToHistory, onElementSelect, reflowBackwardFromPage, fullDocumentReflow };
+  }, [saveToHistory, onElementSelect, reflowBackwardFromPage, fullDocumentReflow]);
 
   useEffect(() => {
     selectionRef.current = selection;
@@ -67,12 +66,10 @@ export const ImageResizer: React.FC<ImageResizerProps> = ({
   }, [isResizing]);
 
   useEffect(() => {
-    // --- MODIFICATION: Use generic selectedElement prop ---
     const newSelection = selectedElement ? selectedElement.closest('.image-wrapper, .template-wrapper') as HTMLElement : null;
     setSelection(newSelection);
   }, [selectedElement]);
 
-  // ... (rest of the component is unchanged) ...
   const applyButtonStates = useCallback((element: HTMLElement, force: boolean = false) => {
     const toolbar = element.querySelector('.image-toolbar, .template-toolbar');
     if (!toolbar) return;
@@ -321,12 +318,14 @@ export const ImageResizer: React.FC<ImageResizerProps> = ({
       }
 
       setTimeout(() => applyButtonStates(element, true), 50);
-      setTimeout(() => propsRef.current.saveToHistory(true), 100);
+      setTimeout(() => propsRef.current.fullDocumentReflow(), 100);
     };
 
     const handleMouseUp = () => {
       if (isResizingRef.current) {
         propsRef.current.saveToHistory(true);
+        // --- MODIFICATION: Use fullDocumentReflow for final, perfect pagination ---
+        propsRef.current.fullDocumentReflow();
       }
       setIsResizing(false);
       resizeHandleRef.current = null;
@@ -475,6 +474,12 @@ export const ImageResizer: React.FC<ImageResizerProps> = ({
         }
         selectionRef.current.style.width = `${newWidth}px`;
         selectionRef.current.style.height = `${newHeight}px`;
+      }
+      
+      // --- MODIFICATION: Use faster, local reflow during drag for responsiveness ---
+      const page = selectionRef.current.closest('.page') as HTMLElement;
+      if (page) {
+        propsRef.current.reflowBackwardFromPage(page);
       }
     };
     

@@ -56,7 +56,7 @@ interface DocumentEditorProps {
   reflowPage: (pageElement: HTMLElement) => boolean;
   reflowBackwardFromPage: (pageElement: HTMLElement) => boolean;
   reflowSplitParagraph: (paragraphId: string) => boolean;
-  // reflowSplitParagraphIncremental: (pageElement: HTMLElement) => boolean; // This is now removed
+  fullDocumentReflow: () => void;
   customSelection: CustomSelection | null;
   highlightRects: DOMRect[];
   isSelecting: boolean;
@@ -107,7 +107,7 @@ export const DocumentEditor = forwardRef<
     reflowPage,
     reflowBackwardFromPage,
     reflowSplitParagraph,
-    // reflowSplitParagraphIncremental, // This is now removed
+    fullDocumentReflow,
     customSelection,
     highlightRects,
     isMultiPageSelection,
@@ -149,7 +149,6 @@ export const DocumentEditor = forwardRef<
   const savedRangeRef = useRef<Range | null>(null);
   const isInitialized = useRef(false);
 
-  // --- RENAMED: State variables from chapter to page ---
   const [currentPage, setCurrentPage] = useState(1);
   const [totalPages, setTotalPages] = useState(1);
   const [dropIndicatorPosition, setDropIndicatorPosition] = useState<{
@@ -395,7 +394,6 @@ export const DocumentEditor = forwardRef<
             reflowBackwardFromPage(startPageElement);
           }
         }
-        //forceRecalculateRects();
       }, 0);
     },
     [
@@ -408,7 +406,6 @@ export const DocumentEditor = forwardRef<
       updateToolbarState,
       runParagraphAnalysis,
       reflowBackwardFromPage,
-      forceRecalculateRects,
     ]
   );
 
@@ -503,7 +500,6 @@ export const DocumentEditor = forwardRef<
             reflowBackwardFromPage(startPageElement);
           }
         }
-        //forceRecalculateRects();
       }, 0);
     },
     [
@@ -516,7 +512,6 @@ export const DocumentEditor = forwardRef<
       updateToolbarState,
       runParagraphAnalysis,
       reflowBackwardFromPage,
-      forceRecalculateRects,
     ]
   );
 
@@ -611,36 +606,6 @@ export const DocumentEditor = forwardRef<
     ]
   );
 
-  const reflowWithCursor = useCallback(() => {
-    const selection = window.getSelection();
-    if (!selection || selection.rangeCount === 0) {
-      immediateReflow();
-      return;
-    }
-
-    const range = selection.getRangeAt(0);
-    const markerId = `cursor-marker-${Date.now()}`;
-    const marker = document.createElement("span");
-    marker.id = markerId;
-
-    range.insertNode(marker);
-    immediateReflow();
-
-    const newMarker = pageContainerRef.current?.querySelector(`#${markerId}`);
-    if (newMarker) {
-      const newRange = document.createRange();
-      const newSelection = window.getSelection();
-
-      newRange.setStartBefore(newMarker);
-      newRange.collapse(true);
-
-      newSelection?.removeAllRanges();
-      newSelection?.addRange(newRange);
-
-      newMarker.parentNode?.removeChild(newMarker);
-    }
-  }, [immediateReflow, pageContainerRef]);
-
   const handleImmediateOverflow = useCallback(
     (pageContent: HTMLElement) => {
       const selection = window.getSelection();
@@ -693,72 +658,14 @@ export const DocumentEditor = forwardRef<
     [isReflowing, handleImmediateOverflow]
   );
 
-  const checkAndReflowSplitParagraph = useCallback(
-    
-    (element: HTMLElement) => {
-    console.log('checkandreflow')
-      
-      if (isReflowing()) return;
-
-      const paragraph = element.closest("p[data-paragraph-id]") as HTMLElement;
-      if (!paragraph) return;
-      
-
-      const paragraphId = paragraph.dataset.paragraphId;
-      if (!paragraphId) return;
-
-      const selection = window.getSelection();
-      if (!selection || selection.rangeCount === 0) {
-        reflowSplitParagraph(paragraphId);
-        return;
-      }
-
-      const range = selection.getRangeAt(0);
-      const markerId = `cursor-marker-${Date.now()}`;
-      const marker = document.createElement("span");
-      marker.id = markerId;
-      marker.style.display = "inline";
-
-      try {
-        range.insertNode(marker);
-      } catch (e) {
-        reflowSplitParagraph(paragraphId);
-        return;
-      }
-
-      reflowSplitParagraph(paragraphId);
-
-      setTimeout(() => {
-        const newMarker = pageContainerRef.current?.querySelector(
-          `#${markerId}`
-        );
-        if (newMarker) {
-          const newRange = document.createRange();
-          const newSelection = window.getSelection();
-
-          newRange.setStartBefore(newMarker);
-          newRange.collapse(true);
-
-          newSelection?.removeAllRanges();
-          newSelection?.addRange(newRange);
-
-          newMarker.parentNode?.removeChild(newMarker);
-        }
-      }, 0);
-    },
-    [isReflowing, reflowSplitParagraph, pageContainerRef]
-  );
-
   const updateOverflowWarning = useCallback(() => {
     const selection = window.getSelection();
 
-    // Clear previous warning
     if (overflowWarningPage) {
       const currentHeight = overflowWarningPage.getBoundingClientRect().height;
       const AVAILABLE_CONTENT_HEIGHT = 9.9 * 96;
       const WARNING_THRESHOLD = AVAILABLE_CONTENT_HEIGHT * 0.95;
 
-      // Remove warning if content now fits
       if (currentHeight <= WARNING_THRESHOLD) {
         overflowWarningPage.classList.remove("overflow-warning");
         setOverflowWarningPage(null);
@@ -798,18 +705,36 @@ export const DocumentEditor = forwardRef<
     (event: React.FormEvent<HTMLDivElement>) => {
       const target = event.target as HTMLElement;
       const pageContent = target.closest(".page-content") as HTMLElement;
-      if (pageContent && checkAndReflowOnOverflow(pageContent)) {
+      
+      const nativeEvent = event.nativeEvent as InputEvent;
+      const isDeletion = nativeEvent.inputType.startsWith('delete');
+
+      if (!isDeletion && pageContent && checkAndReflowOnOverflow(pageContent)) {
         return;
       }
 
-      // --- SIMPLIFIED AND CORRECTED LOGIC ---
-      // Always call the generic backward reflow. Our new `moveContentToPreviousPage`
-      // is now smart enough to handle all cases (split, non-split, incremental) correctly.
       const page = target.closest('.page') as HTMLElement;
       if (page) {
-        setTimeout(() => reflowBackwardFromPage(page), 50);
+        setTimeout(() => {
+          reflowBackwardFromPage(page);
+          
+          const content = page.querySelector('.page-content');
+          if (!content) return;
+
+          const children = Array.from(content.children);
+          for (let i = 0; i < children.length - 1; i++) {
+            const currentEl = children[i] as HTMLElement;
+            const nextEl = children[i+1] as HTMLElement;
+            if (
+              currentEl.dataset.paragraphId &&
+              currentEl.dataset.paragraphId === nextEl.dataset.paragraphId
+            ) {
+              reflowSplitParagraph(currentEl.dataset.paragraphId);
+              break; 
+            }
+          }
+        }, 50);
       }
-      // --- END OF SIMPLIFIED LOGIC ---
 
       updateOverflowWarning();
       saveToHistory();
@@ -820,7 +745,8 @@ export const DocumentEditor = forwardRef<
       saveToHistory,
       updateToolbarState,
       checkAndReflowOnOverflow,
-      reflowBackwardFromPage, // Simplified dependencies
+      reflowBackwardFromPage,
+      reflowSplitParagraph,
       updateOverflowWarning,
       runParagraphAnalysis,
     ]
@@ -862,16 +788,15 @@ export const DocumentEditor = forwardRef<
 
       if (hasContent) {
         newRange.selectNodeContents(lastBlock);
-        newRange.collapse(false); // `false` collapses to the end of the range.
+        newRange.collapse(false);
       } else {
         newRange.setStart(lastBlock, 0);
-        newRange.collapse(true); // `true` collapses to the start of the range.
+        newRange.collapse(true);
       }
 
       newSel?.removeAllRanges();
       newSel?.addRange(newRange);
 
-      // Ensure the editor has focus
       prevPageContent.focus();
 
       saveToHistory(true);
@@ -880,7 +805,6 @@ export const DocumentEditor = forwardRef<
     [reflowBackwardFromPage, saveToHistory, runParagraphAnalysis]
   );
 
-  // In DocumentEditor.tsx
   useEffect(() => {
     if (!pageContainerRef.current) return;
 
@@ -939,7 +863,6 @@ export const DocumentEditor = forwardRef<
             hasStructuralChanges = true;
           });
 
-        // --- START: FINAL CORRECTED BLOCK ---
         pageContent.querySelectorAll(":scope > p").forEach((p) => {
           if (p instanceof HTMLElement) {
             let needsUpdate = false;
@@ -949,19 +872,14 @@ export const DocumentEditor = forwardRef<
               needsUpdate = true;
             }
 
-            // --- THIS IS THE KEY LOGIC CHANGE ---
-            // If it's the final piece of a split, it needs padding.
-            if (p.dataset.splitPoint === 'end' && p.style.paddingBottom !== '1.25rem') {
-                p.style.paddingBottom = '1.25rem';
-                needsUpdate = true;
-            // If it's NOT the final piece (i.e., start/middle), it should have no padding.
-            } else if (p.dataset.splitPoint && p.dataset.splitPoint !== 'end' && p.style.paddingBottom !== '0px') {
+            if (p.dataset.splitPoint && p.dataset.splitPoint !== 'end' && p.style.paddingBottom !== '0px') {
                 p.style.paddingBottom = '0px';
                 needsUpdate = true;
-            // If it's a normal paragraph, it needs padding.
-            } else if (!p.dataset.splitPoint && p.style.paddingBottom !== '1.25rem') {
-                p.style.paddingBottom = '1.25rem';
-                needsUpdate = true;
+            } else if (!p.dataset.splitPoint || p.dataset.splitPoint === 'end') {
+                if (p.style.paddingBottom !== '1.25rem') {
+                  p.style.paddingBottom = '1.25rem';
+                  needsUpdate = true;
+                }
             }
 
             if (!p.dataset.lineSpacing || !p.style.lineHeight) {
@@ -979,33 +897,19 @@ export const DocumentEditor = forwardRef<
             }
           }
         });
-        // --- END: FINAL CORRECTED BLOCK ---
 
         const children = Array.from(pageContent.childNodes);
         for (let i = 0; i < children.length; i++) {
           const node = children[i] as Node;
           const knownInlineTags = [
-            "SPAN",
-            "B",
-            "I",
-            "U",
-            "A",
-            "CODE",
-            "EM",
-            "STRONG",
-            "FONT",
-            "SUB",
-            "SUP",
+            "SPAN", "B", "I", "U", "A", "CODE", "EM", "STRONG", "FONT", "SUB", "SUP",
           ];
           const isStrayNode =
-            (node.nodeType === Node.TEXT_NODE &&
-              node.textContent?.trim() !== "") ||
-            (node.nodeType === Node.ELEMENT_NODE &&
-              knownInlineTags.includes((node as HTMLElement).tagName));
+            (node.nodeType === Node.TEXT_NODE && node.textContent?.trim() !== "") ||
+            (node.nodeType === Node.ELEMENT_NODE && knownInlineTags.includes((node as HTMLElement).tagName));
           if (isStrayNode) {
             const p = document.createElement("p");
-            const lineHeight = getLineHeightValue(currentLineSpacing);
-            p.style.lineHeight = lineHeight;
+            p.style.lineHeight = getLineHeightValue(currentLineSpacing);
             p.dataset.lineSpacing = currentLineSpacing;
             p.style.fontSize = currentSize;
             p.style.marginBottom = '0px';
@@ -1016,8 +920,7 @@ export const DocumentEditor = forwardRef<
               const nextNode = children[i + 1];
               const isNextNodeStray =
                 nextNode.nodeType === Node.TEXT_NODE ||
-                (nextNode.nodeType === Node.ELEMENT_NODE &&
-                  knownInlineTags.includes((nextNode as HTMLElement).tagName));
+                (nextNode.nodeType === Node.ELEMENT_NODE && knownInlineTags.includes((nextNode as HTMLElement).tagName));
               if (isNextNodeStray) {
                 p.appendChild(nextNode);
                 i++;
@@ -1046,13 +949,9 @@ export const DocumentEditor = forwardRef<
         pageContent.querySelectorAll("p, h1, h2, h3, h4").forEach((block) => {
           const isVisuallyEmpty =
             block.textContent?.trim() === "" &&
-            block.querySelector(
-              "img, video, canvas, .math-wrapper, .graph-wrapper, br"
-            ) === null;
+            block.querySelector("img, video, canvas, .math-wrapper, .graph-wrapper, br") === null;
           if (isVisuallyEmpty) {
-            const allBlocks = pageContent.querySelectorAll(
-              "p, h1, h2, h3, h4, ul, ol, blockquote, pre, table"
-            );
+            const allBlocks = pageContent.querySelectorAll("p, h1, h2, h3, h4, ul, ol, blockquote, pre, table");
             if (allBlocks.length > 1) {
               block.remove();
               hasStructuralChanges = true;
@@ -1064,26 +963,6 @@ export const DocumentEditor = forwardRef<
           if (node.nodeName === "BR") {
             node.remove();
             hasStructuralChanges = true;
-          }
-        });
-
-        pageContent.querySelectorAll("p, h1, h2, h3, h4").forEach((block) => {
-          if (block instanceof HTMLElement) {
-            const rogueSpans = block.querySelectorAll(
-              'span[style*="font-size"]'
-            );
-            rogueSpans.forEach((span) => {
-              if (
-                span instanceof HTMLElement &&
-                span.style.fontSize.includes("px")
-              ) {
-                span.style.fontSize = "";
-                if (!span.getAttribute("style")) {
-                  span.replaceWith(...span.childNodes);
-                }
-                hasStructuralChanges = true;
-              }
-            });
           }
         });
       });
@@ -1314,7 +1193,6 @@ export const DocumentEditor = forwardRef<
       }
     };
 
-    // Check for overflow after a short delay to allow rendering
     const timeoutId = setTimeout(checkForOverflow, 200);
 
     return () => clearTimeout(timeoutId);
@@ -1462,43 +1340,7 @@ export const DocumentEditor = forwardRef<
       range.deleteContents();
 
       if (isSplitParagraphDeletion && paragraphId) {
-        const allPieces = Array.from(
-          pageContainerRef.current.querySelectorAll(
-            `p[data-paragraph-id="${paragraphId}"]`
-          )
-        ) as HTMLElement[];
-
-        if (allPieces.length > 1) {
-          const firstPiece = allPieces[0];
-
-          for (let i = 1; i < allPieces.length; i++) {
-            const piece = allPieces[i];
-
-            if (firstPiece.lastChild && piece.firstChild) {
-              const lastText = firstPiece.lastChild.textContent || "";
-              const firstText = piece.firstChild.textContent || "";
-
-              if (
-                lastText &&
-                firstText &&
-                !lastText.endsWith(" ") &&
-                !lastText.endsWith("\n") &&
-                !firstText.startsWith(" ") &&
-                !firstText.startsWith("\n")
-              ) {
-                firstPiece.appendChild(document.createTextNode(" "));
-              }
-            }
-
-            while (piece.firstChild) {
-              firstPiece.appendChild(piece.firstChild);
-            }
-            piece.remove();
-          }
-
-          firstPiece.removeAttribute("data-paragraph-id");
-          firstPiece.removeAttribute("data-split-point");
-        }
+        reflowSplitParagraph(paragraphId);
       }
 
       if (pageContainerRef.current) {
@@ -1569,12 +1411,10 @@ export const DocumentEditor = forwardRef<
       reflowPage,
       reflowBackwardFromPage,
       runParagraphAnalysis,
+      reflowSplitParagraph,
       selectedResizableElement,
-      setSelectedResizableElement,
       selectedGraphElement,
-      setSelectedGraphElement,
       selectedMathElement,
-      setSelectedMathElement,
     ]
   );
 
@@ -1948,6 +1788,25 @@ export const DocumentEditor = forwardRef<
 
     const handleKeyDown = (event: KeyboardEvent) => {
       if (event.key === "Backspace" || event.key === "Delete") {
+        const selection = window.getSelection();
+        if (selection && selection.rangeCount > 0) {
+          const range = selection.getRangeAt(0);
+          if (range.collapsed) {
+            const logRange = range.cloneRange();
+            if (event.key === "Backspace" && range.startOffset > 0) {
+              logRange.setStart(range.startContainer, range.startOffset - 1);
+              console.log(`[Debug] Deleting character: "${logRange.toString()}"`);
+            } else if (event.key === "Delete" && range.startContainer.textContent && range.startOffset < range.startContainer.textContent.length) {
+              logRange.setEnd(range.startContainer, range.startOffset + 1);
+              console.log(`[Debug] Deleting character: "${logRange.toString()}"`);
+            }
+          } else {
+            console.log(`[Debug] Deleting selection: "${range.toString().substring(0, 50)}..."`);
+          }
+        }
+      }
+
+      if (event.key === "Backspace" || event.key === "Delete") {
         const target = event.target as HTMLElement;
         const isEditingTemplate =
           target.closest('[contenteditable="true"]') &&
@@ -2024,45 +1883,8 @@ export const DocumentEditor = forwardRef<
 
       if (customSelection && selectedText) {
         if (event.key === "Backspace" || event.key === "Delete") {
-          const { start, end } = customSelection;
-          const range = document.createRange();
-          range.setStart(start.node, start.offset);
-          range.setEnd(end.node, end.offset);
-
-          const ancestor = range.commonAncestorContainer;
-          const parentEl =
-            ancestor.nodeType === Node.ELEMENT_NODE
-              ? ancestor
-              : ancestor.parentElement;
-
-          let isComplex = false;
-          if (parentEl && pageContainerRef.current) {
-            const wrapperSelector =
-              ".image-wrapper, .graph-wrapper, .math-wrapper, .template-wrapper";
-            const intersectsWrapper = Array.from(
-              pageContainerRef.current.querySelectorAll(wrapperSelector)
-            ).some((w) => range.intersectsNode(w));
-
-            const startPara = start.node.parentElement?.closest("p");
-            const endPara = end.node.parentElement?.closest("p");
-            const isDeletingAcrossSplit =
-              startPara &&
-              endPara &&
-              startPara !== endPara &&
-              startPara.dataset.paragraphId &&
-              startPara.dataset.paragraphId === endPara.dataset.paragraphId;
-
-            if (intersectsWrapper || isDeletingAcrossSplit) {
-              isComplex = true;
-            }
-          }
-
-          if (isComplex) {
-            event.preventDefault();
-            deleteSelectionManually(true);
-          } else {
-            setTimeout(() => saveToHistory(true), 10);
-          }
+          event.preventDefault();
+          deleteSelectionManually(true);
           return;
         }
 
@@ -2109,66 +1931,6 @@ export const DocumentEditor = forwardRef<
             saveToHistory(true);
             scheduleReflow();
             return; 
-          }
-
-          const parentDiv = startElement?.closest(".page-content > div");
-          if (parentDiv) {
-            event.preventDefault();
-
-            const newParagraph = document.createElement("p");
-            newParagraph.style.lineHeight = getLineHeightValue(currentLineSpacing);
-            newParagraph.dataset.lineSpacing = currentLineSpacing;
-            newParagraph.style.fontSize = currentSize;
-            newParagraph.style.marginBottom = '0px';
-            newParagraph.style.paddingBottom = '1.25rem';
-
-            const beforeRange = document.createRange();
-            beforeRange.setStartBefore(parentDiv.firstChild || parentDiv);
-            beforeRange.setEnd(range.startContainer, range.startOffset);
-            const beforeContent = beforeRange.cloneContents();
-
-            const afterRange = document.createRange();
-            afterRange.setStart(range.startContainer, range.startOffset);
-            afterRange.setEndAfter(parentDiv.lastChild || parentDiv);
-            const afterContent = afterRange.cloneContents();
-
-            parentDiv.innerHTML = "";
-            parentDiv.appendChild(beforeContent);
-            if (parentDiv.textContent?.trim() === "") {
-              parentDiv.innerHTML = "<br>";
-            }
-
-            newParagraph.appendChild(afterContent);
-            if (newParagraph.textContent?.trim() === "") {
-              newParagraph.innerHTML = "<br>";
-            }
-
-            parentDiv.parentNode?.insertBefore(
-              newParagraph,
-              parentDiv.nextSibling
-            );
-
-            const convertedParagraph = document.createElement("p");
-            convertedParagraph.style.lineHeight = getLineHeightValue(currentLineSpacing);
-            convertedParagraph.dataset.lineSpacing = currentLineSpacing;
-            convertedParagraph.style.fontSize = currentSize;
-            convertedParagraph.style.marginBottom = '0px';
-            convertedParagraph.style.paddingBottom = '1.25rem';
-
-            while (parentDiv.firstChild) {
-              convertedParagraph.appendChild(parentDiv.firstChild);
-            }
-            parentDiv.replaceWith(convertedParagraph);
-
-            const newRange = document.createRange();
-            newRange.setStart(newParagraph, 0);
-            newRange.collapse(true);
-            selection.removeAllRanges();
-            selection.addRange(newRange);
-
-            saveToHistory(true);
-            scheduleReflow();
-            return;
           }
 
           const listItem = startElement.closest("li");
@@ -2227,98 +1989,15 @@ export const DocumentEditor = forwardRef<
               scheduleReflow();
               return;
             } else {
-              const parentList = listItem.parentElement;
-
-              const beforeRange = document.createRange();
-              beforeRange.setStartBefore(listItem.firstChild || listItem);
-              beforeRange.setEnd(range.startContainer, range.startOffset);
-              const beforeContent = beforeRange.cloneContents();
-
-              const afterRange = document.createRange();
-              afterRange.setStart(range.startContainer, range.startOffset);
-              afterRange.setEndAfter(listItem.lastChild || listItem);
-              const afterContent = afterRange.cloneContents();
-
-              listItem.innerHTML = "";
-              listItem.appendChild(beforeContent);
-              if (listItem.textContent?.trim() === "") {
-                listItem.innerHTML = "<br>";
-              }
-
-              const newListItem = document.createElement("li");
-              newListItem.appendChild(afterContent);
-              if (newListItem.textContent?.trim() === "") {
-                newListItem.innerHTML = "<br>";
-              }
-
-              if (listItem.nextSibling) {
-                parentList?.insertBefore(newListItem, listItem.nextSibling);
-              } else {
-                parentList?.appendChild(newListItem);
-              }
-
-              const newRange = document.createRange();
-              newRange.setStart(newListItem, 0);
-              newRange.collapse(true);
-              selection.removeAllRanges();
-              selection.addRange(newRange);
-
+              document.execCommand('insertLineBreak');
               saveToHistory(true);
               scheduleReflow();
               return;
             }
           }
-
-          const currentBlock = startElement?.closest("h1, h2, h3, h4");
-          if (currentBlock) {
-            setTimeout(() => {
-              const newSelection = window.getSelection();
-              if (!newSelection || newSelection.rangeCount === 0) return;
-
-              const newRange = newSelection.getRangeAt(0);
-              let newStartElement: HTMLElement | null =
-                newRange.startContainer.nodeType === Node.ELEMENT_NODE
-                  ? (newRange.startContainer as HTMLElement)
-                  : newRange.startContainer.parentElement;
-
-              const newBlock = newStartElement?.closest(".page-content > *");
-
-              if (
-                newBlock &&
-                newBlock.tagName === "DIV" &&
-                newBlock.previousElementSibling === currentBlock
-              ) {
-                const newParagraph = document.createElement("p");
-                newParagraph.style.lineHeight = getLineHeightValue(currentLineSpacing);
-                newParagraph.dataset.lineSpacing = currentLineSpacing;
-                newParagraph.style.fontSize = currentSize;
-                newParagraph.style.marginBottom = '0px';
-                newParagraph.style.paddingBottom = '1.25rem';
-
-                while (newBlock.firstChild) {
-                  newParagraph.appendChild(newBlock.firstChild);
-                }
-                if (newParagraph.innerHTML === "") {
-                  newParagraph.innerHTML = "<br>";
-                }
-
-                newBlock.replaceWith(newParagraph);
-
-                const finalRange = document.createRange();
-                finalRange.setStart(newParagraph, 0);
-                finalRange.collapse(true);
-                newSelection.removeAllRanges();
-                newSelection.addRange(finalRange);
-              }
-              saveToHistory(true);
-              scheduleReflow();
-            }, 0);
-
-            return;
-          }
         }
 
-        setTimeout(immediateReflow, 0);
+        setTimeout(scheduleReflow, 0);
         saveToHistory(true);
         return;
       }
@@ -2333,92 +2012,6 @@ export const DocumentEditor = forwardRef<
               : range.startContainer.parentElement
           ) as HTMLElement;
 
-          const listItem = startElement.closest("li");
-          if (
-            listItem &&
-            range.startOffset === 0 &&
-            (listItem.textContent || "").trim() === ""
-          ) {
-            const parentList = listItem.parentElement;
-
-            if (parentList && parentList.children.length === 1) {
-              event.preventDefault();
-
-              const newParagraph = document.createElement("p");
-              newParagraph.style.lineHeight =
-                getLineHeightValue(currentLineSpacing);
-              newParagraph.dataset.lineSpacing = currentLineSpacing;
-              newParagraph.style.fontSize = currentSize;
-              newParagraph.innerHTML = "<br>";
-
-              parentList.replaceWith(newParagraph);
-
-              const newRange = document.createRange();
-              newRange.setStart(newParagraph, 0);
-              newRange.collapse(true);
-              selection.removeAllRanges();
-              selection.addRange(newRange);
-
-              saveToHistory(true);
-              updateToolbarState();
-              scheduleReflow();
-              return;
-            }
-
-            if (!listItem.previousElementSibling) {
-              event.preventDefault();
-              document.execCommand("outdent");
-
-              setTimeout(() => {
-                const newSelection = window.getSelection();
-                if (newSelection && newSelection.anchorNode) {
-                  const node = newSelection.anchorNode;
-                  const currentElement =
-                    node.nodeType === Node.ELEMENT_NODE
-                      ? (node as HTMLElement)
-                      : node.parentElement;
-                  const newBlock = currentElement?.closest("p, h1, h2, h3, h4");
-
-                  if (newBlock && newBlock instanceof HTMLElement) {
-                    newBlock.style.lineHeight =
-                      getLineHeightValue(currentLineSpacing);
-                    newBlock.dataset.lineSpacing = currentLineSpacing;
-                    newBlock.style.fontSize = "";
-                    newBlock
-                      .querySelectorAll('span[style*="font-size"]')
-                      .forEach((el) => {
-                        if (el instanceof HTMLElement) el.style.fontSize = "";
-                      });
-                    newBlock.style.fontSize = currentSize;
-                  }
-                }
-                saveToHistory(true);
-
-                scheduleReflow();
-              }, 0);
-              return;
-            } else if (
-              parentList &&
-              !listItem.nextElementSibling &&
-              listItem.previousElementSibling
-            ) {
-              event.preventDefault();
-              const prevItem = listItem.previousElementSibling;
-              listItem.remove();
-
-              if (prevItem) {
-                const newRange = document.createRange();
-                newRange.selectNodeContents(prevItem);
-                newRange.collapse(false);
-                selection.removeAllRanges();
-                selection.addRange(newRange);
-              }
-
-              saveToHistory(true);
-              return;
-            }
-          }
-
           const currentParagraph = startElement?.closest<HTMLElement>(
             'p[data-split-point="end"]'
           );
@@ -2428,8 +2021,7 @@ export const DocumentEditor = forwardRef<
             range.startOffset === 0
           ) {
             event.preventDefault();
-
-            checkAndReflowSplitParagraph(currentParagraph);
+            reflowSplitParagraph(currentParagraph.dataset.paragraphId);
             return;
           }
 
@@ -2438,13 +2030,12 @@ export const DocumentEditor = forwardRef<
             const preCaretRange = document.createRange();
             preCaretRange.selectNodeContents(pageContent);
             preCaretRange.setEnd(range.startContainer, range.startOffset);
-            if (preCaretRange.toString().trim() === "") {
+            if (preCaretRange.toString().trim() === "" && pageContent.children.length > 0 && pageContent.firstElementChild === startElement.closest('.page-content > *')) {
               const currentPage = pageContent.closest(".page") as HTMLElement;
               const previousPage =
                 currentPage?.previousElementSibling as HTMLElement;
               if (previousPage) {
                 event.preventDefault();
-
                 handleBackspaceAtPageStart(currentPage, previousPage);
                 return;
               }
@@ -2520,7 +2111,6 @@ export const DocumentEditor = forwardRef<
     updateOverflowWarning,
     handleBackspaceAtPageStart,
     reflowBackwardFromPage,
-    reflowWithCursor,
     runParagraphAnalysis,
     selectedText,
     deleteSelectionManually,
@@ -2528,8 +2118,7 @@ export const DocumentEditor = forwardRef<
     applyCommand,
     applyStyle,
     checkAndReflowOnOverflow,
-    checkAndReflowSplitParagraph,
-    forceRecalculateRects,
+    reflowSplitParagraph,
     selectedResizableElement,
     selectedGraphElement,
     selectedMathElement,
@@ -2720,18 +2309,25 @@ export const DocumentEditor = forwardRef<
           saveToHistory={saveToHistory}
           selectedElement={selectedResizableElement}
           onElementSelect={setSelectedResizableElement}
+          reflowBackwardFromPage={reflowBackwardFromPage}
+          fullDocumentReflow={fullDocumentReflow}
         />
         <GraphResizer
           pageContainerRef={scrollContainerRef}
           saveToHistory={saveToHistory}
           selectedGraphElement={selectedGraphElement}
           onGraphSelect={setSelectedGraphElement}
+          reflowBackwardFromPage={reflowBackwardFromPage}
+          fullDocumentReflow={fullDocumentReflow}
         />
         <MathResizer
           pageContainerRef={scrollContainerRef}
           saveToHistory={saveToHistory}
           selectedMathElement={selectedMathElement}
           onMathSelect={setSelectedMathElement}
+          reflowBackwardFromPage={reflowBackwardFromPage}
+          fullDocumentReflow={fullDocumentReflow}
+          
         />
       </div>
 

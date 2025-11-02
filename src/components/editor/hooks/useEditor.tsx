@@ -1,5 +1,3 @@
-//src/components/editor/hooks/useEditor.tsx
-
 "use client";
 
 import React, { useState, useCallback, useRef, useEffect } from "react";
@@ -56,6 +54,28 @@ export const useEditor = (
     getContentHeight,
     getAvailableHeight,
   } = useTextReflow(editorRef, saveToHistory);
+
+  // --- NEW: Full Document Reflow Function ---
+  const fullDocumentReflow = useCallback(() => {
+    if (!editorRef.current) return;
+    console.log('[Reflow] Starting Full Document Reflow...');
+    let currentPage = editorRef.current.querySelector('.page') as HTMLElement | null;
+    let pageIndex = 1;
+    while (currentPage) {
+      console.log(`[Reflow] Processing Page ${pageIndex}...`);
+      reflowPage(currentPage);
+      currentPage = currentPage.nextElementSibling as HTMLElement | null;
+      pageIndex++;
+    }
+    // After the forward pass, do a backward pass to consolidate space
+    const firstPage = editorRef.current.querySelector('.page') as HTMLElement | null;
+    if (firstPage) {
+      console.log('[Reflow] Starting Backward Consolidation Pass...');
+      reflowBackwardFromPage(firstPage);
+    }
+    console.log('[Reflow] Full Document Reflow Finished.');
+  }, [editorRef, reflowPage, reflowBackwardFromPage]);
+
 
   const {
     highlightRects,
@@ -293,33 +313,10 @@ export const useEditor = (
     return null;
   }, [editorRef]);
 
-  const cleanupOverflowWarnings = useCallback(() => {
-    if (!editorRef.current) return;
-
-    const RED_LINE_THRESHOLD = 950;
-    const allPages = editorRef.current.querySelectorAll(".page");
-
-    allPages.forEach((page) => {
-      const pageContent = page.querySelector(".page-content") as HTMLElement;
-      if (pageContent) {
-        const contentHeight = pageContent.getBoundingClientRect().height;
-        if (contentHeight <= RED_LINE_THRESHOLD) {
-          pageContent.classList.remove("overflow-warning");
-        } else {
-          // Only add warning if it should be there
-          if (!pageContent.classList.contains("overflow-warning")) {
-            pageContent.classList.add("overflow-warning");
-          }
-        }
-      }
-    });
-  }, [editorRef]);
-
   const addNewPage = useCallback(() => {
     if (!editorRef.current) return;
     saveToHistory(true);
 
-    // Get the last page *before* adding the new one.
     const allPages = editorRef.current.querySelectorAll(".page");
     const lastPageBeforeAdding =
       allPages.length > 0
@@ -332,10 +329,8 @@ export const useEditor = (
     const newPageContent = document.createElement("div");
     newPageContent.className = "page-content";
     newPageContent.contentEditable = "true";
-    // Use a placeholder, which is the correct way to handle empty state.
     newPageContent.dataset.placeholder = "Start typing on your new page...";
 
-    // Start with a standard empty paragraph, not a heading.
     const defaultParagraph = document.createElement("p");
     defaultParagraph.innerHTML = "<br>";
 
@@ -343,7 +338,6 @@ export const useEditor = (
     newPageDiv.appendChild(newPageContent);
     editorRef.current.appendChild(newPageDiv);
 
-    // Scroll to the new page and set the cursor.
     newPageDiv.scrollIntoView({ behavior: "smooth", block: "start" });
 
     const range = document.createRange();
@@ -671,22 +665,7 @@ export const useEditor = (
           .forEach((el) => el.remove());
 
         const allowedTags = new Set([
-          "P",
-          "B",
-          "STRONG",
-          "I",
-          "EM",
-          "U",
-          "A",
-          "UL",
-          "OL",
-          "LI",
-          "BR",
-          "H1",
-          "H2",
-          "H3",
-          "H4",
-          "IMG",
+          "P", "B", "STRONG", "I", "EM", "U", "A", "UL", "OL", "LI", "BR", "H1", "H2", "H3", "H4", "IMG",
         ]);
         const walker = doc.createTreeWalker(doc.body, NodeFilter.SHOW_ELEMENT);
         const nodesToProcess = [];
@@ -701,10 +680,7 @@ export const useEditor = (
             if (el.tagName === "A" && attrName === "href") continue;
             if (
               el.tagName === "IMG" &&
-              (attrName === "src" ||
-                attrName === "alt" ||
-                attrName === "width" ||
-                attrName === "height")
+              (attrName === "src" || attrName === "alt" || attrName === "width" || attrName === "height")
             )
               continue;
             el.removeAttribute(attr.name);
@@ -765,9 +741,7 @@ export const useEditor = (
 
       tempDiv.querySelectorAll("p, h1, h2, h3, h4").forEach((el) => {
         const element = el as HTMLElement;
-
         element.removeAttribute('style');
-
         switch (element.tagName) {
           case "P":
             if (!element.style.fontSize) element.style.fontSize = "14pt";
@@ -778,38 +752,32 @@ export const useEditor = (
             if (!element.style.fontSize) element.style.fontSize = "27pt";
             if (!element.style.lineHeight) element.style.lineHeight = "1.1";
             if (!element.style.marginTop) element.style.marginTop = "1.5rem";
-            if (!element.style.marginBottom)
-              element.style.marginBottom = "0.5rem";
+            if (!element.style.marginBottom) element.style.marginBottom = "0.5rem";
             break;
           case "H2":
             if (!element.style.fontSize) element.style.fontSize = "22pt";
             if (!element.style.lineHeight) element.style.lineHeight = "1.2";
             if (!element.style.marginTop) element.style.marginTop = "1.5rem";
-            if (!element.style.marginBottom)
-              element.style.marginBottom = "0.5rem";
+            if (!element.style.marginBottom) element.style.marginBottom = "0.5rem";
             break;
           case "H3":
             if (!element.style.fontSize) element.style.fontSize = "18pt";
             if (!element.style.lineHeight) element.style.lineHeight = "1.3";
             if (!element.style.marginTop) element.style.marginTop = "1.5rem";
-            if (!element.style.marginBottom)
-              element.style.marginBottom = "0.5rem";
+            if (!element.style.marginBottom) element.style.marginBottom = "0.5rem";
             break;
           case "H4":
             if (!element.style.fontSize) element.style.fontSize = "15pt";
             if (!element.style.lineHeight) element.style.lineHeight = "1.4";
             if (!element.style.marginTop) element.style.marginTop = "1.5rem";
-            if (!element.style.marginBottom)
-              element.style.marginBottom = "0.5rem";
+            if (!element.style.marginBottom) element.style.marginBottom = "0.5rem";
             break;
         }
-
         if (!element.dataset.lineSpacing && element.tagName === "P") {
           element.dataset.lineSpacing = "1.2";
         }
       });
       
-
       const nodesToProcess = Array.from(tempDiv.childNodes);
       const finalFragment = document.createDocumentFragment();
 
@@ -853,10 +821,7 @@ export const useEditor = (
                 const wrapper = document.createElement("div");
                 wrapper.className = "image-wrapper";
                 const width = parseInt(img.getAttribute("width") || "300", 10);
-                const height = parseInt(
-                  img.getAttribute("height") || "200",
-                  10
-                );
+                const height = parseInt(img.getAttribute("height") || "200", 10);
                 wrapper.style.cssText = `display: block; margin: 12px auto; text-align: center; max-width: 80%; width: ${width}px; height: ${height}px;`;
                 wrapper.contentEditable = "false";
                 const newImg = img.cloneNode(true) as HTMLImageElement;
@@ -880,7 +845,6 @@ export const useEditor = (
       });
 
       const fragment = finalFragment;
-      const firstNodeRef = fragment.firstChild;
       const lastNodeRef = fragment.lastChild;
 
       const selection = window.getSelection();
@@ -891,53 +855,31 @@ export const useEditor = (
         lastPage?.appendChild(fragment);
       } else {
         const range = selection.getRangeAt(0);
-        const isBlockContent =
-          fragment.firstChild &&
-          fragment.firstChild.nodeType === Node.ELEMENT_NODE &&
-          [
-            "P",
-            "H1",
-            "H2",
-            "H3",
-            "H4",
-            "UL",
-            "OL",
-            "LI",
-            "BLOCKQUOTE",
-            "PRE",
-            "TABLE",
-            "DIV",
-          ].includes((fragment.firstChild as HTMLElement).tagName);
-        if (isBlockContent) {
-          let node = range.startContainer;
-          let targetBlock = (
-            node.nodeType === Node.ELEMENT_NODE ? node : node.parentElement
-          ) as HTMLElement;
-          while (
-            targetBlock &&
-            targetBlock.parentElement &&
-            !targetBlock.parentElement.classList.contains("page-content")
-          ) {
-            targetBlock = targetBlock.parentElement;
-          }
-          if (
-            targetBlock &&
-            targetBlock.parentElement?.classList.contains("page-content")
-          ) {
-            const isEffectivelyEmpty =
-              (!targetBlock.textContent?.trim() &&
-                !targetBlock.querySelector(
-                  "img, .image-wrapper, .graph-wrapper, .math-wrapper, .template-wrapper"
-                )) ||
-              targetBlock.innerHTML.toLowerCase().trim() === "<br>";
-            if (isEffectivelyEmpty) {
-              targetBlock.replaceWith(fragment);
-            } else {
-              targetBlock.after(fragment);
-            }
+        let node = range.startContainer;
+        let targetBlock = (
+          node.nodeType === Node.ELEMENT_NODE ? node : node.parentElement
+        ) as HTMLElement;
+        while (
+          targetBlock &&
+          targetBlock.parentElement &&
+          !targetBlock.parentElement.classList.contains("page-content")
+        ) {
+          targetBlock = targetBlock.parentElement;
+        }
+        if (
+          targetBlock &&
+          targetBlock.parentElement?.classList.contains("page-content")
+        ) {
+          const isEffectivelyEmpty =
+            (!targetBlock.textContent?.trim() &&
+              !targetBlock.querySelector(
+                "img, .image-wrapper, .graph-wrapper, .math-wrapper, .template-wrapper"
+              )) ||
+            targetBlock.innerHTML.toLowerCase().trim() === "<br>";
+          if (isEffectivelyEmpty) {
+            targetBlock.replaceWith(fragment);
           } else {
-            range.deleteContents();
-            range.insertNode(fragment);
+            targetBlock.after(fragment);
           }
         } else {
           range.deleteContents();
@@ -951,53 +893,26 @@ export const useEditor = (
         selection?.removeAllRanges();
         selection?.addRange(newRange);
       }
+      
+      // --- MODIFICATION: Use fullDocumentReflow for large imports ---
       setTimeout(async () => {
-        // Wait for fonts to be ready before measuring
         await document.fonts.ready;
-
-        requestAnimationFrame(() => {
-          if (editorRef.current) {
-            rehydrateMathBlocks(editorRef.current);
-            rehydrateGraphBlocks(editorRef.current);
-
-            let startPage: HTMLElement | null = null;
-            const currentSelection = window.getSelection();
-
-            if (currentSelection && currentSelection.rangeCount > 0) {
-              const currentRange = currentSelection.getRangeAt(0);
-              const startNode = currentRange.startContainer;
-              const startingElement =
-                startNode.nodeType === Node.ELEMENT_NODE
-                  ? (startNode as Element)
-                  : startNode.parentElement;
-              startPage = startingElement?.closest(
-                ".page"
-              ) as HTMLElement | null;
-            } else if (firstNodeRef) {
-              const startingElement =
-                firstNodeRef.nodeType === Node.ELEMENT_NODE
-                  ? (firstNodeRef as Element)
-                  : firstNodeRef.parentElement;
-              startPage = startingElement?.closest(
-                ".page"
-              ) as HTMLElement | null;
-            }
-
-            immediateReflow();
-            cleanupOverflowWarnings();
-          }
-          saveToHistory(true);
-        });
-      }, 100);
+        if (editorRef.current) {
+          rehydrateMathBlocks(editorRef.current);
+          rehydrateGraphBlocks(editorRef.current);
+          
+          // Use the robust full document reflow
+          fullDocumentReflow();
+        }
+        saveToHistory(true);
+      }, 100); // A small delay to let the DOM update with the new content
     },
     [
       editorRef,
       saveToHistory,
       findInsertionTarget,
       addNewPage,
-      immediateReflow,
-      reflowPage,
-      reflowBackwardFromPage,
+      fullDocumentReflow, // Added dependency
       rehydrateGraphBlocks,
       rehydrateMathBlocks,
     ]
@@ -1083,7 +998,6 @@ export const useEditor = (
     insertMath,
     insertGraph,
     addNewPage,
-    setImages: () => {},
     undo,
     redo,
     canUndo,
@@ -1100,6 +1014,7 @@ export const useEditor = (
     reflowSplitParagraph,
     getContentHeight,
     getAvailableHeight,
+    fullDocumentReflow, // Export the new function
 
     highlightRects,
     isSelecting,
