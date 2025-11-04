@@ -20,7 +20,7 @@ import { analyzeParagraphs } from "./hooks/useTextReflow";
 import { SelectionInfo } from "./SelectionInfo";
 import { SelectionDebug } from "./SelectionDebug";
 import { CustomSelection } from "./hooks/useMultiPageSelection";
-import { ReflowDebugger } from './ReflowDebugger';
+import { ReflowDebugger } from "./ReflowDebugger";
 
 interface DocumentEditorProps {
   pageContainerRef: React.RefObject<HTMLDivElement | null>;
@@ -705,32 +705,32 @@ export const DocumentEditor = forwardRef<
     (event: React.FormEvent<HTMLDivElement>) => {
       const target = event.target as HTMLElement;
       const pageContent = target.closest(".page-content") as HTMLElement;
-      
+
       const nativeEvent = event.nativeEvent as InputEvent;
-      const isDeletion = nativeEvent.inputType.startsWith('delete');
+      const isDeletion = nativeEvent.inputType.startsWith("delete");
 
       if (!isDeletion && pageContent && checkAndReflowOnOverflow(pageContent)) {
         return;
       }
 
-      const page = target.closest('.page') as HTMLElement;
+      const page = target.closest(".page") as HTMLElement;
       if (page) {
         setTimeout(() => {
           reflowBackwardFromPage(page);
-          
-          const content = page.querySelector('.page-content');
+
+          const content = page.querySelector(".page-content");
           if (!content) return;
 
           const children = Array.from(content.children);
           for (let i = 0; i < children.length - 1; i++) {
             const currentEl = children[i] as HTMLElement;
-            const nextEl = children[i+1] as HTMLElement;
+            const nextEl = children[i + 1] as HTMLElement;
             if (
               currentEl.dataset.paragraphId &&
               currentEl.dataset.paragraphId === nextEl.dataset.paragraphId
             ) {
               reflowSplitParagraph(currentEl.dataset.paragraphId);
-              break; 
+              break;
             }
           }
         }, 50);
@@ -828,6 +828,7 @@ export const DocumentEditor = forwardRef<
         pageContainerRef.current?.querySelectorAll(".page-content") || [];
 
       pages.forEach((pageContent) => {
+        // EXISTING CODE FOR DIV CLEANUP...
         pageContent.querySelectorAll("p > div").forEach((divInsideP) => {
           const p = divInsideP.parentElement;
           if (p) {
@@ -840,6 +841,7 @@ export const DocumentEditor = forwardRef<
           }
         });
 
+        // EXISTING CODE FOR WRAPPING DIVS...
         pageContent
           .querySelectorAll(
             ":scope > div:not(.image-wrapper):not(.graph-wrapper):not(.template-wrapper):not(.math-wrapper)"
@@ -863,23 +865,31 @@ export const DocumentEditor = forwardRef<
             hasStructuralChanges = true;
           });
 
+        // EXISTING CODE FOR PARAGRAPH STYLING...
         pageContent.querySelectorAll(":scope > p").forEach((p) => {
           if (p instanceof HTMLElement) {
             let needsUpdate = false;
-            
-            if (p.style.marginBottom !== '0px') {
-              p.style.marginBottom = '0px';
+
+            if (p.style.marginBottom !== "0px") {
+              p.style.marginBottom = "0px";
               needsUpdate = true;
             }
 
-            if (p.dataset.splitPoint && p.dataset.splitPoint !== 'end' && p.style.paddingBottom !== '0px') {
-                p.style.paddingBottom = '0px';
+            if (
+              p.dataset.splitPoint &&
+              p.dataset.splitPoint !== "end" &&
+              p.style.paddingBottom !== "0px"
+            ) {
+              p.style.paddingBottom = "0px";
+              needsUpdate = true;
+            } else if (
+              !p.dataset.splitPoint ||
+              p.dataset.splitPoint === "end"
+            ) {
+              if (p.style.paddingBottom !== "1.25rem") {
+                p.style.paddingBottom = "1.25rem";
                 needsUpdate = true;
-            } else if (!p.dataset.splitPoint || p.dataset.splitPoint === 'end') {
-                if (p.style.paddingBottom !== '1.25rem') {
-                  p.style.paddingBottom = '1.25rem';
-                  needsUpdate = true;
-                }
+              }
             }
 
             if (!p.dataset.lineSpacing || !p.style.lineHeight) {
@@ -898,29 +908,100 @@ export const DocumentEditor = forwardRef<
           }
         });
 
+        // === ADD THIS NEW SPAN CLEANUP CODE HERE ===
+        // Clean up meaningless spans
+        pageContent
+          .querySelectorAll(
+            "p span, h1 span, h2 span, h3 span, h4 span, blockquote span"
+          )
+          .forEach((span) => {
+            if (!(span instanceof HTMLElement)) return;
+
+            const style = span.style;
+
+            // Check for actual formatting
+            const hasBold =
+              style.fontWeight &&
+              !["normal", "400", "500", ""].includes(style.fontWeight);
+            const hasItalic =
+              style.fontStyle && !["normal", ""].includes(style.fontStyle);
+            const hasUnderline =
+              style.textDecoration?.includes("underline") ||
+              style.textDecorationLine?.includes("underline");
+            const hasStrikethrough =
+              style.textDecoration?.includes("line-through") ||
+              style.textDecorationLine?.includes("line-through");
+
+            // Very strict background color check
+            const bgColor = style.backgroundColor?.toLowerCase() || "";
+            const hasHighlight =
+              bgColor &&
+              bgColor !== "initial" &&
+              bgColor !== "transparent" &&
+              bgColor !== "" &&
+              bgColor !== "rgba(0, 0, 0, 0)" &&
+              bgColor !== "rgb(255, 255, 255)" &&
+              !bgColor.includes("initial");
+
+            const hasMeaningfulFormatting =
+              hasBold ||
+              hasItalic ||
+              hasUnderline ||
+              hasStrikethrough ||
+              hasHighlight;
+            const hasClasses = span.className && span.className.trim() !== "";
+
+            // Remove if no meaningful formatting
+            if (!hasMeaningfulFormatting && !hasClasses) {
+              const parent = span.parentNode;
+              if (parent) {
+                while (span.firstChild) {
+                  parent.insertBefore(span.firstChild, span);
+                }
+                parent.removeChild(span);
+                hasStructuralChanges = true;
+              }
+            }
+          });
+        // === END OF NEW SPAN CLEANUP CODE ===
+
+        // EXISTING CODE FOR STRAY NODES...
         const children = Array.from(pageContent.childNodes);
         for (let i = 0; i < children.length; i++) {
           const node = children[i] as Node;
           const knownInlineTags = [
-            "SPAN", "B", "I", "U", "A", "CODE", "EM", "STRONG", "FONT", "SUB", "SUP",
+            "SPAN",
+            "B",
+            "I",
+            "U",
+            "A",
+            "CODE",
+            "EM",
+            "STRONG",
+            "FONT",
+            "SUB",
+            "SUP",
           ];
           const isStrayNode =
-            (node.nodeType === Node.TEXT_NODE && node.textContent?.trim() !== "") ||
-            (node.nodeType === Node.ELEMENT_NODE && knownInlineTags.includes((node as HTMLElement).tagName));
+            (node.nodeType === Node.TEXT_NODE &&
+              node.textContent?.trim() !== "") ||
+            (node.nodeType === Node.ELEMENT_NODE &&
+              knownInlineTags.includes((node as HTMLElement).tagName));
           if (isStrayNode) {
             const p = document.createElement("p");
             p.style.lineHeight = getLineHeightValue(currentLineSpacing);
             p.dataset.lineSpacing = currentLineSpacing;
             p.style.fontSize = currentSize;
-            p.style.marginBottom = '0px';
-            p.style.paddingBottom = '1.25rem';
+            p.style.marginBottom = "0px";
+            p.style.paddingBottom = "1.25rem";
             pageContent.insertBefore(p, node);
             p.appendChild(node);
             while (children[i + 1]) {
               const nextNode = children[i + 1];
               const isNextNodeStray =
                 nextNode.nodeType === Node.TEXT_NODE ||
-                (nextNode.nodeType === Node.ELEMENT_NODE && knownInlineTags.includes((nextNode as HTMLElement).tagName));
+                (nextNode.nodeType === Node.ELEMENT_NODE &&
+                  knownInlineTags.includes((nextNode as HTMLElement).tagName));
               if (isNextNodeStray) {
                 p.appendChild(nextNode);
                 i++;
@@ -932,6 +1013,7 @@ export const DocumentEditor = forwardRef<
           }
         }
 
+        // EXISTING CODE FOR EMPTY LIST ITEMS...
         pageContent.querySelectorAll("li").forEach((li) => {
           const isEffectivelyEmpty =
             li.textContent?.trim() === "" &&
@@ -946,12 +1028,17 @@ export const DocumentEditor = forwardRef<
           }
         });
 
+        // EXISTING CODE FOR EMPTY BLOCKS...
         pageContent.querySelectorAll("p, h1, h2, h3, h4").forEach((block) => {
           const isVisuallyEmpty =
             block.textContent?.trim() === "" &&
-            block.querySelector("img, video, canvas, .math-wrapper, .graph-wrapper, br") === null;
+            block.querySelector(
+              "img, video, canvas, .math-wrapper, .graph-wrapper, br"
+            ) === null;
           if (isVisuallyEmpty) {
-            const allBlocks = pageContent.querySelectorAll("p, h1, h2, h3, h4, ul, ol, blockquote, pre, table");
+            const allBlocks = pageContent.querySelectorAll(
+              "p, h1, h2, h3, h4, ul, ol, blockquote, pre, table"
+            );
             if (allBlocks.length > 1) {
               block.remove();
               hasStructuralChanges = true;
@@ -959,6 +1046,7 @@ export const DocumentEditor = forwardRef<
           }
         });
 
+        // EXISTING CODE FOR BR CLEANUP...
         Array.from(pageContent.childNodes).forEach((node) => {
           if (node.nodeName === "BR") {
             node.remove();
@@ -1786,26 +1874,11 @@ export const DocumentEditor = forwardRef<
       }
     };
 
-    const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.key === "Backspace" || event.key === "Delete") {
-        const selection = window.getSelection();
-        if (selection && selection.rangeCount > 0) {
-          const range = selection.getRangeAt(0);
-          if (range.collapsed) {
-            const logRange = range.cloneRange();
-            if (event.key === "Backspace" && range.startOffset > 0) {
-              logRange.setStart(range.startContainer, range.startOffset - 1);
-              console.log(`[Debug] Deleting character: "${logRange.toString()}"`);
-            } else if (event.key === "Delete" && range.startContainer.textContent && range.startOffset < range.startContainer.textContent.length) {
-              logRange.setEnd(range.startContainer, range.startOffset + 1);
-              console.log(`[Debug] Deleting character: "${logRange.toString()}"`);
-            }
-          } else {
-            console.log(`[Debug] Deleting selection: "${range.toString().substring(0, 50)}..."`);
-          }
-        }
-      }
+    // src/components/editor/DocumentEditor.tsx -> inside the main useEffect
 
+    // src/components/editor/DocumentEditor.tsx -> inside the main useEffect
+
+    const handleKeyDown = (event: KeyboardEvent) => {
       if (event.key === "Backspace" || event.key === "Delete") {
         const target = event.target as HTMLElement;
         const isEditingTemplate =
@@ -1906,32 +1979,10 @@ export const DocumentEditor = forwardRef<
               ? range.startContainer
               : range.startContainer.parentElement
           ) as HTMLElement;
-          
-          const splitParagraph = startElement.closest('p[data-paragraph-id]');
-          if (splitParagraph) {
-            event.preventDefault(); 
 
-            const newParagraph = document.createElement('p');
-            newParagraph.innerHTML = '<br>';
-            
-            newParagraph.style.lineHeight = getLineHeightValue(currentLineSpacing);
-            newParagraph.dataset.lineSpacing = currentLineSpacing;
-            newParagraph.style.fontSize = currentSize;
-            newParagraph.style.marginBottom = '0px'; 
-            newParagraph.style.paddingBottom = '1.25rem'; 
-
-            splitParagraph.after(newParagraph);
-
-            const newRange = document.createRange();
-            newRange.setStart(newParagraph, 0);
-            newRange.collapse(true);
-            selection.removeAllRanges();
-            selection.addRange(newRange);
-
-            saveToHistory(true);
-            scheduleReflow();
-            return; 
-          }
+          const currentBlock = startElement.closest(
+            "p, h1, h2, h3, h4, blockquote, pre, li"
+          );
 
           const listItem = startElement.closest("li");
           if (listItem) {
@@ -1939,43 +1990,26 @@ export const DocumentEditor = forwardRef<
 
             const isEmpty =
               listItem.textContent?.trim() === "" &&
-              !listItem.querySelector("img, .math-wrapper, .graph-wrapper");
+              !listItem.querySelector("img, .math-wrapper, .graph-wrapper, br");
 
             if (isEmpty) {
               const parentList = listItem.parentElement;
-              const isOnlyItem = parentList && parentList.children.length === 1;
+              const newParagraph = document.createElement("p");
+              newParagraph.style.lineHeight =
+                getLineHeightValue(currentLineSpacing);
+              newParagraph.dataset.lineSpacing = currentLineSpacing;
+              newParagraph.style.fontSize = currentSize;
+              newParagraph.style.marginBottom = "0px";
+              newParagraph.style.paddingBottom = "1.25rem";
+              newParagraph.innerHTML = "<br>";
 
-              if (isOnlyItem) {
-                const newParagraph = document.createElement("p");
-                newParagraph.style.lineHeight = getLineHeightValue(currentLineSpacing);
-                newParagraph.dataset.lineSpacing = currentLineSpacing;
-                newParagraph.style.fontSize = currentSize;
-                newParagraph.style.marginBottom = '0px';
-                newParagraph.style.paddingBottom = '1.25rem';
-                newParagraph.innerHTML = "<br>";
-
-                parentList?.replaceWith(newParagraph);
-
-                const newRange = document.createRange();
-                newRange.setStart(newParagraph, 0);
-                newRange.collapse(true);
-                selection.removeAllRanges();
-                selection.addRange(newRange);
-              } else {
-                const newParagraph = document.createElement("p");
-                newParagraph.style.lineHeight = getLineHeightValue(currentLineSpacing);
-                newParagraph.dataset.lineSpacing = currentLineSpacing;
-                newParagraph.style.fontSize = currentSize;
-                newParagraph.style.marginBottom = '0px';
-                newParagraph.style.paddingBottom = '1.25rem';
-                newParagraph.innerHTML = "<br>";
-
-                listItem.remove();
-
-                parentList?.parentNode?.insertBefore(
-                  newParagraph,
-                  parentList.nextSibling
-                );
+              if (parentList) {
+                if (parentList.children.length === 1) {
+                  parentList.replaceWith(newParagraph);
+                } else {
+                  parentList.after(newParagraph);
+                  listItem.remove();
+                }
 
                 const newRange = document.createRange();
                 newRange.setStart(newParagraph, 0);
@@ -1983,21 +2017,81 @@ export const DocumentEditor = forwardRef<
                 selection.removeAllRanges();
                 selection.addRange(newRange);
               }
-
-              saveToHistory(true);
-              updateToolbarState();
-              scheduleReflow();
-              return;
             } else {
-              document.execCommand('insertLineBreak');
-              saveToHistory(true);
-              scheduleReflow();
-              return;
+              document.execCommand("insertParagraph");
             }
+
+            saveToHistory(true);
+            updateToolbarState();
+            scheduleReflow();
+            return;
+          }
+
+          if (currentBlock && currentBlock.tagName === "P") {
+            event.preventDefault();
+
+            if (event.shiftKey) {
+              document.execCommand("insertLineBreak");
+            } else {
+              const preRange = document.createRange();
+              preRange.selectNodeContents(currentBlock);
+              preRange.setEnd(range.startContainer, range.startOffset);
+
+              if (preRange.toString().trim() === "") {
+                const newParagraph = document.createElement("p");
+                newParagraph.innerHTML = "<br>";
+                newParagraph.style.lineHeight =
+                  getLineHeightValue(currentLineSpacing);
+                newParagraph.dataset.lineSpacing = currentLineSpacing;
+                newParagraph.style.fontSize = currentSize;
+                newParagraph.style.marginBottom = "0px";
+                newParagraph.style.paddingBottom = "1.25rem";
+
+                currentBlock.before(newParagraph);
+              } else {
+                const newParagraph = document.createElement("p");
+                newParagraph.style.lineHeight =
+                  getLineHeightValue(currentLineSpacing);
+                newParagraph.dataset.lineSpacing = currentLineSpacing;
+                newParagraph.style.fontSize = currentSize;
+                newParagraph.style.marginBottom = "0px";
+                newParagraph.style.paddingBottom = "1.25rem";
+
+                const rangeToEnd = document.createRange();
+                rangeToEnd.setStart(range.startContainer, range.startOffset);
+                rangeToEnd.setEndAfter(currentBlock.lastChild || currentBlock);
+
+                const contentFragment = rangeToEnd.extractContents();
+                newParagraph.appendChild(contentFragment);
+
+                if (newParagraph.innerHTML.trim() === "") {
+                  newParagraph.innerHTML = "<br>";
+                }
+                if (currentBlock.innerHTML.trim() === "") {
+                  currentBlock.innerHTML = "<br>";
+                }
+
+                currentBlock.after(newParagraph);
+
+                const newRange = document.createRange();
+                newRange.setStart(newParagraph, 0);
+                newRange.collapse(true);
+                selection.removeAllRanges();
+                selection.addRange(newRange);
+              }
+            }
+
+            saveToHistory(true);
+
+            const pageContent = currentBlock.closest(
+              ".page-content"
+            ) as HTMLElement;
+            if (pageContent) {
+              setTimeout(() => checkAndReflowOnOverflow(pageContent), 0);
+            }
+            return;
           }
         }
-
-        setTimeout(scheduleReflow, 0);
         saveToHistory(true);
         return;
       }
@@ -2013,16 +2107,428 @@ export const DocumentEditor = forwardRef<
           ) as HTMLElement;
 
           const currentParagraph = startElement?.closest<HTMLElement>(
-            'p[data-split-point="end"]'
+            'p[data-split-point="start"]'
           );
+          if (currentParagraph && currentParagraph.dataset.paragraphId) {
+            const preCaretRange = document.createRange();
+            preCaretRange.selectNodeContents(currentParagraph);
+            preCaretRange.setEnd(range.startContainer, range.startOffset);
+
+            if (preCaretRange.toString().trim() === "") {
+              event.preventDefault();
+
+              const previousElement =
+                currentParagraph.previousElementSibling as HTMLElement | null;
+              const currentPage = currentParagraph.closest(
+                ".page"
+              ) as HTMLElement | null;
+
+              if (previousElement) {
+                if (
+                  previousElement.classList.contains("image-wrapper") ||
+                  previousElement.classList.contains("graph-wrapper") ||
+                  previousElement.classList.contains("math-wrapper") ||
+                  previousElement.classList.contains("template-wrapper")
+                ) {
+                  previousElement.remove();
+
+                  const newRange = document.createRange();
+                  const sel = window.getSelection();
+                  newRange.setStart(currentParagraph, 0);
+                  newRange.collapse(true);
+                  sel?.removeAllRanges();
+                  sel?.addRange(newRange);
+
+                  saveToHistory(true);
+
+                  if (currentPage) {
+                    setTimeout(() => reflowBackwardFromPage(currentPage), 0);
+                  }
+                  return;
+                }
+
+                if (
+                  previousElement.tagName === "P" &&
+                  previousElement.textContent?.trim() === "" &&
+                  !previousElement.querySelector(
+                    "img, .math-wrapper, .graph-wrapper, br"
+                  )
+                ) {
+                  previousElement.remove();
+
+                  const newRange = document.createRange();
+                  const sel = window.getSelection();
+                  newRange.setStart(currentParagraph, 0);
+                  newRange.collapse(true);
+                  sel?.removeAllRanges();
+                  sel?.addRange(newRange);
+
+                  saveToHistory(true);
+
+                  if (currentPage) {
+                    setTimeout(() => reflowBackwardFromPage(currentPage), 0);
+                  }
+                  return;
+                }
+
+                if (
+                  ["P", "H1", "H2", "H3", "H4", "BLOCKQUOTE"].includes(
+                    previousElement.tagName
+                  )
+                ) {
+                  const paragraphId = currentParagraph.dataset.paragraphId;
+                  const lineSpacing = currentParagraph.dataset.lineSpacing;
+
+                  const cursorPosition =
+                    previousElement.textContent?.length || 0;
+
+                  if (
+                    previousElement.innerHTML.toLowerCase().trim() === "<br>"
+                  ) {
+                    previousElement.innerHTML = "";
+                  }
+
+                  const contentToMove = document.createDocumentFragment();
+                  while (currentParagraph.firstChild) {
+                    contentToMove.appendChild(currentParagraph.firstChild);
+                  }
+
+                  previousElement.appendChild(contentToMove);
+
+                  const cleanupSpans = (element: HTMLElement) => {
+                    element.normalize();
+
+                    const walker = document.createTreeWalker(
+                      element,
+                      NodeFilter.SHOW_ELEMENT,
+                      null
+                    );
+
+                    const spansToUnwrap: HTMLElement[] = [];
+                    let node: Node | null;
+                    while ((node = walker.nextNode())) {
+                      if (node.nodeName === "SPAN") {
+                        const span = node as HTMLElement;
+                        const style = span.style;
+
+                        const hasBold =
+                          style.fontWeight &&
+                          !["normal", "400", ""].includes(style.fontWeight);
+                        const hasItalic =
+                          style.fontStyle &&
+                          !["normal", ""].includes(style.fontStyle);
+                        const hasUnderline =
+                          style.textDecoration?.includes("underline") ||
+                          style.textDecorationLine?.includes("underline");
+                        const hasStrikethrough =
+                          style.textDecoration?.includes("line-through") ||
+                          style.textDecorationLine?.includes("line-through");
+
+                        const bgColor =
+                          style.backgroundColor?.toLowerCase() || "";
+                        const hasHighlight =
+                          bgColor &&
+                          bgColor !== "initial" &&
+                          bgColor !== "transparent" &&
+                          bgColor !== "" &&
+                          bgColor !== "rgba(0, 0, 0, 0)" &&
+                          bgColor !== "rgb(255, 255, 255)" &&
+                          !bgColor.includes("initial");
+
+                        const hasMeaningfulFormatting =
+                          hasBold ||
+                          hasItalic ||
+                          hasUnderline ||
+                          hasStrikethrough ||
+                          hasHighlight;
+                        const hasClasses =
+                          span.className && span.className.trim() !== "";
+
+                        if (!hasMeaningfulFormatting && !hasClasses) {
+                          spansToUnwrap.push(span);
+                        }
+                      }
+                    }
+
+                    spansToUnwrap.forEach((span) => {
+                      const parent = span.parentNode;
+                      if (parent) {
+                        while (span.firstChild) {
+                          parent.insertBefore(span.firstChild, span);
+                        }
+                        parent.removeChild(span);
+                      }
+                    });
+
+                    element.normalize();
+                  };
+
+                  cleanupSpans(previousElement);
+                  Promise.resolve().then(() => cleanupSpans(previousElement));
+
+                  currentParagraph.remove();
+
+                  previousElement.dataset.paragraphId = paragraphId;
+                  previousElement.dataset.splitPoint = "start";
+                  previousElement.style.paddingBottom = "0px";
+                  if (lineSpacing) {
+                    previousElement.dataset.lineSpacing = lineSpacing;
+                  }
+
+                  const sel = window.getSelection();
+                  const textWalker = document.createTreeWalker(
+                    previousElement,
+                    NodeFilter.SHOW_TEXT,
+                    null
+                  );
+
+                  let charCount = 0;
+                  let targetNode: Node | null = null;
+                  let targetOffset = 0;
+                  let textNode: Node | null;
+
+                  while ((textNode = textWalker.nextNode())) {
+                    const nodeLength = textNode.textContent?.length || 0;
+                    if (charCount + nodeLength >= cursorPosition) {
+                      targetNode = textNode;
+                      targetOffset = cursorPosition - charCount;
+                      break;
+                    }
+                    charCount += nodeLength;
+                  }
+
+                  const newRange = document.createRange();
+                  if (targetNode) {
+                    newRange.setStart(targetNode, targetOffset);
+                  } else {
+                    newRange.selectNodeContents(previousElement);
+                    newRange.collapse(false);
+                  }
+                  newRange.collapse(true);
+                  sel?.removeAllRanges();
+                  sel?.addRange(newRange);
+
+                  saveToHistory(true);
+
+                  if (currentPage) {
+                    setTimeout(() => {
+                      reflowBackwardFromPage(currentPage);
+
+                      const updatedStartPiece =
+                        pageContainerRef.current?.querySelector(
+                          `p[data-paragraph-id="${paragraphId}"][data-split-point="start"]`
+                        ) as HTMLElement | null;
+                      const updatedEndPiece =
+                        pageContainerRef.current?.querySelector(
+                          `p[data-paragraph-id="${paragraphId}"][data-split-point="end"]`
+                        ) as HTMLElement | null;
+
+                      if (updatedStartPiece && updatedEndPiece) {
+                        const startPage = updatedStartPiece.closest(".page");
+                        const endPage = updatedEndPiece.closest(".page");
+
+                        if (startPage === endPage) {
+                          reflowSplitParagraph(paragraphId);
+                        }
+                      }
+                    }, 0);
+                  }
+                  return;
+                }
+              }
+
+              return;
+            }
+          } else {
+            const endParagraph = startElement?.closest<HTMLElement>(
+              'p[data-split-point="end"]'
+            );
+            if (endParagraph) {
+              const preCaretRange = document.createRange();
+              preCaretRange.selectNodeContents(endParagraph);
+              preCaretRange.setEnd(range.startContainer, range.startOffset);
+
+              if (preCaretRange.toString().trim() === "") {
+                event.preventDefault();
+
+                const paragraphId = endParagraph.dataset.paragraphId;
+                if (!paragraphId) return;
+
+                const startPiece = pageContainerRef.current?.querySelector(
+                  `p[data-paragraph-id="${paragraphId}"][data-split-point="start"]`
+                ) as HTMLElement | null;
+
+                if (startPiece) {
+                  const cursorPosition = startPiece.textContent?.length || 0;
+
+                  const markerId = `merge-marker-${Date.now()}`;
+                  const marker = document.createElement("span");
+                  marker.id = markerId;
+                  marker.textContent = "\u200B";
+                  startPiece.appendChild(marker);
+
+                  const fragment = document.createDocumentFragment();
+                  while (endParagraph.firstChild) {
+                    fragment.appendChild(endParagraph.firstChild);
+                  }
+
+                  marker.after(fragment);
+
+                  const cleanupSpans = (element: HTMLElement) => {
+                    element.normalize();
+
+                    const walker = document.createTreeWalker(
+                      element,
+                      NodeFilter.SHOW_ELEMENT,
+                      null
+                    );
+
+                    const spansToUnwrap: HTMLElement[] = [];
+                    let node: Node | null;
+                    while ((node = walker.nextNode())) {
+                      if (node.nodeName === "SPAN") {
+                        const span = node as HTMLElement;
+
+                        if (span.id && span.id.startsWith("merge-marker-")) {
+                          continue;
+                        }
+
+                        const style = span.style;
+
+                        const hasBold =
+                          style.fontWeight &&
+                          !["normal", "400", ""].includes(style.fontWeight);
+                        const hasItalic =
+                          style.fontStyle &&
+                          !["normal", ""].includes(style.fontStyle);
+                        const hasUnderline =
+                          style.textDecoration?.includes("underline") ||
+                          style.textDecorationLine?.includes("underline");
+                        const hasStrikethrough =
+                          style.textDecoration?.includes("line-through") ||
+                          style.textDecorationLine?.includes("line-through");
+
+                        const bgColor =
+                          style.backgroundColor?.toLowerCase() || "";
+                        const hasHighlight =
+                          bgColor &&
+                          bgColor !== "initial" &&
+                          bgColor !== "transparent" &&
+                          bgColor !== "" &&
+                          bgColor !== "rgba(0, 0, 0, 0)" &&
+                          bgColor !== "rgb(255, 255, 255)" &&
+                          !bgColor.includes("initial");
+
+                        const hasMeaningfulFormatting =
+                          hasBold ||
+                          hasItalic ||
+                          hasUnderline ||
+                          hasStrikethrough ||
+                          hasHighlight;
+                        const hasClasses =
+                          span.className && span.className.trim() !== "";
+
+                        if (!hasMeaningfulFormatting && !hasClasses) {
+                          spansToUnwrap.push(span);
+                        }
+                      }
+                    }
+
+                    spansToUnwrap.forEach((span) => {
+                      const parent = span.parentNode;
+                      if (parent) {
+                        while (span.firstChild) {
+                          parent.insertBefore(span.firstChild, span);
+                        }
+                        parent.removeChild(span);
+                      }
+                    });
+
+                    element.normalize();
+                  };
+
+                  cleanupSpans(startPiece);
+                  Promise.resolve().then(() => cleanupSpans(startPiece));
+
+                  startPiece.removeAttribute("data-paragraph-id");
+                  startPiece.removeAttribute("data-split-point");
+                  startPiece.style.paddingBottom = "1.25rem";
+
+                  endParagraph.remove();
+
+                  const finalMarker = startPiece.querySelector(`#${markerId}`);
+                  if (finalMarker) {
+                    const sel = window.getSelection();
+                    const newRange = document.createRange();
+                    newRange.setStartBefore(finalMarker);
+                    newRange.collapse(true);
+                    sel?.removeAllRanges();
+                    sel?.addRange(newRange);
+
+                    finalMarker.remove();
+                    startPiece.normalize();
+                  } else {
+                    const sel = window.getSelection();
+                    const textWalker = document.createTreeWalker(
+                      startPiece,
+                      NodeFilter.SHOW_TEXT,
+                      null
+                    );
+                    let charCount = 0;
+                    let targetNode: Node | null = null;
+                    let targetOffset = 0;
+                    let currentNode: Node | null;
+                    while ((currentNode = textWalker.nextNode())) {
+                      const nodeLength = currentNode.textContent?.length || 0;
+                      if (charCount + nodeLength >= cursorPosition) {
+                        targetNode = currentNode;
+                        targetOffset = cursorPosition - charCount;
+                        break;
+                      }
+                      charCount += nodeLength;
+                    }
+
+                    const newRange = document.createRange();
+                    if (targetNode) {
+                      newRange.setStart(targetNode, targetOffset);
+                    } else {
+                      newRange.selectNodeContents(startPiece);
+                      newRange.collapse(false);
+                    }
+                    newRange.collapse(true);
+                    sel?.removeAllRanges();
+                    sel?.addRange(newRange);
+                  }
+
+                  saveToHistory(true);
+
+                  const page = startPiece.closest(
+                    ".page"
+                  ) as HTMLElement | null;
+                  if (page) {
+                    setTimeout(() => reflowBackwardFromPage(page), 0);
+                  }
+                  return;
+                }
+              }
+            }
+          }
+
+          const listItem = startElement.closest("li");
           if (
-            currentParagraph &&
-            currentParagraph.dataset.paragraphId &&
-            range.startOffset === 0
+            listItem &&
+            range.startOffset === 0 &&
+            !listItem.textContent?.trim()
           ) {
-            event.preventDefault();
-            reflowSplitParagraph(currentParagraph.dataset.paragraphId);
-            return;
+            const parentList = listItem.parentElement;
+            if (parentList && !listItem.previousElementSibling) {
+              event.preventDefault();
+              document.execCommand("outdent");
+              saveToHistory(true);
+              scheduleReflow();
+
+              return;
+            }
           }
 
           const pageContent = startElement?.closest(".page-content");
@@ -2030,19 +2536,26 @@ export const DocumentEditor = forwardRef<
             const preCaretRange = document.createRange();
             preCaretRange.selectNodeContents(pageContent);
             preCaretRange.setEnd(range.startContainer, range.startOffset);
-            if (preCaretRange.toString().trim() === "" && pageContent.children.length > 0 && pageContent.firstElementChild === startElement.closest('.page-content > *')) {
+            if (
+              preCaretRange.toString().trim() === "" &&
+              pageContent.children.length > 0 &&
+              pageContent.firstElementChild ===
+                startElement.closest(".page-content > *")
+            ) {
               const currentPage = pageContent.closest(".page") as HTMLElement;
               const previousPage =
                 currentPage?.previousElementSibling as HTMLElement;
               if (previousPage) {
                 event.preventDefault();
+
                 handleBackspaceAtPageStart(currentPage, previousPage);
+
                 return;
               }
             }
           }
         }
-        
+
         saveToHistory();
         return;
       }
@@ -2327,7 +2840,6 @@ export const DocumentEditor = forwardRef<
           onMathSelect={setSelectedMathElement}
           reflowBackwardFromPage={reflowBackwardFromPage}
           fullDocumentReflow={fullDocumentReflow}
-          
         />
       </div>
 
@@ -2339,7 +2851,10 @@ export const DocumentEditor = forwardRef<
         className="hidden"
       />
 
-      <ReflowDebugger pageContainerRef={pageContainerRef} currentPage={currentPage} />
+      <ReflowDebugger
+        pageContainerRef={pageContainerRef}
+        currentPage={currentPage}
+      />
 
       <StatusBar
         currentPage={currentPage}
