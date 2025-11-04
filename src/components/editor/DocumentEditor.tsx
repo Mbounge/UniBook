@@ -1457,27 +1457,18 @@ export const DocumentEditor = forwardRef<
 
       clearSelection();
 
-      if (document.body.contains(start.node)) {
-        try {
-          const newRange = document.createRange();
-          const newOffset = Math.min(
-            start.offset,
-            start.node.textContent?.length || 0
-          );
-          newRange.setStart(start.node, newOffset);
-          newRange.collapse(true);
-          selection.removeAllRanges();
-          selection.addRange(newRange);
+      const newSelection = window.getSelection();
+      if (newSelection) {
+        
+        newSelection.removeAllRanges();
+        newSelection.addRange(range);
 
-          const parentContentEditable = (
-            start.node.nodeType === Node.ELEMENT_NODE
-              ? (start.node as HTMLElement)
-              : start.node.parentElement
-          )?.closest<HTMLElement>('[contenteditable="true"]');
-          parentContentEditable?.focus();
-        } catch (e) {
-          console.error("Error restoring cursor after deletion.", e);
-        }
+        const parentContentEditable = (
+          range.startContainer.nodeType === Node.ELEMENT_NODE
+            ? (range.startContainer as HTMLElement)
+            : range.startContainer.parentElement
+        )?.closest<HTMLElement>('[contenteditable="true"]');
+        parentContentEditable?.focus();
       }
 
       if (save) {
@@ -1873,10 +1864,6 @@ export const DocumentEditor = forwardRef<
         scheduleReflow();
       }
     };
-
-    // src/components/editor/DocumentEditor.tsx -> inside the main useEffect
-
-    // src/components/editor/DocumentEditor.tsx -> inside the main useEffect
 
     const handleKeyDown = (event: KeyboardEvent) => {
       if (event.key === "Backspace" || event.key === "Delete") {
@@ -2340,179 +2327,48 @@ export const DocumentEditor = forwardRef<
               return;
             }
           } else {
-            const endParagraph = startElement?.closest<HTMLElement>(
-              'p[data-split-point="end"]'
-            );
-            if (endParagraph) {
-              const preCaretRange = document.createRange();
-              preCaretRange.selectNodeContents(endParagraph);
-              preCaretRange.setEnd(range.startContainer, range.startOffset);
+  const endParagraph = startElement?.closest<HTMLElement>(
+    'p[data-split-point="end"]'
+  );
+  if (endParagraph) {
+    const preCaretRange = document.createRange();
+    preCaretRange.selectNodeContents(endParagraph);
+    preCaretRange.setEnd(range.startContainer, range.startOffset);
 
-              if (preCaretRange.toString().trim() === "") {
-                event.preventDefault();
+    if (preCaretRange.toString().trim() === "") {
+      // --- MODIFIED LOGIC STARTS HERE ---
+      // This block now only moves the cursor to the end of the previous
+      // part of the split paragraph, without deleting or merging anything.
+      
+      event.preventDefault();
 
-                const paragraphId = endParagraph.dataset.paragraphId;
-                if (!paragraphId) return;
+      const paragraphId = endParagraph.dataset.paragraphId;
+      if (!paragraphId) return;
 
-                const startPiece = pageContainerRef.current?.querySelector(
-                  `p[data-paragraph-id="${paragraphId}"][data-split-point="start"]`
-                ) as HTMLElement | null;
+      const startPiece = pageContainerRef.current?.querySelector(
+        `p[data-paragraph-id="${paragraphId}"][data-split-point="start"]`
+      ) as HTMLElement | null;
 
-                if (startPiece) {
-                  const cursorPosition = startPiece.textContent?.length || 0;
+      if (startPiece) {
+        const selection = window.getSelection();
+        if (selection) {
+          const newRange = document.createRange();
 
-                  const markerId = `merge-marker-${Date.now()}`;
-                  const marker = document.createElement("span");
-                  marker.id = markerId;
-                  marker.textContent = "\u200B";
-                  startPiece.appendChild(marker);
+          newRange.selectNodeContents(startPiece);
+          
+          newRange.collapse(false);
 
-                  const fragment = document.createDocumentFragment();
-                  while (endParagraph.firstChild) {
-                    fragment.appendChild(endParagraph.firstChild);
-                  }
-
-                  marker.after(fragment);
-
-                  const cleanupSpans = (element: HTMLElement) => {
-                    element.normalize();
-
-                    const walker = document.createTreeWalker(
-                      element,
-                      NodeFilter.SHOW_ELEMENT,
-                      null
-                    );
-
-                    const spansToUnwrap: HTMLElement[] = [];
-                    let node: Node | null;
-                    while ((node = walker.nextNode())) {
-                      if (node.nodeName === "SPAN") {
-                        const span = node as HTMLElement;
-
-                        if (span.id && span.id.startsWith("merge-marker-")) {
-                          continue;
-                        }
-
-                        const style = span.style;
-
-                        const hasBold =
-                          style.fontWeight &&
-                          !["normal", "400", ""].includes(style.fontWeight);
-                        const hasItalic =
-                          style.fontStyle &&
-                          !["normal", ""].includes(style.fontStyle);
-                        const hasUnderline =
-                          style.textDecoration?.includes("underline") ||
-                          style.textDecorationLine?.includes("underline");
-                        const hasStrikethrough =
-                          style.textDecoration?.includes("line-through") ||
-                          style.textDecorationLine?.includes("line-through");
-
-                        const bgColor =
-                          style.backgroundColor?.toLowerCase() || "";
-                        const hasHighlight =
-                          bgColor &&
-                          bgColor !== "initial" &&
-                          bgColor !== "transparent" &&
-                          bgColor !== "" &&
-                          bgColor !== "rgba(0, 0, 0, 0)" &&
-                          bgColor !== "rgb(255, 255, 255)" &&
-                          !bgColor.includes("initial");
-
-                        const hasMeaningfulFormatting =
-                          hasBold ||
-                          hasItalic ||
-                          hasUnderline ||
-                          hasStrikethrough ||
-                          hasHighlight;
-                        const hasClasses =
-                          span.className && span.className.trim() !== "";
-
-                        if (!hasMeaningfulFormatting && !hasClasses) {
-                          spansToUnwrap.push(span);
-                        }
-                      }
-                    }
-
-                    spansToUnwrap.forEach((span) => {
-                      const parent = span.parentNode;
-                      if (parent) {
-                        while (span.firstChild) {
-                          parent.insertBefore(span.firstChild, span);
-                        }
-                        parent.removeChild(span);
-                      }
-                    });
-
-                    element.normalize();
-                  };
-
-                  cleanupSpans(startPiece);
-                  Promise.resolve().then(() => cleanupSpans(startPiece));
-
-                  startPiece.removeAttribute("data-paragraph-id");
-                  startPiece.removeAttribute("data-split-point");
-                  startPiece.style.paddingBottom = "1.25rem";
-
-                  endParagraph.remove();
-
-                  const finalMarker = startPiece.querySelector(`#${markerId}`);
-                  if (finalMarker) {
-                    const sel = window.getSelection();
-                    const newRange = document.createRange();
-                    newRange.setStartBefore(finalMarker);
-                    newRange.collapse(true);
-                    sel?.removeAllRanges();
-                    sel?.addRange(newRange);
-
-                    finalMarker.remove();
-                    startPiece.normalize();
-                  } else {
-                    const sel = window.getSelection();
-                    const textWalker = document.createTreeWalker(
-                      startPiece,
-                      NodeFilter.SHOW_TEXT,
-                      null
-                    );
-                    let charCount = 0;
-                    let targetNode: Node | null = null;
-                    let targetOffset = 0;
-                    let currentNode: Node | null;
-                    while ((currentNode = textWalker.nextNode())) {
-                      const nodeLength = currentNode.textContent?.length || 0;
-                      if (charCount + nodeLength >= cursorPosition) {
-                        targetNode = currentNode;
-                        targetOffset = cursorPosition - charCount;
-                        break;
-                      }
-                      charCount += nodeLength;
-                    }
-
-                    const newRange = document.createRange();
-                    if (targetNode) {
-                      newRange.setStart(targetNode, targetOffset);
-                    } else {
-                      newRange.selectNodeContents(startPiece);
-                      newRange.collapse(false);
-                    }
-                    newRange.collapse(true);
-                    sel?.removeAllRanges();
-                    sel?.addRange(newRange);
-                  }
-
-                  saveToHistory(true);
-
-                  const page = startPiece.closest(
-                    ".page"
-                  ) as HTMLElement | null;
-                  if (page) {
-                    setTimeout(() => reflowBackwardFromPage(page), 0);
-                  }
-                  return;
-                }
-              }
-            }
-          }
+          selection.removeAllRanges();
+          selection.addRange(newRange);
+ 
+          startPiece.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+        }
+        return; 
+      }
+      
+    }
+  }
+}
 
           const listItem = startElement.closest("li");
           if (
