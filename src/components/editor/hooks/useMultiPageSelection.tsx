@@ -113,7 +113,6 @@ const getPreciseRectsForSelection = (
 
     } catch (error) {
       console.error("Error creating range in getPreciseRectsForSelection:", error, { startNode: start.node, startOffset: start.offset, endNode: end.node, endOffset: end.offset });
-      // Continue to the next page if this one fails
       continue;
     }
   }

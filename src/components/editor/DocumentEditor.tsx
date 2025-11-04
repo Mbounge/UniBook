@@ -828,7 +828,6 @@ export const DocumentEditor = forwardRef<
         pageContainerRef.current?.querySelectorAll(".page-content") || [];
 
       pages.forEach((pageContent) => {
-        // EXISTING CODE FOR DIV CLEANUP...
         pageContent.querySelectorAll("p > div").forEach((divInsideP) => {
           const p = divInsideP.parentElement;
           if (p) {
@@ -841,7 +840,6 @@ export const DocumentEditor = forwardRef<
           }
         });
 
-        // EXISTING CODE FOR WRAPPING DIVS...
         pageContent
           .querySelectorAll(
             ":scope > div:not(.image-wrapper):not(.graph-wrapper):not(.template-wrapper):not(.math-wrapper)"
@@ -865,7 +863,6 @@ export const DocumentEditor = forwardRef<
             hasStructuralChanges = true;
           });
 
-        // EXISTING CODE FOR PARAGRAPH STYLING...
         pageContent.querySelectorAll(":scope > p").forEach((p) => {
           if (p instanceof HTMLElement) {
             let needsUpdate = false;
@@ -908,8 +905,6 @@ export const DocumentEditor = forwardRef<
           }
         });
 
-        // === ADD THIS NEW SPAN CLEANUP CODE HERE ===
-        // Clean up meaningless spans
         pageContent
           .querySelectorAll(
             "p span, h1 span, h2 span, h3 span, h4 span, blockquote span"
@@ -919,7 +914,6 @@ export const DocumentEditor = forwardRef<
 
             const style = span.style;
 
-            // Check for actual formatting
             const hasBold =
               style.fontWeight &&
               !["normal", "400", "500", ""].includes(style.fontWeight);
@@ -932,7 +926,6 @@ export const DocumentEditor = forwardRef<
               style.textDecoration?.includes("line-through") ||
               style.textDecorationLine?.includes("line-through");
 
-            // Very strict background color check
             const bgColor = style.backgroundColor?.toLowerCase() || "";
             const hasHighlight =
               bgColor &&
@@ -951,7 +944,6 @@ export const DocumentEditor = forwardRef<
               hasHighlight;
             const hasClasses = span.className && span.className.trim() !== "";
 
-            // Remove if no meaningful formatting
             if (!hasMeaningfulFormatting && !hasClasses) {
               const parent = span.parentNode;
               if (parent) {
@@ -963,9 +955,7 @@ export const DocumentEditor = forwardRef<
               }
             }
           });
-        // === END OF NEW SPAN CLEANUP CODE ===
 
-        // EXISTING CODE FOR STRAY NODES...
         const children = Array.from(pageContent.childNodes);
         for (let i = 0; i < children.length; i++) {
           const node = children[i] as Node;
@@ -1013,7 +1003,6 @@ export const DocumentEditor = forwardRef<
           }
         }
 
-        // EXISTING CODE FOR EMPTY LIST ITEMS...
         pageContent.querySelectorAll("li").forEach((li) => {
           const isEffectivelyEmpty =
             li.textContent?.trim() === "" &&
@@ -1028,7 +1017,7 @@ export const DocumentEditor = forwardRef<
           }
         });
 
-        // EXISTING CODE FOR EMPTY BLOCKS...
+        
         pageContent.querySelectorAll("p, h1, h2, h3, h4").forEach((block) => {
           const isVisuallyEmpty =
             block.textContent?.trim() === "" &&
@@ -1046,7 +1035,6 @@ export const DocumentEditor = forwardRef<
           }
         });
 
-        // EXISTING CODE FOR BR CLEANUP...
         Array.from(pageContent.childNodes).forEach((node) => {
           if (node.nodeName === "BR") {
             node.remove();
@@ -2017,6 +2005,60 @@ export const DocumentEditor = forwardRef<
           if (currentBlock && currentBlock.tagName === "P") {
             event.preventDefault();
 
+            const paragraphId = (currentBlock as HTMLElement).dataset.paragraphId;
+            if (paragraphId) {
+              
+              const allPieces = Array.from(
+                pageContainerRef.current?.querySelectorAll<HTMLElement>(
+                  `p[data-paragraph-id="${paragraphId}"]`
+                ) || []
+              );
+
+              allPieces.forEach(piece => {
+                piece.removeAttribute('data-paragraph-id');
+                piece.removeAttribute('data-split-point');
+                piece.style.paddingBottom = '1.25rem';
+              });
+
+              const newParagraph = document.createElement("p");
+              newParagraph.style.lineHeight = getLineHeightValue(currentLineSpacing);
+              newParagraph.dataset.lineSpacing = currentLineSpacing;
+              newParagraph.style.fontSize = currentSize;
+              newParagraph.style.marginBottom = "0px";
+              newParagraph.style.paddingBottom = "1.25rem";
+
+              const rangeToEnd = document.createRange();
+              rangeToEnd.setStart(range.startContainer, range.startOffset);
+              rangeToEnd.setEndAfter(currentBlock.lastChild || currentBlock);
+
+              const contentFragment = rangeToEnd.extractContents();
+              newParagraph.appendChild(contentFragment);
+
+              if (newParagraph.innerHTML.trim() === "") {
+                newParagraph.innerHTML = "<br>";
+              }
+              if (currentBlock.innerHTML.trim() === "") {
+                currentBlock.innerHTML = "<br>";
+              }
+
+              currentBlock.after(newParagraph);
+
+              
+              const newRange = document.createRange();
+              newRange.setStart(newParagraph, 0);
+              newRange.collapse(true);
+              selection.removeAllRanges();
+              selection.addRange(newRange);
+              
+              
+              saveToHistory(true);
+              const page = currentBlock.closest('.page') as HTMLElement;
+              if (page) {
+                setTimeout(() => reflowBackwardFromPage(page), 50);
+              }
+              return;
+            }
+            
             if (event.shiftKey) {
               document.execCommand("insertLineBreak");
             } else {

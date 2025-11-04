@@ -55,7 +55,6 @@ export const useEditor = (
     getAvailableHeight,
   } = useTextReflow(editorRef, saveToHistory);
 
-  // --- NEW: Full Document Reflow Function ---
   const fullDocumentReflow = useCallback(() => {
     if (!editorRef.current) return;
     console.log('[Reflow] Starting Full Document Reflow...');
@@ -894,25 +893,24 @@ export const useEditor = (
         selection?.addRange(newRange);
       }
       
-      // --- MODIFICATION: Use fullDocumentReflow for large imports ---
       setTimeout(async () => {
         await document.fonts.ready;
         if (editorRef.current) {
           rehydrateMathBlocks(editorRef.current);
           rehydrateGraphBlocks(editorRef.current);
           
-          // Use the robust full document reflow
+          
           fullDocumentReflow();
         }
         saveToHistory(true);
-      }, 100); // A small delay to let the DOM update with the new content
+      }, 100); 
     },
     [
       editorRef,
       saveToHistory,
       findInsertionTarget,
       addNewPage,
-      fullDocumentReflow, // Added dependency
+      fullDocumentReflow,
       rehydrateGraphBlocks,
       rehydrateMathBlocks,
     ]
@@ -1014,7 +1012,7 @@ export const useEditor = (
     reflowSplitParagraph,
     getContentHeight,
     getAvailableHeight,
-    fullDocumentReflow, // Export the new function
+    fullDocumentReflow, 
 
     highlightRects,
     isSelecting,

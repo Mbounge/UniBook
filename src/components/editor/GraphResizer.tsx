@@ -256,7 +256,6 @@ export const GraphResizer: React.FC<GraphResizerProps> = ({
     const handleMouseUp = () => {
       if (isResizingRef.current) {
         propsRef.current.saveToHistory(true);
-        // --- MODIFICATION: Use fullDocumentReflow for final, perfect pagination ---
         propsRef.current.fullDocumentReflow();
       }
       setIsResizing(false);
@@ -345,7 +344,7 @@ export const GraphResizer: React.FC<GraphResizerProps> = ({
       } else if (handle?.includes('n')) {
         const newHeight = height - dy;
         newWidth = newHeight / aspectRatio;
-      } else { // Corner handles
+      } else { 
         newWidth = width + dx;
       }
 
@@ -365,7 +364,6 @@ export const GraphResizer: React.FC<GraphResizerProps> = ({
         console.error("Failed to update graph data on resize:", error);
       }
 
-      // --- MODIFICATION: Use faster, local reflow during drag for responsiveness ---
       const page = selectionRef.current.closest('.page') as HTMLElement;
       if (page) {
         propsRef.current.reflowBackwardFromPage(page);

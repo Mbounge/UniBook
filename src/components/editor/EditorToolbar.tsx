@@ -181,7 +181,6 @@ export const EditorToolbar: React.FC<EditorToolbarProps> = (props) => {
       <ToolbarButton onClick={onNumberedList} title="Numbered List"><ListOrdered className="w-4 h-4" /></ToolbarButton>
       <div className="h-6 w-px bg-gray-200 mx-2"></div>
       <ToolbarButton onClick={onInsertImage} title="Add Image"><Image className="w-4 h-4" /></ToolbarButton>
-      {/* --- MODIFICATION: Call is now consistent --- */}
       <ToolbarButton onClick={onInsertMath} title="Insert Formula"><Sigma className="w-4 h-4" /></ToolbarButton>
       <ToolbarButton onClick={onBlockquote} title="Blockquote"><MessageSquareQuote className="w-4 h-4" /></ToolbarButton>
       <ToolbarButton onClick={onCodeBlock} title="Code Block"><Code className="w-4 h-4" /></ToolbarButton>

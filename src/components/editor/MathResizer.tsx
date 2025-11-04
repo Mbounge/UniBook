@@ -10,7 +10,6 @@ interface MathResizerProps {
   saveToHistory: (force?: boolean) => void;
   selectedMathElement?: HTMLElement | null;
   onMathSelect?: (element: HTMLElement | null) => void;
-  // --- NEW PROPS ---
   reflowBackwardFromPage: (pageElement: HTMLElement) => void;
   fullDocumentReflow: () => void;
 }
@@ -119,7 +118,6 @@ export const MathResizer: React.FC<MathResizerProps> = ({
     const handleMouseUp = () => {
       if (isResizingRef.current) {
         propsRef.current.saveToHistory(true);
-        // --- MODIFICATION: Use fullDocumentReflow for final, perfect pagination ---
         propsRef.current.fullDocumentReflow();
       }
       setIsResizing(false);
@@ -188,7 +186,6 @@ export const MathResizer: React.FC<MathResizerProps> = ({
         mathBlock.dispatchEvent(new CustomEvent('updateMath', { detail: { fontSize: newFontSize } }));
       }
 
-      // --- MODIFICATION: Use faster, local reflow during drag for responsiveness ---
       const page = selectionRef.current.closest('.page') as HTMLElement;
       if (page) {
         propsRef.current.reflowBackwardFromPage(page);

@@ -21,7 +21,6 @@ interface ImageResizerProps {
   saveToHistory: (force?: boolean) => void;
   selectedElement?: HTMLElement | null;
   onElementSelect?: (element: HTMLElement | null) => void;
-  // --- MODIFIED PROPS ---
   reflowBackwardFromPage: (pageElement: HTMLElement) => void;
   fullDocumentReflow: () => void;
 }
@@ -324,7 +323,6 @@ export const ImageResizer: React.FC<ImageResizerProps> = ({
     const handleMouseUp = () => {
       if (isResizingRef.current) {
         propsRef.current.saveToHistory(true);
-        // --- MODIFICATION: Use fullDocumentReflow for final, perfect pagination ---
         propsRef.current.fullDocumentReflow();
       }
       setIsResizing(false);
@@ -476,7 +474,6 @@ export const ImageResizer: React.FC<ImageResizerProps> = ({
         selectionRef.current.style.height = `${newHeight}px`;
       }
       
-      // --- MODIFICATION: Use faster, local reflow during drag for responsiveness ---
       const page = selectionRef.current.closest('.page') as HTMLElement;
       if (page) {
         propsRef.current.reflowBackwardFromPage(page);
