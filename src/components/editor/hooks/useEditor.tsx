@@ -53,6 +53,8 @@ export const useEditor = (
     reflowSplitParagraph,
     getContentHeight,
     getAvailableHeight,
+    reflowSplitTable,  
+    reflowSplitList
   } = useTextReflow(editorRef, saveToHistory);
 
   const fullDocumentReflow = useCallback(() => {
@@ -1013,6 +1015,8 @@ export const useEditor = (
     getContentHeight,
     getAvailableHeight,
     fullDocumentReflow, 
+    reflowSplitTable, // Add this
+    reflowSplitList,
 
     highlightRects,
     isSelecting,

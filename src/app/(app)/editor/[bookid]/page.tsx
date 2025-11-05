@@ -127,7 +127,9 @@ const EditorComponent = () => {
     clearSelection,
     forceRecalculateRects,
     startTextSelection,
-    fullDocumentReflow, // --- NEW: Destructure the new function ---
+    fullDocumentReflow,
+    reflowSplitTable,
+    reflowSplitList
   } = useEditor(pageContainerRef);
 
   const { data: bookData, isLoading: isBookLoading, isError } = useQuery({
@@ -381,6 +383,8 @@ const EditorComponent = () => {
               reflowBackwardFromPage={reflowBackwardFromPage}
               reflowSplitParagraph={reflowSplitParagraph}
               fullDocumentReflow={fullDocumentReflow}
+              reflowSplitTable={reflowSplitTable}
+              reflowSplitList={reflowSplitList}
               customSelection={customSelection}
               highlightRects={highlightRects}
               isSelecting={isSelecting}

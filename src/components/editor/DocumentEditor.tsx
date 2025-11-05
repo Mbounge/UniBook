@@ -56,6 +56,8 @@ interface DocumentEditorProps {
   reflowPage: (pageElement: HTMLElement) => boolean;
   reflowBackwardFromPage: (pageElement: HTMLElement) => boolean;
   reflowSplitParagraph: (paragraphId: string) => boolean;
+  reflowSplitTable: (tableId: string) => boolean;
+  reflowSplitList: (listId: string) => boolean;
   fullDocumentReflow: () => void;
   customSelection: CustomSelection | null;
   highlightRects: DOMRect[];
@@ -108,6 +110,8 @@ export const DocumentEditor = forwardRef<
     reflowBackwardFromPage,
     reflowSplitParagraph,
     fullDocumentReflow,
+    reflowSplitTable,
+    reflowSplitList,
     customSelection,
     highlightRects,
     isMultiPageSelection,
@@ -721,16 +725,37 @@ export const DocumentEditor = forwardRef<
           const content = page.querySelector(".page-content");
           if (!content) return;
 
+          // --- MODIFIED SECTION ---
+          // Check for all split elements that might need merging after an edit.
+          // The loop checks if an element and its next sibling are part of the same split entity.
           const children = Array.from(content.children);
           for (let i = 0; i < children.length - 1; i++) {
             const currentEl = children[i] as HTMLElement;
             const nextEl = children[i + 1] as HTMLElement;
+            
+            // Check for paragraphs
             if (
               currentEl.dataset.paragraphId &&
               currentEl.dataset.paragraphId === nextEl.dataset.paragraphId
             ) {
               reflowSplitParagraph(currentEl.dataset.paragraphId);
-              break;
+              break; // Found a merge candidate, no need to check further on this page
+            }
+            // Check for tables
+            if (
+              currentEl.dataset.tableId &&
+              currentEl.dataset.tableId === nextEl.dataset.tableId
+            ) {
+              reflowSplitTable(currentEl.dataset.tableId);
+              break; // Found a merge candidate
+            }
+            // Check for lists
+            if (
+              currentEl.dataset.listId &&
+              currentEl.dataset.listId === nextEl.dataset.listId
+            ) {
+              reflowSplitList(currentEl.dataset.listId);
+              break; // Found a merge candidate
             }
           }
         }, 50);
@@ -747,6 +772,8 @@ export const DocumentEditor = forwardRef<
       checkAndReflowOnOverflow,
       reflowBackwardFromPage,
       reflowSplitParagraph,
+      reflowSplitTable,
+      reflowSplitList,
       updateOverflowWarning,
       runParagraphAnalysis,
     ]
@@ -1419,6 +1446,19 @@ export const DocumentEditor = forwardRef<
         reflowSplitParagraph(paragraphId);
       }
 
+      const startParent = startElement?.parentElement;
+    if (startParent) {
+        const nextEl = startParent.nextElementSibling as HTMLElement;
+        if (nextEl) {
+            if (startParent.dataset.tableId && startParent.dataset.tableId === nextEl.dataset.tableId) {
+                reflowSplitTable(startParent.dataset.tableId);
+            }
+            if (startParent.dataset.listId && startParent.dataset.listId === nextEl.dataset.listId) {
+                reflowSplitList(startParent.dataset.listId);
+            }
+        }
+    }
+
       if (pageContainerRef.current) {
         pageContainerRef.current
           .querySelectorAll(wrapperSelector)
@@ -1479,6 +1519,8 @@ export const DocumentEditor = forwardRef<
       reflowBackwardFromPage,
       runParagraphAnalysis,
       reflowSplitParagraph,
+      reflowSplitTable,
+      reflowSplitList,
       selectedResizableElement,
       selectedGraphElement,
       selectedMathElement,
