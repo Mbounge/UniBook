@@ -17,7 +17,6 @@ import { fetchBookById, updateBook, Book as BookData } from "@/lib/mock-data";
 import { useToast } from "@/hooks/use-toast";
 import { GraphData } from "@/components/editor/GraphBlock";
 
-// --- NEW: Loading Overlay Component ---
 const LoadingOverlay = () => (
   <div className="fixed inset-0 bg-white/80 backdrop-blur-sm flex flex-col items-center justify-center z-[100] animate-in fade-in duration-300">
     <Loader2 className="w-12 h-12 text-blue-600 animate-spin mb-4" />
@@ -101,7 +100,7 @@ const EditorComponent = () => {
   const [isHubExpanded, setIsHubExpanded] = useState(false);
   const [isContentLoaded, setIsContentLoaded] = useState(false);
   const [isLeftPanelExpanded, setIsLeftPanelExpanded] = useState(false);
-  const [isImporting, setIsImporting] = useState(false); // --- NEW: Loading state ---
+  const [isImporting, setIsImporting] = useState(false);
   
   const pageContainerRef = useRef<HTMLDivElement | null>(null);
   

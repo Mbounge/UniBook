@@ -324,39 +324,65 @@ export const useEditor = (
         ? (allPages[allPages.length - 1] as HTMLElement)
         : null;
 
+    // --- STEP 1: PAD THE LAST PAGE ---
+    if (lastPageBeforeAdding) {
+      const lastPageContent = lastPageBeforeAdding.querySelector('.page-content') as HTMLElement;
+      if (lastPageContent) {
+        const availableHeight = getAvailableHeight();
+        const contentHeight = getContentHeight(lastPageContent);
+        let remainingSpace = availableHeight - contentHeight;
+        
+        const tempP = document.createElement('p');
+        tempP.innerHTML = '<br>';
+        tempP.style.fontSize = '14pt';
+        tempP.style.lineHeight = '1.5';
+        lastPageContent.appendChild(tempP);
+        const paragraphHeight = tempP.getBoundingClientRect().height;
+        lastPageContent.removeChild(tempP);
+
+        if (paragraphHeight > 0) {
+          const paragraphsNeeded = Math.floor(remainingSpace / paragraphHeight);
+          for (let i = 0; i < paragraphsNeeded; i++) {
+            const paddingParagraph = document.createElement('p');
+            paddingParagraph.innerHTML = '<br>';
+            lastPageContent.appendChild(paddingParagraph);
+          }
+        }
+      }
+    }
+
     const newPageDiv = document.createElement("div");
     newPageDiv.className = "page";
-
     const newPageContent = document.createElement("div");
     newPageContent.className = "page-content";
     newPageContent.contentEditable = "true";
     newPageContent.dataset.placeholder = "Start typing on your new page...";
-
-    const defaultParagraph = document.createElement("p");
-    defaultParagraph.innerHTML = "<br>";
-
-    newPageContent.appendChild(defaultParagraph);
     newPageDiv.appendChild(newPageContent);
     editorRef.current.appendChild(newPageDiv);
-
-    newPageDiv.scrollIntoView({ behavior: "smooth", block: "start" });
-
-    const range = document.createRange();
-    const selection = window.getSelection();
-
-    range.setStart(defaultParagraph, 0);
-    range.collapse(true);
-    selection?.removeAllRanges();
-    selection?.addRange(range);
 
     if (lastPageBeforeAdding) {
       reflowPage(lastPageBeforeAdding);
     }
 
+    newPageContent.innerHTML = ''; // Wipe all temporary content
+    const finalParagraph = document.createElement("p");
+    finalParagraph.innerHTML = "<br>";
+    newPageContent.appendChild(finalParagraph);
+
+    // --- STEP 5: SET CURSOR ---
+    newPageDiv.scrollIntoView({ behavior: "smooth", block: "start" });
+    const range = document.createRange();
+    const selection = window.getSelection();
+    range.setStart(finalParagraph, 0);
+    range.collapse(true);
+    selection?.removeAllRanges();
+    selection?.addRange(range);
+
     setTimeout(() => {
       saveToHistory(true);
     }, 100);
-  }, [editorRef, saveToHistory, reflowPage]);
+  }, [editorRef, saveToHistory, reflowPage, getContentHeight, getAvailableHeight]);
+
 
   const ensureCursorFriendlyBlocks = (
     wrapper: HTMLElement,

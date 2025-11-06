@@ -25,6 +25,58 @@ import {
 } from "lucide-react";
 import { useContentHub } from './ContentHubContext';
 
+// --- NEW: Standalone HTML Sanitizer ---
+// This function is adapted from the logic in useEditor.tsx to ensure
+// any user-edited content in the staging modal is safe before import.
+const sanitizeHtml = (html: string): string => {
+  if (typeof window === 'undefined') return html; // Guard for SSR
+
+  const parser = new DOMParser();
+  const doc = parser.parseFromString(`<body>${html}</body>`, "text/html");
+
+  // 1. Remove potentially harmful or unwanted tags
+  doc.body.querySelectorAll("script, style, meta, title, link, head").forEach((el) => el.remove());
+
+  const allowedTags = new Set([
+    "P", "B", "STRONG", "I", "EM", "U", "A", "UL", "OL", "LI", "BR", "H1", "H2", "H3", "H4", "IMG",
+  ]);
+
+  const walker = doc.createTreeWalker(doc.body, NodeFilter.SHOW_ELEMENT);
+  const nodesToProcess: HTMLElement[] = [];
+  while (walker.nextNode()) {
+    nodesToProcess.push(walker.currentNode as HTMLElement);
+  }
+
+  // 2. Process nodes in reverse to avoid issues when replacing nodes
+  nodesToProcess.reverse().forEach((el) => {
+    // Remove disallowed tags, but keep their children
+    if (!allowedTags.has(el.tagName)) {
+      el.replaceWith(...el.childNodes);
+      return; // Skip attribute cleaning for removed tags
+    }
+
+    // Clean attributes from allowed tags
+    for (const attr of Array.from(el.attributes)) {
+      const attrName = attr.name.toLowerCase();
+      // Allow a specific, safe set of attributes
+      if (el.tagName === "A" && attrName === "href") continue;
+      if (el.tagName === "IMG" && ["src", "alt", "width", "height"].includes(attrName)) continue;
+      // Remove all others
+      el.removeAttribute(attr.name);
+    }
+  });
+
+  // 3. Clean up empty block elements that might result from sanitization
+  doc.body.querySelectorAll("p, h1, h2, h3, h4").forEach((el) => {
+    if (!el.textContent?.trim() && !el.querySelector("img, br")) {
+      el.remove();
+    }
+  });
+
+  return doc.body.innerHTML;
+};
+
+
 // --- Types and Interfaces ---
 interface Subsection {
   subsectionTitle: string;
@@ -230,20 +282,22 @@ export const StagingModal = ({
     const htmlBlocks = stagedItems.map((item) => {
       const header = `<h2>${item.subsectionTitle}</h2>`;
       const subheader = `<h4>From: ${item.bookTitle} - ${item.chapterTitle}</h4>`;
-      const contentHtml =
-        item.content === item.initialContent
-          ? formatContentAsHtml(item.initialContent)
-          : item.content;
+      
+      // --- FIX APPLIED HERE ---
+      // Determine if the content was edited by the user in the modal.
+      const isEdited = item.content !== item.initialContent;
+      
+      // If edited, run the raw HTML through our sanitizer.
+      // If not, use the original safe formatting function.
+      const contentHtml = isEdited
+        ? sanitizeHtml(item.content)
+        : formatContentAsHtml(item.initialContent);
+        
       return `${header}${subheader}${contentHtml}`;
     });
     
-    // Call the main onImport function passed from page.tsx
     onImport(htmlBlocks, createNewPages);
-    
-    // Clear the selected items from the global context
     setHubState(prev => ({ ...prev, selectedItems: [] }));
-    
-    // Call onClose to close the modal itself
     onClose();
   };
 

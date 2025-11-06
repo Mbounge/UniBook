@@ -110,8 +110,8 @@ export const DocumentEditor = forwardRef<
     reflowBackwardFromPage,
     reflowSplitParagraph,
     fullDocumentReflow,
-    reflowSplitTable,
     reflowSplitList,
+    reflowSplitTable,
     customSelection,
     highlightRects,
     isMultiPageSelection,
@@ -725,37 +725,33 @@ export const DocumentEditor = forwardRef<
           const content = page.querySelector(".page-content");
           if (!content) return;
 
-          // --- MODIFIED SECTION ---
-          // Check for all split elements that might need merging after an edit.
-          // The loop checks if an element and its next sibling are part of the same split entity.
           const children = Array.from(content.children);
           for (let i = 0; i < children.length - 1; i++) {
             const currentEl = children[i] as HTMLElement;
             const nextEl = children[i + 1] as HTMLElement;
             
-            // Check for paragraphs
+            // Original paragraph check (with 'break;' removed for correctness)
             if (
               currentEl.dataset.paragraphId &&
               currentEl.dataset.paragraphId === nextEl.dataset.paragraphId
             ) {
               reflowSplitParagraph(currentEl.dataset.paragraphId);
-              break; // Found a merge candidate, no need to check further on this page
             }
-            // Check for tables
+
+            // NEW: Check for tables
             if (
               currentEl.dataset.tableId &&
               currentEl.dataset.tableId === nextEl.dataset.tableId
             ) {
               reflowSplitTable(currentEl.dataset.tableId);
-              break; // Found a merge candidate
             }
-            // Check for lists
+
+            // NEW: Check for lists
             if (
               currentEl.dataset.listId &&
               currentEl.dataset.listId === nextEl.dataset.listId
             ) {
               reflowSplitList(currentEl.dataset.listId);
-              break; // Found a merge candidate
             }
           }
         }, 50);
@@ -765,6 +761,7 @@ export const DocumentEditor = forwardRef<
       saveToHistory();
       updateToolbarState();
       runParagraphAnalysis();
+
     },
     [
       saveToHistory,
@@ -773,7 +770,7 @@ export const DocumentEditor = forwardRef<
       reflowBackwardFromPage,
       reflowSplitParagraph,
       reflowSplitTable,
-      reflowSplitList,
+      reflowSplitList,  
       updateOverflowWarning,
       runParagraphAnalysis,
     ]
@@ -855,6 +852,7 @@ export const DocumentEditor = forwardRef<
         pageContainerRef.current?.querySelectorAll(".page-content") || [];
 
       pages.forEach((pageContent) => {
+        // EXISTING CODE FOR DIV CLEANUP...
         pageContent.querySelectorAll("p > div").forEach((divInsideP) => {
           const p = divInsideP.parentElement;
           if (p) {
@@ -867,6 +865,7 @@ export const DocumentEditor = forwardRef<
           }
         });
 
+        // EXISTING CODE FOR WRAPPING DIVS...
         pageContent
           .querySelectorAll(
             ":scope > div:not(.image-wrapper):not(.graph-wrapper):not(.template-wrapper):not(.math-wrapper)"
@@ -890,6 +889,7 @@ export const DocumentEditor = forwardRef<
             hasStructuralChanges = true;
           });
 
+        // EXISTING CODE FOR PARAGRAPH STYLING...
         pageContent.querySelectorAll(":scope > p").forEach((p) => {
           if (p instanceof HTMLElement) {
             let needsUpdate = false;
@@ -932,6 +932,8 @@ export const DocumentEditor = forwardRef<
           }
         });
 
+        // === ADD THIS NEW SPAN CLEANUP CODE HERE ===
+        // Clean up meaningless spans
         pageContent
           .querySelectorAll(
             "p span, h1 span, h2 span, h3 span, h4 span, blockquote span"
@@ -941,6 +943,7 @@ export const DocumentEditor = forwardRef<
 
             const style = span.style;
 
+            // Check for actual formatting
             const hasBold =
               style.fontWeight &&
               !["normal", "400", "500", ""].includes(style.fontWeight);
@@ -953,6 +956,7 @@ export const DocumentEditor = forwardRef<
               style.textDecoration?.includes("line-through") ||
               style.textDecorationLine?.includes("line-through");
 
+            // Very strict background color check
             const bgColor = style.backgroundColor?.toLowerCase() || "";
             const hasHighlight =
               bgColor &&
@@ -971,6 +975,7 @@ export const DocumentEditor = forwardRef<
               hasHighlight;
             const hasClasses = span.className && span.className.trim() !== "";
 
+            // Remove if no meaningful formatting
             if (!hasMeaningfulFormatting && !hasClasses) {
               const parent = span.parentNode;
               if (parent) {
@@ -982,7 +987,9 @@ export const DocumentEditor = forwardRef<
               }
             }
           });
+        // === END OF NEW SPAN CLEANUP CODE ===
 
+        // EXISTING CODE FOR STRAY NODES...
         const children = Array.from(pageContent.childNodes);
         for (let i = 0; i < children.length; i++) {
           const node = children[i] as Node;
@@ -1030,6 +1037,7 @@ export const DocumentEditor = forwardRef<
           }
         }
 
+        // EXISTING CODE FOR EMPTY LIST ITEMS...
         pageContent.querySelectorAll("li").forEach((li) => {
           const isEffectivelyEmpty =
             li.textContent?.trim() === "" &&
@@ -1044,7 +1052,7 @@ export const DocumentEditor = forwardRef<
           }
         });
 
-        
+        // EXISTING CODE FOR EMPTY BLOCKS...
         pageContent.querySelectorAll("p, h1, h2, h3, h4").forEach((block) => {
           const isVisuallyEmpty =
             block.textContent?.trim() === "" &&
@@ -1062,6 +1070,7 @@ export const DocumentEditor = forwardRef<
           }
         });
 
+        // EXISTING CODE FOR BR CLEANUP...
         Array.from(pageContent.childNodes).forEach((node) => {
           if (node.nodeName === "BR") {
             node.remove();
@@ -1446,19 +1455,6 @@ export const DocumentEditor = forwardRef<
         reflowSplitParagraph(paragraphId);
       }
 
-      const startParent = startElement?.parentElement;
-    if (startParent) {
-        const nextEl = startParent.nextElementSibling as HTMLElement;
-        if (nextEl) {
-            if (startParent.dataset.tableId && startParent.dataset.tableId === nextEl.dataset.tableId) {
-                reflowSplitTable(startParent.dataset.tableId);
-            }
-            if (startParent.dataset.listId && startParent.dataset.listId === nextEl.dataset.listId) {
-                reflowSplitList(startParent.dataset.listId);
-            }
-        }
-    }
-
       if (pageContainerRef.current) {
         pageContainerRef.current
           .querySelectorAll(wrapperSelector)
@@ -1485,18 +1481,27 @@ export const DocumentEditor = forwardRef<
 
       clearSelection();
 
-      const newSelection = window.getSelection();
-      if (newSelection) {
-        
-        newSelection.removeAllRanges();
-        newSelection.addRange(range);
+      if (document.body.contains(start.node)) {
+        try {
+          const newRange = document.createRange();
+          const newOffset = Math.min(
+            start.offset,
+            start.node.textContent?.length || 0
+          );
+          newRange.setStart(start.node, newOffset);
+          newRange.collapse(true);
+          selection.removeAllRanges();
+          selection.addRange(newRange);
 
-        const parentContentEditable = (
-          range.startContainer.nodeType === Node.ELEMENT_NODE
-            ? (range.startContainer as HTMLElement)
-            : range.startContainer.parentElement
-        )?.closest<HTMLElement>('[contenteditable="true"]');
-        parentContentEditable?.focus();
+          const parentContentEditable = (
+            start.node.nodeType === Node.ELEMENT_NODE
+              ? (start.node as HTMLElement)
+              : start.node.parentElement
+          )?.closest<HTMLElement>('[contenteditable="true"]');
+          parentContentEditable?.focus();
+        } catch (e) {
+          console.error("Error restoring cursor after deletion.", e);
+        }
       }
 
       if (save) {
@@ -1519,8 +1524,6 @@ export const DocumentEditor = forwardRef<
       reflowBackwardFromPage,
       runParagraphAnalysis,
       reflowSplitParagraph,
-      reflowSplitTable,
-      reflowSplitList,
       selectedResizableElement,
       selectedGraphElement,
       selectedMathElement,
@@ -1996,6 +1999,7 @@ export const DocumentEditor = forwardRef<
               ? range.startContainer
               : range.startContainer.parentElement
           ) as HTMLElement;
+          
 
           const currentBlock = startElement.closest(
             "p, h1, h2, h3, h4, blockquote, pre, li"
@@ -2047,60 +2051,6 @@ export const DocumentEditor = forwardRef<
           if (currentBlock && currentBlock.tagName === "P") {
             event.preventDefault();
 
-            const paragraphId = (currentBlock as HTMLElement).dataset.paragraphId;
-            if (paragraphId) {
-              
-              const allPieces = Array.from(
-                pageContainerRef.current?.querySelectorAll<HTMLElement>(
-                  `p[data-paragraph-id="${paragraphId}"]`
-                ) || []
-              );
-
-              allPieces.forEach(piece => {
-                piece.removeAttribute('data-paragraph-id');
-                piece.removeAttribute('data-split-point');
-                piece.style.paddingBottom = '1.25rem';
-              });
-
-              const newParagraph = document.createElement("p");
-              newParagraph.style.lineHeight = getLineHeightValue(currentLineSpacing);
-              newParagraph.dataset.lineSpacing = currentLineSpacing;
-              newParagraph.style.fontSize = currentSize;
-              newParagraph.style.marginBottom = "0px";
-              newParagraph.style.paddingBottom = "1.25rem";
-
-              const rangeToEnd = document.createRange();
-              rangeToEnd.setStart(range.startContainer, range.startOffset);
-              rangeToEnd.setEndAfter(currentBlock.lastChild || currentBlock);
-
-              const contentFragment = rangeToEnd.extractContents();
-              newParagraph.appendChild(contentFragment);
-
-              if (newParagraph.innerHTML.trim() === "") {
-                newParagraph.innerHTML = "<br>";
-              }
-              if (currentBlock.innerHTML.trim() === "") {
-                currentBlock.innerHTML = "<br>";
-              }
-
-              currentBlock.after(newParagraph);
-
-              
-              const newRange = document.createRange();
-              newRange.setStart(newParagraph, 0);
-              newRange.collapse(true);
-              selection.removeAllRanges();
-              selection.addRange(newRange);
-              
-              
-              saveToHistory(true);
-              const page = currentBlock.closest('.page') as HTMLElement;
-              if (page) {
-                setTimeout(() => reflowBackwardFromPage(page), 50);
-              }
-              return;
-            }
-            
             if (event.shiftKey) {
               document.execCommand("insertLineBreak");
             } else {
@@ -2411,48 +2361,52 @@ export const DocumentEditor = forwardRef<
               return;
             }
           } else {
-  const endParagraph = startElement?.closest<HTMLElement>(
-    'p[data-split-point="end"]'
-  );
-  if (endParagraph) {
-    const preCaretRange = document.createRange();
-    preCaretRange.selectNodeContents(endParagraph);
-    preCaretRange.setEnd(range.startContainer, range.startOffset);
+            const endParagraph = startElement?.closest<HTMLElement>(
+              'p[data-split-point="end"]'
+            );
+            if (endParagraph) {
+              const preCaretRange = document.createRange();
+              preCaretRange.selectNodeContents(endParagraph);
+              preCaretRange.setEnd(range.startContainer, range.startOffset);
 
-    if (preCaretRange.toString().trim() === "") {
-      // --- MODIFIED LOGIC STARTS HERE ---
-      // This block now only moves the cursor to the end of the previous
-      // part of the split paragraph, without deleting or merging anything.
-      
-      event.preventDefault();
+              if (preCaretRange.toString().trim() === "") {
+                // --- NEW LOGIC STARTS HERE ---
+                // This block now only moves the cursor to the end of the previous
+                // part of the split paragraph, without deleting or merging anything.
+                
+                event.preventDefault();
 
-      const paragraphId = endParagraph.dataset.paragraphId;
-      if (!paragraphId) return;
+                const paragraphId = endParagraph.dataset.paragraphId;
+                if (!paragraphId || !pageContainerRef.current) return;
 
-      const startPiece = pageContainerRef.current?.querySelector(
-        `p[data-paragraph-id="${paragraphId}"][data-split-point="start"]`
-      ) as HTMLElement | null;
+                const startPiece = pageContainerRef.current.querySelector(
+                  `p[data-paragraph-id="${paragraphId}"][data-split-point="start"]`
+                ) as HTMLElement | null;
 
-      if (startPiece) {
-        const selection = window.getSelection();
-        if (selection) {
-          const newRange = document.createRange();
+                if (startPiece) {
+                  const selection = window.getSelection();
+                  if (selection) {
+                    const newRange = document.createRange();
 
-          newRange.selectNodeContents(startPiece);
-          
-          newRange.collapse(false);
+                    // Select the entire content of the "start" piece
+                    newRange.selectNodeContents(startPiece);
+                    
+                    // Collapse the range to its end point
+                    newRange.collapse(false);
 
-          selection.removeAllRanges();
-          selection.addRange(newRange);
- 
-          startPiece.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
-        }
-        return; 
-      }
-      
-    }
-  }
-}
+                    // Apply this new, collapsed range as the current selection
+                    selection.removeAllRanges();
+                    selection.addRange(newRange);
+            
+                    // Optional: scroll the previous part into view if it's far away
+                    startPiece.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+                  }
+                  return; // Stop further processing
+                }
+                // --- NEW LOGIC ENDS HERE ---
+              }
+            }
+          }
 
           const listItem = startElement.closest("li");
           if (
