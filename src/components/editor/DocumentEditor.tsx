@@ -786,6 +786,8 @@ export const DocumentEditor = forwardRef<
       ) as HTMLElement;
       if (!prevPageContent || !currentPageContent) return;
 
+      console.log('start')
+
       reflowBackwardFromPage(previousPage);
 
       const isCurrentPageNowEmpty =
@@ -1999,11 +2001,10 @@ export const DocumentEditor = forwardRef<
               ? range.startContainer
               : range.startContainer.parentElement
           ) as HTMLElement;
-          
 
           const currentBlock = startElement.closest(
             "p, h1, h2, h3, h4, blockquote, pre, li"
-          );
+          ) as HTMLElement | null;;
 
           const listItem = startElement.closest("li");
           if (listItem) {
@@ -2048,74 +2049,351 @@ export const DocumentEditor = forwardRef<
             return;
           }
 
-          if (currentBlock && currentBlock.tagName === "P") {
-            event.preventDefault();
+         if (currentBlock && currentBlock.tagName === "P") {
+        event.preventDefault();
 
-            if (event.shiftKey) {
-              document.execCommand("insertLineBreak");
+        // Check if this is part of a split paragraph
+        const isSplitParagraph = currentBlock.dataset.paragraphId;
+        const splitPoint = currentBlock.dataset.splitPoint; // 'start' or 'end'
+
+        if (isSplitParagraph && splitPoint) {
+          // We're in a split paragraph piece
+          const paragraphId = currentBlock.dataset.paragraphId;
+          
+          // Calculate cursor position relative to the paragraph
+          const preRange = document.createRange();
+          preRange.selectNodeContents(currentBlock);
+          preRange.setEnd(range.startContainer, range.startOffset);
+          const textBeforeCursor = preRange.toString();
+          
+          const postRange = document.createRange();
+          postRange.setStart(range.startContainer, range.startOffset);
+          postRange.setEndAfter(currentBlock.lastChild || currentBlock);
+          const textAfterCursor = postRange.toString();
+          
+          const isAtVeryStart = textBeforeCursor.trim() === '';
+          const isAtVeryEnd = textAfterCursor.trim() === '';
+
+          if (splitPoint === 'start') {
+            // We're in the "start" piece of a split paragraph
+            
+            if (!isAtVeryStart && !isAtVeryEnd) {
+              // SCENARIO 2: Enter in the MIDDLE of "start"
+              // Split the content: before = standalone, after = keeps "start" split
+              const newParagraph = document.createElement('p');
+              newParagraph.style.lineHeight = getLineHeightValue(currentLineSpacing);
+              newParagraph.dataset.lineSpacing = currentLineSpacing;
+              newParagraph.style.fontSize = currentSize;
+              newParagraph.style.marginBottom = '0px';
+              newParagraph.style.paddingBottom = '1.25rem'; // Standalone paragraph
+              
+              // Extract content before cursor
+              const rangeToExtract = document.createRange();
+              rangeToExtract.setStartBefore(currentBlock.firstChild || currentBlock);
+              rangeToExtract.setEnd(range.startContainer, range.startOffset);
+              const contentFragment = rangeToExtract.extractContents();
+              newParagraph.appendChild(contentFragment);
+              
+              if (newParagraph.innerHTML.trim() === '') {
+                newParagraph.innerHTML = '<br>';
+              }
+              
+              // Insert the new standalone paragraph before current
+              currentBlock.before(newParagraph);
+              
+              // Current block keeps the split metadata and connection to "end"
+              if (currentBlock.innerHTML.trim() === '') {
+                currentBlock.innerHTML = '<br>';
+              }
+              
+              const newRange = document.createRange();
+              newRange.setStart(currentBlock, 0);
+              newRange.collapse(true);
+              selection.removeAllRanges();
+              selection.addRange(newRange);
+              
+            } else if (isAtVeryEnd) {
+              // SCENARIO 3: Enter at the very end of "start"
+              // Create new paragraph between "start" and "end", break the split
+              const newParagraph = document.createElement('p');
+              newParagraph.innerHTML = '<br>';
+              newParagraph.style.lineHeight = getLineHeightValue(currentLineSpacing);
+              newParagraph.dataset.lineSpacing = currentLineSpacing;
+              newParagraph.style.fontSize = currentSize;
+              newParagraph.style.marginBottom = '0px';
+              newParagraph.style.paddingBottom = '1.25rem';
+              
+              // Remove split metadata from current block (it's now complete)
+              currentBlock.removeAttribute('data-paragraph-id');
+              currentBlock.removeAttribute('data-split-point');
+              currentBlock.style.paddingBottom = '1.25rem';
+              
+              currentBlock.after(newParagraph);
+              
+              // Find and update the "end" piece to remove its connection
+              const endPiece = pageContainerRef.current?.querySelector(
+                `p[data-paragraph-id="${paragraphId}"][data-split-point="end"]`
+              ) as HTMLElement | null;
+              
+              if (endPiece) {
+                endPiece.removeAttribute('data-paragraph-id');
+                endPiece.removeAttribute('data-split-point');
+                endPiece.style.paddingBottom = '1.25rem';
+              }
+              
+              const newRange = document.createRange();
+              newRange.setStart(newParagraph, 0);
+              newRange.collapse(true);
+              selection.removeAllRanges();
+              selection.addRange(newRange);
             } else {
-              const preRange = document.createRange();
-              preRange.selectNodeContents(currentBlock);
-              preRange.setEnd(range.startContainer, range.startOffset);
-
-              if (preRange.toString().trim() === "") {
-                const newParagraph = document.createElement("p");
-                newParagraph.innerHTML = "<br>";
-                newParagraph.style.lineHeight =
-                  getLineHeightValue(currentLineSpacing);
-                newParagraph.dataset.lineSpacing = currentLineSpacing;
-                newParagraph.style.fontSize = currentSize;
-                newParagraph.style.marginBottom = "0px";
-                newParagraph.style.paddingBottom = "1.25rem";
-
-                currentBlock.before(newParagraph);
+              // isAtVeryStart - use default behavior (handled later)
+              if (event.shiftKey) {
+                document.execCommand("insertLineBreak");
               } else {
-                const newParagraph = document.createElement("p");
-                newParagraph.style.lineHeight =
-                  getLineHeightValue(currentLineSpacing);
-                newParagraph.dataset.lineSpacing = currentLineSpacing;
-                newParagraph.style.fontSize = currentSize;
-                newParagraph.style.marginBottom = "0px";
-                newParagraph.style.paddingBottom = "1.25rem";
+                const preRange = document.createRange();
+                preRange.selectNodeContents(currentBlock);
+                preRange.setEnd(range.startContainer, range.startOffset);
 
-                const rangeToEnd = document.createRange();
-                rangeToEnd.setStart(range.startContainer, range.startOffset);
-                rangeToEnd.setEndAfter(currentBlock.lastChild || currentBlock);
-
-                const contentFragment = rangeToEnd.extractContents();
-                newParagraph.appendChild(contentFragment);
-
-                if (newParagraph.innerHTML.trim() === "") {
+                if (preRange.toString().trim() === "") {
+                  const newParagraph = document.createElement("p");
                   newParagraph.innerHTML = "<br>";
-                }
-                if (currentBlock.innerHTML.trim() === "") {
-                  currentBlock.innerHTML = "<br>";
-                }
+                  newParagraph.style.lineHeight =
+                    getLineHeightValue(currentLineSpacing);
+                  newParagraph.dataset.lineSpacing = currentLineSpacing;
+                  newParagraph.style.fontSize = currentSize;
+                  newParagraph.style.marginBottom = "0px";
+                  newParagraph.style.paddingBottom = "1.25rem";
 
-                currentBlock.after(newParagraph);
+                  currentBlock.before(newParagraph);
+                } else {
+                  const newParagraph = document.createElement("p");
+                  newParagraph.style.lineHeight =
+                    getLineHeightValue(currentLineSpacing);
+                  newParagraph.dataset.lineSpacing = currentLineSpacing;
+                  newParagraph.style.fontSize = currentSize;
+                  newParagraph.style.marginBottom = "0px";
+                  newParagraph.style.paddingBottom = "1.25rem";
 
-                const newRange = document.createRange();
-                newRange.setStart(newParagraph, 0);
-                newRange.collapse(true);
-                selection.removeAllRanges();
-                selection.addRange(newRange);
+                  const rangeToEnd = document.createRange();
+                  rangeToEnd.setStart(range.startContainer, range.startOffset);
+                  rangeToEnd.setEndAfter(currentBlock.lastChild || currentBlock);
+
+                  const contentFragment = rangeToEnd.extractContents();
+                  newParagraph.appendChild(contentFragment);
+
+                  if (newParagraph.innerHTML.trim() === "") {
+                    newParagraph.innerHTML = "<br>";
+                  }
+                  if (currentBlock.innerHTML.trim() === "") {
+                    currentBlock.innerHTML = "<br>";
+                  }
+
+                  currentBlock.after(newParagraph);
+
+                  const newRange = document.createRange();
+                  newRange.setStart(newParagraph, 0);
+                  newRange.collapse(true);
+                  selection.removeAllRanges();
+                  selection.addRange(newRange);
+                }
               }
             }
+            
+          } else if (splitPoint === 'end') {
+            // We're in the "end" piece of a split paragraph
+            
+            if (isAtVeryStart) {
+              // SCENARIO 4: Enter at the very beginning of "end"
+              // Create new paragraph before "end", break split
+              const newParagraph = document.createElement('p');
+              newParagraph.innerHTML = '<br>';
+              newParagraph.style.lineHeight = getLineHeightValue(currentLineSpacing);
+              newParagraph.dataset.lineSpacing = currentLineSpacing;
+              newParagraph.style.fontSize = currentSize;
+              newParagraph.style.marginBottom = '0px';
+              newParagraph.style.paddingBottom = '1.25rem';
+              
+              currentBlock.before(newParagraph);
+              
+              // Break the split connection
+              const startPiece = pageContainerRef.current?.querySelector(
+                `p[data-paragraph-id="${paragraphId}"][data-split-point="start"]`
+              ) as HTMLElement | null;
+              
+              if (startPiece) {
+                startPiece.removeAttribute('data-paragraph-id');
+                startPiece.removeAttribute('data-split-point');
+                startPiece.style.paddingBottom = '1.25rem';
+              }
+              
+              currentBlock.removeAttribute('data-paragraph-id');
+              currentBlock.removeAttribute('data-split-point');
+              currentBlock.style.paddingBottom = '1.25rem';
+              
+              const newRange = document.createRange();
+              newRange.setStart(newParagraph, 0);
+              newRange.collapse(true);
+              selection.removeAllRanges();
+              selection.addRange(newRange);
+              
+            } else if (!isAtVeryEnd) {
+              // SCENARIO 5: Enter in the MIDDLE of "end"
+              // Content before cursor stays as "end", after becomes standalone
+              const newParagraph = document.createElement('p');
+              newParagraph.style.lineHeight = getLineHeightValue(currentLineSpacing);
+              newParagraph.dataset.lineSpacing = currentLineSpacing;
+              newParagraph.style.fontSize = currentSize;
+              newParagraph.style.marginBottom = '0px';
+              newParagraph.style.paddingBottom = '1.25rem'; // Standalone
+              
+              // Extract content after cursor
+              const rangeToEnd = document.createRange();
+              rangeToEnd.setStart(range.startContainer, range.startOffset);
+              rangeToEnd.setEndAfter(currentBlock.lastChild || currentBlock);
+              const contentFragment = rangeToEnd.extractContents();
+              newParagraph.appendChild(contentFragment);
+              
+              if (newParagraph.innerHTML.trim() === '') {
+                newParagraph.innerHTML = '<br>';
+              }
+              if (currentBlock.innerHTML.trim() === '') {
+                currentBlock.innerHTML = '<br>';
+              }
+              
+              // Insert standalone paragraph after current
+              currentBlock.after(newParagraph);
+              
+              // Current block keeps the "end" split connection
+              
+              const newRange = document.createRange();
+              newRange.setStart(newParagraph, 0);
+              newRange.collapse(true);
+              selection.removeAllRanges();
+              selection.addRange(newRange);
+            } else {
+              // isAtVeryEnd - use default behavior (handled later)
+              if (event.shiftKey) {
+                document.execCommand("insertLineBreak");
+              } else {
+                const preRange = document.createRange();
+                preRange.selectNodeContents(currentBlock);
+                preRange.setEnd(range.startContainer, range.startOffset);
 
-            saveToHistory(true);
+                if (preRange.toString().trim() === "") {
+                  const newParagraph = document.createElement("p");
+                  newParagraph.innerHTML = "<br>";
+                  newParagraph.style.lineHeight =
+                    getLineHeightValue(currentLineSpacing);
+                  newParagraph.dataset.lineSpacing = currentLineSpacing;
+                  newParagraph.style.fontSize = currentSize;
+                  newParagraph.style.marginBottom = "0px";
+                  newParagraph.style.paddingBottom = "1.25rem";
 
-            const pageContent = currentBlock.closest(
-              ".page-content"
-            ) as HTMLElement;
-            if (pageContent) {
-              setTimeout(() => checkAndReflowOnOverflow(pageContent), 0);
+                  currentBlock.before(newParagraph);
+                } else {
+                  const newParagraph = document.createElement("p");
+                  newParagraph.style.lineHeight =
+                    getLineHeightValue(currentLineSpacing);
+                  newParagraph.dataset.lineSpacing = currentLineSpacing;
+                  newParagraph.style.fontSize = currentSize;
+                  newParagraph.style.marginBottom = "0px";
+                  newParagraph.style.paddingBottom = "1.25rem";
+
+                  const rangeToEnd = document.createRange();
+                  rangeToEnd.setStart(range.startContainer, range.startOffset);
+                  rangeToEnd.setEndAfter(currentBlock.lastChild || currentBlock);
+
+                  const contentFragment = rangeToEnd.extractContents();
+                  newParagraph.appendChild(contentFragment);
+
+                  if (newParagraph.innerHTML.trim() === "") {
+                    newParagraph.innerHTML = "<br>";
+                  }
+                  if (currentBlock.innerHTML.trim() === "") {
+                    currentBlock.innerHTML = "<br>";
+                  }
+
+                  currentBlock.after(newParagraph);
+
+                  const newRange = document.createRange();
+                  newRange.setStart(newParagraph, 0);
+                  newRange.collapse(true);
+                  selection.removeAllRanges();
+                  selection.addRange(newRange);
+                }
+              }
             }
-            return;
+          }
+          
+        } else {
+          // Not a split paragraph - use existing logic
+          if (event.shiftKey) {
+            document.execCommand("insertLineBreak");
+          } else {
+            const preRange = document.createRange();
+            preRange.selectNodeContents(currentBlock);
+            preRange.setEnd(range.startContainer, range.startOffset);
+
+            if (preRange.toString().trim() === "") {
+              const newParagraph = document.createElement("p");
+              newParagraph.innerHTML = "<br>";
+              newParagraph.style.lineHeight =
+                getLineHeightValue(currentLineSpacing);
+              newParagraph.dataset.lineSpacing = currentLineSpacing;
+              newParagraph.style.fontSize = currentSize;
+              newParagraph.style.marginBottom = "0px";
+              newParagraph.style.paddingBottom = "1.25rem";
+
+              currentBlock.before(newParagraph);
+            } else {
+              const newParagraph = document.createElement("p");
+              newParagraph.style.lineHeight =
+                getLineHeightValue(currentLineSpacing);
+              newParagraph.dataset.lineSpacing = currentLineSpacing;
+              newParagraph.style.fontSize = currentSize;
+              newParagraph.style.marginBottom = "0px";
+              newParagraph.style.paddingBottom = "1.25rem";
+
+              const rangeToEnd = document.createRange();
+              rangeToEnd.setStart(range.startContainer, range.startOffset);
+              rangeToEnd.setEndAfter(currentBlock.lastChild || currentBlock);
+
+              const contentFragment = rangeToEnd.extractContents();
+              newParagraph.appendChild(contentFragment);
+
+              if (newParagraph.innerHTML.trim() === "") {
+                newParagraph.innerHTML = "<br>";
+              }
+              if (currentBlock.innerHTML.trim() === "") {
+                currentBlock.innerHTML = "<br>";
+              }
+
+              currentBlock.after(newParagraph);
+
+              const newRange = document.createRange();
+              newRange.setStart(newParagraph, 0);
+              newRange.collapse(true);
+              selection.removeAllRanges();
+              selection.addRange(newRange);
+            }
           }
         }
+
         saveToHistory(true);
+
+        const pageContent = currentBlock.closest(
+          ".page-content"
+        ) as HTMLElement;
+        if (pageContent) {
+          setTimeout(() => checkAndReflowOnOverflow(pageContent), 0);
+        }
         return;
       }
+    }
+    saveToHistory(true);
+    return;
+  }
 
       if (event.key === "Backspace") {
         const selection = window.getSelection();
@@ -2404,6 +2682,66 @@ export const DocumentEditor = forwardRef<
                   return; // Stop further processing
                 }
                 // --- NEW LOGIC ENDS HERE ---
+              }
+            }
+          }
+
+          const currentBlock = startElement.closest("p, h1, h2, h3, h4");
+          if (
+            currentBlock &&
+            !currentBlock.hasAttribute("data-split-point") &&
+            range.startOffset === 0
+          ) {
+            const preCaretRange = document.createRange();
+            preCaretRange.selectNodeContents(currentBlock);
+            preCaretRange.setEnd(range.startContainer, range.startOffset);
+
+            if (preCaretRange.toString().trim() === "") {
+              const previousBlock = currentBlock.previousElementSibling;
+              if (previousBlock && ["P", "H1", "H2", "H3", "H4"].includes(previousBlock.tagName)) {
+                event.preventDefault();
+                
+                const cursorPosition = previousBlock.textContent?.length || 0;
+
+                if (previousBlock.innerHTML.toLowerCase().trim() === "<br>") {
+                  previousBlock.innerHTML = "";
+                }
+
+                while (currentBlock.firstChild) {
+                  previousBlock.appendChild(currentBlock.firstChild);
+                }
+                currentBlock.remove();
+
+                const textWalker = document.createTreeWalker(previousBlock, NodeFilter.SHOW_TEXT);
+                let charCount = 0;
+                let targetNode: Node | null = null;
+                let targetOffset = 0;
+                let node: Node | null;
+
+                while ((node = textWalker.nextNode())) {
+                  const nodeLength = node.textContent?.length || 0;
+                  if (charCount + nodeLength >= cursorPosition) {
+                    targetNode = node;
+                    targetOffset = cursorPosition - charCount;
+                    break;
+                  }
+                  charCount += nodeLength;
+                }
+                
+                const newRange = document.createRange();
+                if (targetNode) {
+                  newRange.setStart(targetNode, targetOffset);
+                } else {
+                  newRange.selectNodeContents(previousBlock);
+                  newRange.collapse(false);
+                }
+                newRange.collapse(true);
+                selection.removeAllRanges();
+                selection.addRange(newRange);
+
+                saveToHistory(true);
+                scheduleReflow();
+                return;
               }
             }
           }
