@@ -786,7 +786,7 @@ export const DocumentEditor = forwardRef<
       ) as HTMLElement;
       if (!prevPageContent || !currentPageContent) return;
 
-      console.log('start')
+     
 
       reflowBackwardFromPage(previousPage);
 
@@ -812,13 +812,8 @@ export const DocumentEditor = forwardRef<
           "img, .image-wrapper, .graph-wrapper, .math-wrapper, .template-wrapper"
         );
 
-      if (hasContent) {
-        newRange.selectNodeContents(lastBlock);
-        newRange.collapse(false);
-      } else {
-        newRange.setStart(lastBlock, 0);
-        newRange.collapse(true);
-      }
+      newRange.setStart(lastBlock, 0);
+      newRange.collapse(true);
 
       newSel?.removeAllRanges();
       newSel?.addRange(newRange);
@@ -1401,121 +1396,117 @@ export const DocumentEditor = forwardRef<
     return false;
   }, [insertMath]);
 
+  // src/components/editor/DocumentEditor.tsx
+
+// ... (keep all other imports and code the same)
+
+// FIND THIS FUNCTION IN THE FILE AND REPLACE IT ENTIRELY
   const deleteSelectionManually = useCallback(
     (save: boolean = true) => {
       if (!customSelection || !pageContainerRef.current) return;
       const selection = window.getSelection();
       if (!selection) return;
 
-      const { start, end, startPage } = customSelection;
-      const allPages = Array.from(
-        pageContainerRef.current.querySelectorAll<HTMLElement>(".page")
-      );
+      // --- START OF MODIFIED BLOCK ---
 
-      const startElement = (
-        start.node.nodeType === Node.ELEMENT_NODE
-          ? start.node
-          : start.node.parentElement
-      ) as HTMLElement;
-      const startParagraph = startElement?.closest(
-        "p[data-paragraph-id]"
-      ) as HTMLElement | null;
-      const paragraphId = startParagraph?.dataset.paragraphId;
-      const isSplitParagraphDeletion = !!paragraphId;
+      const { start, end, startPage } = customSelection;
+      const startNode = start.node;
+      const startOffset = start.offset;
+      const startParent = startNode.parentElement;
+      
+      const startElement = (startNode.nodeType === Node.ELEMENT_NODE ? startNode : startNode.parentElement) as HTMLElement;
+      const endElement = (end.node.nodeType === Node.ELEMENT_NODE ? end.node : end.node.parentElement) as HTMLElement;
+
+      const safeBlockAnchor = startElement?.closest('p, h1, h2, h3, h4, li, blockquote, pre');
+      const ultimateAnchor = startElement?.closest('.page-content');
+
+      const allPages = Array.from(pageContainerRef.current.querySelectorAll<HTMLElement>(".page"));
+
+      let isBoundaryDeletion = false;
+      const startPiece = startElement?.closest('p[data-split-point="start"]');
+      const endPiece = endElement?.closest('p[data-split-point="end"]');
+
+      // --- FIX: Added type assertion for dataset access ---
+      if (startPiece && endPiece && (startPiece as HTMLElement).dataset.paragraphId === (endPiece as HTMLElement).dataset.paragraphId) {
+        const endOfStartRange = document.createRange();
+        endOfStartRange.selectNodeContents(startPiece);
+        endOfStartRange.setStart(start.node, start.offset);
+        
+        const startOfEndRange = document.createRange();
+        startOfEndRange.selectNodeContents(endPiece);
+        startOfEndRange.setEnd(end.node, end.offset);
+
+        if (endOfStartRange.toString().trim() === "" && startOfEndRange.toString().trim() === "") {
+          isBoundaryDeletion = true;
+        }
+      }
 
       const range = document.createRange();
       range.setStart(start.node, start.offset);
       range.setEnd(end.node, end.offset);
-
-      const wrapperSelector =
-        ".image-wrapper, .graph-wrapper, .math-wrapper, .template-wrapper";
-      const ancestor = range.commonAncestorContainer;
-      const parentEl = (
-        ancestor.nodeType === Node.ELEMENT_NODE
-          ? ancestor
-          : ancestor.parentElement
-      ) as HTMLElement;
-
-      if (parentEl) {
-        const wrappers =
-          pageContainerRef.current.querySelectorAll(wrapperSelector);
-        wrappers.forEach((wrapper) => {
-          if (range.intersectsNode(wrapper)) {
-            if (range.comparePoint(wrapper, 0) > 0) {
-              range.setStartBefore(wrapper);
-            }
-            if (range.comparePoint(wrapper, 1) < 0) {
-              range.setEndAfter(wrapper);
-            }
-          }
-        });
-      }
-
+      
       range.deleteContents();
 
-      if (isSplitParagraphDeletion && paragraphId) {
-        reflowSplitParagraph(paragraphId);
+      // --- FIX: Added type assertion for dataset access ---
+      if (isBoundaryDeletion && (startPiece as HTMLElement)?.dataset.paragraphId) {
+        console.log("Performing merge on boundary deletion.");
+        reflowSplitParagraph((startPiece as HTMLElement).dataset.paragraphId!);
       }
 
+      const wrapperSelector = ".image-wrapper, .graph-wrapper, .math-wrapper, .template-wrapper";
       if (pageContainerRef.current) {
-        pageContainerRef.current
-          .querySelectorAll(wrapperSelector)
-          .forEach((el) => {
-            if (
-              !el.querySelector(
-                "img, .template-block, .math-rendered, .math-editor, .graph-container"
-              )
-            ) {
+        pageContainerRef.current.querySelectorAll(wrapperSelector).forEach((el) => {
+            if (!el.querySelector("img, .template-block, .math-rendered, .math-editor, .graph-container")) {
               el.remove();
             }
-          });
+        });
       }
-
-      if (
-        selectedResizableElement &&
-        !document.body.contains(selectedResizableElement)
-      )
-        setSelectedResizableElement(null);
-      if (selectedGraphElement && !document.body.contains(selectedGraphElement))
-        setSelectedGraphElement(null);
-      if (selectedMathElement && !document.body.contains(selectedMathElement))
-        setSelectedMathElement(null);
+      if (selectedResizableElement && !document.body.contains(selectedResizableElement)) setSelectedResizableElement(null);
+      if (selectedGraphElement && !document.body.contains(selectedGraphElement)) setSelectedGraphElement(null);
+      if (selectedMathElement && !document.body.contains(selectedMathElement)) setSelectedMathElement(null);
 
       clearSelection();
 
-      if (document.body.contains(start.node)) {
-        try {
-          const newRange = document.createRange();
-          const newOffset = Math.min(
-            start.offset,
-            start.node.textContent?.length || 0
-          );
-          newRange.setStart(start.node, newOffset);
+      try {
+        const newRange = document.createRange();
+        if (document.body.contains(startNode)) {
+          const newOffset = Math.min(startOffset, startNode.textContent?.length || 0);
+          newRange.setStart(startNode, newOffset);
+        } else if (startParent && document.body.contains(startParent)) {
+          newRange.selectNodeContents(startParent);
           newRange.collapse(true);
-          selection.removeAllRanges();
-          selection.addRange(newRange);
-
-          const parentContentEditable = (
-            start.node.nodeType === Node.ELEMENT_NODE
-              ? (start.node as HTMLElement)
-              : start.node.parentElement
-          )?.closest<HTMLElement>('[contenteditable="true"]');
-          parentContentEditable?.focus();
-        } catch (e) {
-          console.error("Error restoring cursor after deletion.", e);
+        } else if (safeBlockAnchor && document.body.contains(safeBlockAnchor)) {
+          newRange.selectNodeContents(safeBlockAnchor);
+          newRange.collapse(true);
+        } else if (ultimateAnchor && document.body.contains(ultimateAnchor)) {
+          newRange.selectNodeContents(ultimateAnchor);
+          newRange.collapse(true);
+        } else {
+           throw new Error("Catastrophic failure: Could not find any valid anchor to restore cursor.");
         }
+        newRange.collapse(true);
+        selection.removeAllRanges();
+        selection.addRange(newRange);
+        const parentContentEditable = (ultimateAnchor || pageContainerRef.current)?.closest<HTMLElement>('[contenteditable="true"]');
+        parentContentEditable?.focus();
+      } catch (e) {
+        console.error("Error restoring cursor after deletion.", e);
+        pageContainerRef.current?.focus();
       }
 
       if (save) {
         saveToHistory(true);
       }
 
-      const startPageElement = allPages[startPage];
-      if (startPageElement) {
-        reflowPage(startPageElement);
-        reflowBackwardFromPage(startPageElement);
-        runParagraphAnalysis();
+      if (!isBoundaryDeletion) {
+        const startPageElement = allPages[startPage];
+        if (startPageElement) {
+          reflowPage(startPageElement);
+          reflowBackwardFromPage(startPageElement);
+          runParagraphAnalysis();
+        }
       }
+      // --- END OF MODIFIED BLOCK ---
     },
     [
       customSelection,
@@ -1938,6 +1929,44 @@ export const DocumentEditor = forwardRef<
           }
           return;
         }
+
+        const page = (event.target as HTMLElement).closest(".page") as HTMLElement;
+        if (page) {
+            setTimeout(() => {
+                reflowBackwardFromPage(page);
+
+                // Also run the consolidation logic, just like in handleInput
+                const content = page.querySelector(".page-content");
+                if (!content) return;
+
+                const children = Array.from(content.children);
+                for (let i = 0; i < children.length - 1; i++) {
+                    const currentEl = children[i] as HTMLElement;
+                    const nextEl = children[i + 1] as HTMLElement;
+                    
+                    if (
+                      currentEl.dataset.paragraphId &&
+                      currentEl.dataset.paragraphId === nextEl.dataset.paragraphId
+                    ) {
+                      reflowSplitParagraph(currentEl.dataset.paragraphId);
+                    }
+                    if (
+                      currentEl.dataset.tableId &&
+                      currentEl.dataset.tableId === nextEl.dataset.tableId
+                    ) {
+                      reflowSplitTable(currentEl.dataset.tableId);
+                    }
+                    if (
+                      currentEl.dataset.listId &&
+                      currentEl.dataset.listId === nextEl.dataset.listId
+                    ) {
+                      reflowSplitList(currentEl.dataset.listId);
+                    }
+                }
+            }, 50); // A small delay allows the browser to perform the deletion first
+        }
+
+
       }
 
       const isCtrlOrMeta = event.metaKey || event.ctrlKey;
@@ -2789,6 +2818,7 @@ export const DocumentEditor = forwardRef<
         }
 
         saveToHistory();
+        console.log('wordddddd')
         return;
       }
 
