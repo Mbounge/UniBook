@@ -1,3 +1,5 @@
+// src/components/editor/DocumentEditor.tsx
+
 "use client";
 
 import React, {
@@ -21,6 +23,8 @@ import { SelectionInfo } from "./SelectionInfo";
 import { SelectionDebug } from "./SelectionDebug";
 import { CustomSelection } from "./hooks/useMultiPageSelection";
 import { ReflowDebugger } from "./ReflowDebugger";
+import { LinkPopover } from "./LinkPopover";
+import { TableToolbar, TableAction } from "./TableToolbar"; // <-- Import TableToolbar
 
 interface DocumentEditorProps {
   pageContainerRef: React.RefObject<HTMLDivElement | null>;
@@ -142,6 +146,11 @@ export const DocumentEditor = forwardRef<
     useState<HTMLElement | null>(null);
   const [selectedMathElement, setSelectedMathElement] =
     useState<HTMLElement | null>(null);
+  
+  // --- NEW STATE FOR TABLE EDITING ---
+  const [selectedTableCell, setSelectedTableCell] = useState<HTMLElement | null>(null);
+  const [tableToolbarPosition, setTableToolbarPosition] = useState<{ top: number; left: number } | null>(null);
+  // --- END NEW STATE ---
 
   const {
     currentLineSpacing,
@@ -164,6 +173,7 @@ export const DocumentEditor = forwardRef<
   const [isItalic, setIsItalic] = useState(false);
   const [isUnderline, setIsUnderline] = useState(false);
   const [isHighlighted, setIsHighlighted] = useState(false);
+  const [isLink, setIsLink] = useState(false);
   const [textAlign, setTextAlign] = useState("left");
   const [currentBlockType, setCurrentBlockType] = useState("p");
   const [currentFont, setCurrentFont] = useState("Inter");
@@ -171,6 +181,12 @@ export const DocumentEditor = forwardRef<
   const [currentTextColor, setCurrentTextColor] = useState("#000000");
   const [overflowWarningPage, setOverflowWarningPage] =
     useState<HTMLElement | null>(null);
+
+  const [linkPopoverState, setLinkPopoverState] = useState<{
+    visible: boolean;
+    url: string;
+    rect: DOMRect | null;
+  }>({ visible: false, url: '', rect: null });
 
   const runParagraphAnalysis = useCallback(() => {
     setTimeout(() => {
@@ -202,6 +218,9 @@ export const DocumentEditor = forwardRef<
         ? (node as HTMLElement)
         : node?.parentElement;
     if (!element) return;
+
+    const linkElement = element.closest('a');
+    setIsLink(!!linkElement);
 
     let blockTypeFound = false,
       fontFound = false,
@@ -256,7 +275,8 @@ export const DocumentEditor = forwardRef<
               const b = parseInt(rgbMatch[3]);
               const hex = `#${r.toString(16).padStart(2, "0")}${g
                 .toString(16)
-                .padStart(2, "0")}${b.toString(16).padStart(2, "0")}`;
+                .padStart(2, "0")}${b.toString(16)
+                .padStart(2, "0")}`;
               setCurrentTextColor(hex);
             }
           } else {
@@ -281,6 +301,162 @@ export const DocumentEditor = forwardRef<
     else setTextAlign("left");
   }, [pageContainerRef, detectCurrentLineSpacing]);
 
+  const saveSelection = useCallback(() => {
+    const selection = window.getSelection();
+    if (selection && selection.rangeCount > 0) {
+      const range = selection.getRangeAt(0);
+      
+      const node = range.startContainer;
+      const startElement = node.nodeType === Node.ELEMENT_NODE ? (node as HTMLElement) : node.parentElement;
+
+      if (startElement?.closest('.link-popover-container')) {
+        return;
+      }
+
+      savedRangeRef.current = range.cloneRange();
+    }
+  }, []);
+
+  const restoreSelection = useCallback(() => {
+    if (savedRangeRef.current) {
+      const selection = window.getSelection();
+      selection?.removeAllRanges();
+      selection?.addRange(savedRangeRef.current);
+    }
+  }, []);
+
+  const handleLink = () => {
+    saveSelection();
+    
+    if (linkPopoverState.visible) {
+      setLinkPopoverState({ visible: false, url: '', rect: null });
+      return;
+    }
+    
+    const range = savedRangeRef.current;
+    if (!range) return;
+
+    const parentElement = range.startContainer.parentElement;
+    const linkElement = parentElement?.closest('a');
+
+    if (range.collapsed && !linkElement) {
+      return;
+    }
+
+    const rect = range.getBoundingClientRect();
+    setLinkPopoverState({
+      visible: true,
+      url: linkElement?.getAttribute('href') || '',
+      rect,
+    });
+  };
+
+  const applyLink = (url: string) => {
+    restoreSelection();
+    if (url) {
+      document.execCommand('createLink', false, url);
+    } else {
+      document.execCommand('unlink', false);
+    }
+    setLinkPopoverState({ visible: false, url: '', rect: null });
+    saveToHistory(true);
+    updateToolbarState();
+  };
+
+  const removeLink = () => {
+    restoreSelection();
+    document.execCommand('unlink', false);
+    setLinkPopoverState({ visible: false, url: '', rect: null });
+    saveToHistory(true);
+    updateToolbarState();
+  };
+
+  // --- NEW: TABLE ACTION HANDLER ---
+  const handleTableAction = useCallback((action: TableAction) => {
+    // --- FIX STARTS HERE ---
+    // Add a guard to ensure the cell is still part of the document
+    if (!selectedTableCell || !document.body.contains(selectedTableCell)) {
+      // If the cell is gone, clear the state and do nothing.
+      setSelectedTableCell(null);
+      return;
+    }
+    // --- FIX ENDS HERE ---
+
+    const cell = selectedTableCell;
+    const row = cell.parentElement as HTMLTableRowElement;
+    const table = row.closest('table');
+    const tbody = table?.querySelector('tbody');
+
+    if (!row || !table || !tbody) return;
+
+    const rowIndex = Array.from(tbody.children).indexOf(row);
+    const colIndex = Array.from(row.children).indexOf(cell);
+    const colCount = row.cells.length;
+
+    const createCell = () => {
+      const newCell = document.createElement('td');
+      newCell.appendChild(document.createElement('br'));
+      return newCell;
+    };
+
+    switch (action) {
+      case 'addRowAbove': {
+        const newRow = document.createElement('tr');
+        for (let i = 0; i < colCount; i++) newRow.appendChild(createCell());
+        row.insertAdjacentElement('beforebegin', newRow);
+        break;
+      }
+      case 'addRowBelow': {
+        const newRow = document.createElement('tr');
+        for (let i = 0; i < colCount; i++) newRow.appendChild(createCell());
+        row.insertAdjacentElement('afterend', newRow);
+        break;
+      }
+      case 'deleteRow': {
+        if (tbody.rows.length === 1) {
+          table.remove();
+          setSelectedTableCell(null);
+        } else {
+          row.remove();
+        }
+        break;
+      }
+      case 'addColLeft': {
+        Array.from(tbody.rows).forEach(r => {
+          const newCell = createCell();
+          r.insertBefore(newCell, r.cells[colIndex]);
+        });
+        break;
+      }
+      case 'addColRight': {
+        Array.from(tbody.rows).forEach(r => {
+          const newCell = createCell();
+          r.insertBefore(newCell, r.cells[colIndex + 1]);
+        });
+        break;
+      }
+      case 'deleteCol': {
+        if (colCount === 1) {
+          table.remove();
+          setSelectedTableCell(null);
+        } else {
+          Array.from(tbody.rows).forEach(r => {
+            if (r.cells[colIndex]) {
+              r.cells[colIndex].remove();
+            }
+          });
+        }
+        break;
+      }
+    }
+
+    saveToHistory(true);
+    scheduleReflow();
+  }, [selectedTableCell, saveToHistory, scheduleReflow]);
+  // --- END NEW ---
+
+  // ... (keep applyStyleAcrossPages, applyCommand, applyStyle, etc.)
+  
   const applyStyleAcrossPages = useCallback(
     (command: string, value?: string) => {
       if (
@@ -730,7 +906,6 @@ export const DocumentEditor = forwardRef<
             const currentEl = children[i] as HTMLElement;
             const nextEl = children[i + 1] as HTMLElement;
             
-            // Original paragraph check (with 'break;' removed for correctness)
             if (
               currentEl.dataset.paragraphId &&
               currentEl.dataset.paragraphId === nextEl.dataset.paragraphId
@@ -738,7 +913,6 @@ export const DocumentEditor = forwardRef<
               reflowSplitParagraph(currentEl.dataset.paragraphId);
             }
 
-            // NEW: Check for tables
             if (
               currentEl.dataset.tableId &&
               currentEl.dataset.tableId === nextEl.dataset.tableId
@@ -746,7 +920,6 @@ export const DocumentEditor = forwardRef<
               reflowSplitTable(currentEl.dataset.tableId);
             }
 
-            // NEW: Check for lists
             if (
               currentEl.dataset.listId &&
               currentEl.dataset.listId === nextEl.dataset.listId
@@ -785,8 +958,6 @@ export const DocumentEditor = forwardRef<
         ".page-content"
       ) as HTMLElement;
       if (!prevPageContent || !currentPageContent) return;
-
-     
 
       reflowBackwardFromPage(previousPage);
 
@@ -831,7 +1002,10 @@ export const DocumentEditor = forwardRef<
 
     const observer = new MutationObserver((mutations) => {
       const relevantMutations = mutations.filter((m) => {
-        if (m.type === "attributes") return false;
+        if (m.type === "attributes") {
+          if ((m.target as HTMLElement).closest('.link-popover-container')) return false;
+          return true;
+        }
         const target = m.target;
         if (target.nodeType === Node.ELEMENT_NODE)
           return (target as HTMLElement).closest(".page-content") !== null;
@@ -849,7 +1023,6 @@ export const DocumentEditor = forwardRef<
         pageContainerRef.current?.querySelectorAll(".page-content") || [];
 
       pages.forEach((pageContent) => {
-        // EXISTING CODE FOR DIV CLEANUP...
         pageContent.querySelectorAll("p > div").forEach((divInsideP) => {
           const p = divInsideP.parentElement;
           if (p) {
@@ -862,7 +1035,6 @@ export const DocumentEditor = forwardRef<
           }
         });
 
-        // EXISTING CODE FOR WRAPPING DIVS...
         pageContent
           .querySelectorAll(
             ":scope > div:not(.image-wrapper):not(.graph-wrapper):not(.template-wrapper):not(.math-wrapper)"
@@ -886,7 +1058,6 @@ export const DocumentEditor = forwardRef<
             hasStructuralChanges = true;
           });
 
-        // EXISTING CODE FOR PARAGRAPH STYLING...
         pageContent.querySelectorAll(":scope > p").forEach((p) => {
           if (p instanceof HTMLElement) {
             let needsUpdate = false;
@@ -929,8 +1100,6 @@ export const DocumentEditor = forwardRef<
           }
         });
 
-        // === ADD THIS NEW SPAN CLEANUP CODE HERE ===
-        // Clean up meaningless spans
         pageContent
           .querySelectorAll(
             "p span, h1 span, h2 span, h3 span, h4 span, blockquote span"
@@ -940,7 +1109,6 @@ export const DocumentEditor = forwardRef<
 
             const style = span.style;
 
-            // Check for actual formatting
             const hasBold =
               style.fontWeight &&
               !["normal", "400", "500", ""].includes(style.fontWeight);
@@ -953,7 +1121,6 @@ export const DocumentEditor = forwardRef<
               style.textDecoration?.includes("line-through") ||
               style.textDecorationLine?.includes("line-through");
 
-            // Very strict background color check
             const bgColor = style.backgroundColor?.toLowerCase() || "";
             const hasHighlight =
               bgColor &&
@@ -972,7 +1139,6 @@ export const DocumentEditor = forwardRef<
               hasHighlight;
             const hasClasses = span.className && span.className.trim() !== "";
 
-            // Remove if no meaningful formatting
             if (!hasMeaningfulFormatting && !hasClasses) {
               const parent = span.parentNode;
               if (parent) {
@@ -984,9 +1150,7 @@ export const DocumentEditor = forwardRef<
               }
             }
           });
-        // === END OF NEW SPAN CLEANUP CODE ===
 
-        // EXISTING CODE FOR STRAY NODES...
         const children = Array.from(pageContent.childNodes);
         for (let i = 0; i < children.length; i++) {
           const node = children[i] as Node;
@@ -1034,7 +1198,6 @@ export const DocumentEditor = forwardRef<
           }
         }
 
-        // EXISTING CODE FOR EMPTY LIST ITEMS...
         pageContent.querySelectorAll("li").forEach((li) => {
           const isEffectivelyEmpty =
             li.textContent?.trim() === "" &&
@@ -1049,7 +1212,6 @@ export const DocumentEditor = forwardRef<
           }
         });
 
-        // EXISTING CODE FOR EMPTY BLOCKS...
         pageContent.querySelectorAll("p, h1, h2, h3, h4").forEach((block) => {
           const isVisuallyEmpty =
             block.textContent?.trim() === "" &&
@@ -1067,7 +1229,6 @@ export const DocumentEditor = forwardRef<
           }
         });
 
-        // EXISTING CODE FOR BR CLEANUP...
         Array.from(pageContent.childNodes).forEach((node) => {
           if (node.nodeName === "BR") {
             node.remove();
@@ -1085,6 +1246,8 @@ export const DocumentEditor = forwardRef<
           childList: true,
           subtree: true,
           characterData: true,
+          attributes: true, 
+          attributeOldValue: true,
         });
       }
     });
@@ -1093,6 +1256,8 @@ export const DocumentEditor = forwardRef<
       childList: true,
       subtree: true,
       characterData: true,
+      attributes: true,
+      attributeOldValue: true,
     });
 
     return () => observer.disconnect();
@@ -1307,21 +1472,6 @@ export const DocumentEditor = forwardRef<
     return () => clearTimeout(timeoutId);
   }, [pageContainerRef, reflowPage]);
 
-  const saveSelection = useCallback(() => {
-    const selection = window.getSelection();
-    if (selection && selection.rangeCount > 0) {
-      savedRangeRef.current = selection.getRangeAt(0).cloneRange();
-    }
-  }, []);
-
-  const restoreSelection = useCallback(() => {
-    if (savedRangeRef.current) {
-      const selection = window.getSelection();
-      selection?.removeAllRanges();
-      selection?.addRange(savedRangeRef.current);
-    }
-  }, []);
-
   const checkForAutoList = useCallback(() => {
     const selection = window.getSelection();
     if (!selection || selection.rangeCount === 0) return false;
@@ -1396,18 +1546,11 @@ export const DocumentEditor = forwardRef<
     return false;
   }, [insertMath]);
 
-  // src/components/editor/DocumentEditor.tsx
-
-// ... (keep all other imports and code the same)
-
-// FIND THIS FUNCTION IN THE FILE AND REPLACE IT ENTIRELY
   const deleteSelectionManually = useCallback(
     (save: boolean = true) => {
       if (!customSelection || !pageContainerRef.current) return;
       const selection = window.getSelection();
       if (!selection) return;
-
-      // --- START OF MODIFIED BLOCK ---
 
       const { start, end, startPage } = customSelection;
       const startNode = start.node;
@@ -1426,7 +1569,6 @@ export const DocumentEditor = forwardRef<
       const startPiece = startElement?.closest('p[data-split-point="start"]');
       const endPiece = endElement?.closest('p[data-split-point="end"]');
 
-      // --- FIX: Added type assertion for dataset access ---
       if (startPiece && endPiece && (startPiece as HTMLElement).dataset.paragraphId === (endPiece as HTMLElement).dataset.paragraphId) {
         const endOfStartRange = document.createRange();
         endOfStartRange.selectNodeContents(startPiece);
@@ -1447,7 +1589,6 @@ export const DocumentEditor = forwardRef<
       
       range.deleteContents();
 
-      // --- FIX: Added type assertion for dataset access ---
       if (isBoundaryDeletion && (startPiece as HTMLElement)?.dataset.paragraphId) {
         console.log("Performing merge on boundary deletion.");
         reflowSplitParagraph((startPiece as HTMLElement).dataset.paragraphId!);
@@ -1506,7 +1647,6 @@ export const DocumentEditor = forwardRef<
           runParagraphAnalysis();
         }
       }
-      // --- END OF MODIFIED BLOCK ---
     },
     [
       customSelection,
@@ -1536,7 +1676,7 @@ export const DocumentEditor = forwardRef<
 
       if (
         target.closest(
-          ".image-toolbar, .template-toolbar, .graph-toolbar, .math-toolbar, [data-resize-handle]"
+          ".image-toolbar, .template-toolbar, .graph-toolbar, .math-toolbar, [data-resize-handle], .link-popover-container, .table-toolbar-container" // <-- Add table toolbar
         )
       ) {
         return;
@@ -1935,7 +2075,6 @@ export const DocumentEditor = forwardRef<
             setTimeout(() => {
                 reflowBackwardFromPage(page);
 
-                // Also run the consolidation logic, just like in handleInput
                 const content = page.querySelector(".page-content");
                 if (!content) return;
 
@@ -1963,7 +2102,7 @@ export const DocumentEditor = forwardRef<
                       reflowSplitList(currentEl.dataset.listId);
                     }
                 }
-            }, 50); // A small delay allows the browser to perform the deletion first
+            }, 50);
         }
 
 
@@ -2081,15 +2220,12 @@ export const DocumentEditor = forwardRef<
          if (currentBlock && currentBlock.tagName === "P") {
         event.preventDefault();
 
-        // Check if this is part of a split paragraph
         const isSplitParagraph = currentBlock.dataset.paragraphId;
-        const splitPoint = currentBlock.dataset.splitPoint; // 'start' or 'end'
+        const splitPoint = currentBlock.dataset.splitPoint;
 
         if (isSplitParagraph && splitPoint) {
-          // We're in a split paragraph piece
           const paragraphId = currentBlock.dataset.paragraphId;
           
-          // Calculate cursor position relative to the paragraph
           const preRange = document.createRange();
           preRange.selectNodeContents(currentBlock);
           preRange.setEnd(range.startContainer, range.startOffset);
@@ -2104,19 +2240,14 @@ export const DocumentEditor = forwardRef<
           const isAtVeryEnd = textAfterCursor.trim() === '';
 
           if (splitPoint === 'start') {
-            // We're in the "start" piece of a split paragraph
-            
             if (!isAtVeryStart && !isAtVeryEnd) {
-              // SCENARIO 2: Enter in the MIDDLE of "start"
-              // Split the content: before = standalone, after = keeps "start" split
               const newParagraph = document.createElement('p');
               newParagraph.style.lineHeight = getLineHeightValue(currentLineSpacing);
               newParagraph.dataset.lineSpacing = currentLineSpacing;
               newParagraph.style.fontSize = currentSize;
               newParagraph.style.marginBottom = '0px';
-              newParagraph.style.paddingBottom = '1.25rem'; // Standalone paragraph
+              newParagraph.style.paddingBottom = '1.25rem';
               
-              // Extract content before cursor
               const rangeToExtract = document.createRange();
               rangeToExtract.setStartBefore(currentBlock.firstChild || currentBlock);
               rangeToExtract.setEnd(range.startContainer, range.startOffset);
@@ -2127,10 +2258,8 @@ export const DocumentEditor = forwardRef<
                 newParagraph.innerHTML = '<br>';
               }
               
-              // Insert the new standalone paragraph before current
               currentBlock.before(newParagraph);
               
-              // Current block keeps the split metadata and connection to "end"
               if (currentBlock.innerHTML.trim() === '') {
                 currentBlock.innerHTML = '<br>';
               }
@@ -2142,8 +2271,6 @@ export const DocumentEditor = forwardRef<
               selection.addRange(newRange);
               
             } else if (isAtVeryEnd) {
-              // SCENARIO 3: Enter at the very end of "start"
-              // Create new paragraph between "start" and "end", break the split
               const newParagraph = document.createElement('p');
               newParagraph.innerHTML = '<br>';
               newParagraph.style.lineHeight = getLineHeightValue(currentLineSpacing);
@@ -2152,14 +2279,12 @@ export const DocumentEditor = forwardRef<
               newParagraph.style.marginBottom = '0px';
               newParagraph.style.paddingBottom = '1.25rem';
               
-              // Remove split metadata from current block (it's now complete)
               currentBlock.removeAttribute('data-paragraph-id');
               currentBlock.removeAttribute('data-split-point');
               currentBlock.style.paddingBottom = '1.25rem';
               
               currentBlock.after(newParagraph);
               
-              // Find and update the "end" piece to remove its connection
               const endPiece = pageContainerRef.current?.querySelector(
                 `p[data-paragraph-id="${paragraphId}"][data-split-point="end"]`
               ) as HTMLElement | null;
@@ -2176,7 +2301,6 @@ export const DocumentEditor = forwardRef<
               selection.removeAllRanges();
               selection.addRange(newRange);
             } else {
-              // isAtVeryStart - use default behavior (handled later)
               if (event.shiftKey) {
                 document.execCommand("insertLineBreak");
               } else {
@@ -2230,11 +2354,7 @@ export const DocumentEditor = forwardRef<
             }
             
           } else if (splitPoint === 'end') {
-            // We're in the "end" piece of a split paragraph
-            
             if (isAtVeryStart) {
-              // SCENARIO 4: Enter at the very beginning of "end"
-              // Create new paragraph before "end", break split
               const newParagraph = document.createElement('p');
               newParagraph.innerHTML = '<br>';
               newParagraph.style.lineHeight = getLineHeightValue(currentLineSpacing);
@@ -2245,7 +2365,6 @@ export const DocumentEditor = forwardRef<
               
               currentBlock.before(newParagraph);
               
-              // Break the split connection
               const startPiece = pageContainerRef.current?.querySelector(
                 `p[data-paragraph-id="${paragraphId}"][data-split-point="start"]`
               ) as HTMLElement | null;
@@ -2267,16 +2386,13 @@ export const DocumentEditor = forwardRef<
               selection.addRange(newRange);
               
             } else if (!isAtVeryEnd) {
-              // SCENARIO 5: Enter in the MIDDLE of "end"
-              // Content before cursor stays as "end", after becomes standalone
               const newParagraph = document.createElement('p');
               newParagraph.style.lineHeight = getLineHeightValue(currentLineSpacing);
               newParagraph.dataset.lineSpacing = currentLineSpacing;
               newParagraph.style.fontSize = currentSize;
               newParagraph.style.marginBottom = '0px';
-              newParagraph.style.paddingBottom = '1.25rem'; // Standalone
+              newParagraph.style.paddingBottom = '1.25rem';
               
-              // Extract content after cursor
               const rangeToEnd = document.createRange();
               rangeToEnd.setStart(range.startContainer, range.startOffset);
               rangeToEnd.setEndAfter(currentBlock.lastChild || currentBlock);
@@ -2290,10 +2406,7 @@ export const DocumentEditor = forwardRef<
                 currentBlock.innerHTML = '<br>';
               }
               
-              // Insert standalone paragraph after current
               currentBlock.after(newParagraph);
-              
-              // Current block keeps the "end" split connection
               
               const newRange = document.createRange();
               newRange.setStart(newParagraph, 0);
@@ -2301,7 +2414,6 @@ export const DocumentEditor = forwardRef<
               selection.removeAllRanges();
               selection.addRange(newRange);
             } else {
-              // isAtVeryEnd - use default behavior (handled later)
               if (event.shiftKey) {
                 document.execCommand("insertLineBreak");
               } else {
@@ -2356,7 +2468,6 @@ export const DocumentEditor = forwardRef<
           }
           
         } else {
-          // Not a split paragraph - use existing logic
           if (event.shiftKey) {
             document.execCommand("insertLineBreak");
           } else {
@@ -2677,10 +2788,6 @@ export const DocumentEditor = forwardRef<
               preCaretRange.setEnd(range.startContainer, range.startOffset);
 
               if (preCaretRange.toString().trim() === "") {
-                // --- NEW LOGIC STARTS HERE ---
-                // This block now only moves the cursor to the end of the previous
-                // part of the split paragraph, without deleting or merging anything.
-                
                 event.preventDefault();
 
                 const paragraphId = endParagraph.dataset.paragraphId;
@@ -2695,22 +2802,17 @@ export const DocumentEditor = forwardRef<
                   if (selection) {
                     const newRange = document.createRange();
 
-                    // Select the entire content of the "start" piece
                     newRange.selectNodeContents(startPiece);
                     
-                    // Collapse the range to its end point
                     newRange.collapse(false);
 
-                    // Apply this new, collapsed range as the current selection
                     selection.removeAllRanges();
                     selection.addRange(newRange);
             
-                    // Optional: scroll the previous part into view if it's far away
                     startPiece.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
                   }
-                  return; // Stop further processing
+                  return;
                 }
-                // --- NEW LOGIC ENDS HERE ---
               }
             }
           }
@@ -2852,6 +2954,17 @@ export const DocumentEditor = forwardRef<
     const handleSelectionChange = () => {
       updateToolbarState();
       updateOverflowWarning();
+      
+      // --- NEW: Table cell selection logic ---
+      const selection = window.getSelection();
+      if (selection && selection.rangeCount > 0) {
+        const node = selection.anchorNode;
+        const parent = node?.nodeType === Node.ELEMENT_NODE ? (node as HTMLElement) : node?.parentElement;
+        const cell = parent?.closest('td, th') as HTMLElement | null;
+        setSelectedTableCell(cell || null);
+      } else {
+        setSelectedTableCell(null);
+      }
     };
 
     const handleMouseUp = () => {
@@ -2900,6 +3013,39 @@ export const DocumentEditor = forwardRef<
     insertImage,
     insertContent,
   ]);
+  
+  // --- NEW: useEffect for positioning table toolbar ---
+  useEffect(() => {
+    if (selectedTableCell && scrollContainerRef.current) {
+      const table = selectedTableCell.closest('table');
+      if (table) {
+        const tableRect = table.getBoundingClientRect();
+        const containerRect = scrollContainerRef.current.getBoundingClientRect();
+        const scrollTop = scrollContainerRef.current.scrollTop;
+
+        // Position the toolbar to the outmost right of the entire table
+        setTableToolbarPosition({
+          top: tableRect.top - containerRect.top + scrollTop, // Align with the top of the table
+          left: tableRect.right - containerRect.left + 10, // 10px offset from the right edge of the table
+        });
+      }
+    } else {
+      setTableToolbarPosition(null);
+    }
+  }, [selectedTableCell]);
+
+  // --- NEW: useEffect for highlighting selected table cell ---
+  useEffect(() => {
+    // Clear previous selection
+    pageContainerRef.current?.querySelectorAll('.selectedCell').forEach(cell => {
+      cell.classList.remove('selectedCell');
+    });
+    // Add to current selection
+    if (selectedTableCell) {
+      selectedTableCell.classList.add('selectedCell');
+    }
+  }, [selectedTableCell]);
+
 
   const handleTextColorChange = (color: string) => {
     applyStyle("color", color);
@@ -2971,6 +3117,23 @@ export const DocumentEditor = forwardRef<
 
   return (
     <div className="flex-1 flex flex-col overflow-hidden min-h-0 relative">
+      {linkPopoverState.visible && linkPopoverState.rect && (
+        <div
+          className="link-popover-container absolute z-30"
+          style={{
+            top: `${linkPopoverState.rect.bottom + 8 + (scrollContainerRef.current?.scrollTop || 0)}px`,
+            left: `${linkPopoverState.rect.left}px`,
+          }}
+        >
+          <LinkPopover
+            initialUrl={linkPopoverState.url}
+            onApply={applyLink}
+            onRemove={removeLink}
+            onClose={() => setLinkPopoverState({ visible: false, url: '', rect: null })}
+          />
+        </div>
+      )}
+
       {dropIndicatorPosition && (
         <div
           className="absolute h-1 bg-purple-500 rounded-full z-50 pointer-events-none transition-all duration-75"
@@ -3014,12 +3177,14 @@ export const DocumentEditor = forwardRef<
             onLineSpacingChange={handleLineSpacingChange}
             onLineSpacingMenuOpen={saveSelection}
             onInsertMath={() => insertMath()}
+            onLink={handleLink}
             canUndo={canUndo}
             canRedo={canRedo}
             isBold={isBold}
             isItalic={isItalic}
             isUnderline={isUnderline}
             isHighlighted={isHighlighted}
+            isLink={isLink}
             textAlign={textAlign}
             currentBlockType={currentBlockType}
             currentFont={currentFont}
@@ -3040,6 +3205,20 @@ export const DocumentEditor = forwardRef<
         ref={scrollContainerRef}
         className="flex-1 overflow-y-auto pt-6 bg-gray-100 flex flex-col items-center relative"
       >
+        {/* --- NEW: RENDER TABLE TOOLBAR --- */}
+        {tableToolbarPosition && (
+          <div
+            className="table-toolbar-container absolute z-30"
+            style={{
+              top: `${tableToolbarPosition.top}px`,
+              left: `${tableToolbarPosition.left}px`,
+            }}
+          >
+            <TableToolbar onAction={handleTableAction} />
+          </div>
+        )}
+        {/* --- END NEW --- */}
+
         <div className="selection-overlay">
           {highlightRects.map((rect, index) => {
             const containerRect =

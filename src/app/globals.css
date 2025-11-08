@@ -71,6 +71,17 @@ body {
   position: relative;
 }
 
+.page-content a {
+  color: #2563eb;
+  text-decoration: underline;
+  text-decoration-color: rgba(37, 99, 235, 0.4);
+  cursor: pointer;
+}
+
+.page-content a:hover {
+  text-decoration-color: rgba(37, 99, 235, 1);
+}
+
 .page-content > *:last-child {
   margin-bottom: 0 !important;
 }

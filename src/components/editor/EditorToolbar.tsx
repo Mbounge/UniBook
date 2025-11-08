@@ -1,4 +1,4 @@
-//src/components/editor/EditorToolbar.tsx
+// src/components/editor/EditorToolbar.tsx
 
 'use client';
 
@@ -6,7 +6,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { 
   Bold, Italic, Underline, AlignLeft, AlignCenter, AlignRight, AlignJustify,
   Image, Undo, Redo, Highlighter, List, ListOrdered,
-  MessageSquareQuote, Code, ChevronDown, ListTree, Table, Sigma
+  MessageSquareQuote, Code, ChevronDown, ListTree, Table, Sigma, Link // <-- Import Link icon
 } from 'lucide-react';
 import { TableCreationGrid } from './TableCreationGrid';
 import { ColorPicker } from './ColorPicker';
@@ -76,6 +76,7 @@ interface EditorToolbarProps {
   onLineSpacingChange: (spacing: LineSpacing) => void;
   onLineSpacingMenuOpen: () => void;
   onInsertMath: () => void;
+  onLink: () => void; // <-- Add onLink prop
   isTocOpen: boolean;
   isStyleStudioOpen: boolean;
   isAiPanelOpen: boolean;
@@ -85,6 +86,7 @@ interface EditorToolbarProps {
   isItalic: boolean;
   isUnderline: boolean;
   isHighlighted: boolean;
+  isLink: boolean; // <-- Add isLink prop
   textAlign: string;
   currentBlockType: string;
   currentFont: string;
@@ -95,13 +97,13 @@ interface EditorToolbarProps {
 
 export const EditorToolbar: React.FC<EditorToolbarProps> = (props) => {
   const {
-    canUndo, canRedo, isBold, isItalic, isUnderline, isHighlighted, textAlign,
+    canUndo, canRedo, isBold, isItalic, isUnderline, isHighlighted, isLink, textAlign, // <-- Destructure isLink
     currentBlockType, currentFont, currentSize, currentTextColor, currentLineSpacing,
     onUndo, onRedo, onBlockTypeChange, onFontChange, onSizeChange, onBold, onItalic,
     onUnderline, onHighlight, onAlign, onBulletedList, onNumberedList, onInsertImage,
     onBlockquote, onCodeBlock, onToggleOutline, onInsertTable, onTableMenuOpen, 
     onTextColorChange, onColorMenuOpen, onLineSpacingChange, onLineSpacingMenuOpen, 
-    onInsertMath,
+    onInsertMath, onLink, // <-- Destructure onLink
     isTocOpen
   } = props;
 
@@ -160,6 +162,8 @@ export const EditorToolbar: React.FC<EditorToolbarProps> = (props) => {
       <ToolbarButton onClick={onBold} title="Bold" isActive={isBold}><Bold className="w-4 h-4" /></ToolbarButton>
       <ToolbarButton onClick={onItalic} title="Italic" isActive={isItalic}><Italic className="w-4 h-4" /></ToolbarButton>
       <ToolbarButton onClick={onUnderline} title="Underline" isActive={isUnderline}><Underline className="w-4 h-4" /></ToolbarButton>
+      {/* Add Link Button Here */}
+      <ToolbarButton onClick={onLink} title="Link" isActive={isLink}><Link className="w-4 h-4" /></ToolbarButton>
       <ToolbarButton onClick={onHighlight} title="Highlight" isActive={isHighlighted}><Highlighter className="w-4 h-4" /></ToolbarButton>
       <ColorPicker 
         currentColor={currentTextColor} 
