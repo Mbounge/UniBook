@@ -4,15 +4,17 @@
 
 import React, { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { BookOpen, Edit, Eye, Plus, X, Loader2 } from "lucide-react";
+import { BookOpen, Edit, Eye, Plus, X, Loader2, Image as ImageIcon } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { useRouter } from "next/navigation";
-// --- MODIFIED: Import the Book type definition ---
-import { fetchBooks, createBook, Book } from "@/lib/mock-data";
+import { fetchBooks, createBook, Book, updateBookCover } from "@/lib/mock-data";
+import { CoverSelectionModal } from "./CoverSelectionModal";
 
 export default function DashboardPage() {
   const [showCreateDialog, setShowCreateDialog] = useState(false);
   const [newBook, setNewBook] = useState({ title: "", description: "" });
+  const [coverModalBook, setCoverModalBook] = useState<Book | null>(null);
+  
   const { toast } = useToast();
   const router = useRouter();
   const queryClient = useQueryClient();
@@ -35,6 +37,18 @@ export default function DashboardPage() {
     }
   });
 
+  const updateCoverMutation = useMutation({
+    mutationFn: ({ id, coverImage }: { id: string; coverImage: string }) => updateBookCover(id, coverImage),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["books"] });
+      setCoverModalBook(null);
+      toast({ title: "Cover Updated", description: "Your new book cover has been saved." });
+    },
+    onError: () => {
+      toast({ title: "Update Failed", description: "Could not save the new cover.", variant: "destructive" });
+    }
+  });
+
   const handleCreateBook = () => {
     if (!newBook.title.trim()) {
       toast({ title: "Title Required", variant: "destructive" });
@@ -43,8 +57,6 @@ export default function DashboardPage() {
     createBookMutation.mutate(newBook);
   };
 
-  // --- MODIFIED: Simplified the navigation function ---
-  // The editor now fetches its own data, so we only need to pass the book's ID.
   const openEditor = (book: Book) => {
     router.push(`/editor/${book.id}`);
   };
@@ -66,20 +78,47 @@ export default function DashboardPage() {
       </div>
 
       {/* Books Grid */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-8">
         {isLoading ? (
-          [...Array(3)].map((_, i) => (
-            <div key={i} className="bg-white border border-gray-200 rounded-lg p-6 animate-pulse"><div className="h-6 bg-gray-200 rounded w-3/4 mb-2"></div><div className="h-4 bg-gray-200 rounded w-1/2 mb-4"></div><div className="h-10 bg-gray-200 rounded w-full"></div></div>
+          [...Array(4)].map((_, i) => (
+            <div key={i} className="bg-white rounded-lg animate-pulse">
+              <div className="aspect-[4/5] bg-gray-200 rounded-t-lg"></div>
+              <div className="p-4">
+                <div className="h-5 bg-gray-200 rounded w-3/4 mb-2"></div>
+                <div className="h-4 bg-gray-200 rounded w-1/2"></div>
+              </div>
+            </div>
           ))
         ) : (
           books.map((book) => (
-            <div key={book.id} className="bg-white border border-gray-200 rounded-lg flex flex-col hover:shadow-md transition-shadow">
-              <div className="p-6 flex-grow">
-                <div className="flex justify-between items-start mb-2"><h2 className="text-lg font-bold text-gray-900">{book.title}</h2><span className={`px-2 py-0.5 text-xs font-medium rounded-full ${book.isPublished ? 'bg-blue-100 text-blue-800' : 'bg-gray-100 text-gray-800'}`}>{book.isPublished ? "Published" : "Draft"}</span></div>
-                <p className="text-sm text-gray-600">{book.description}</p>
+            <div key={book.id} className="group bg-white border border-gray-200 rounded-lg flex flex-col hover:shadow-xl hover:-translate-y-1 transition-all duration-300">
+              <div className="relative aspect-[4/5] w-full">
+                {book.coverImage ? (
+                  <img src={book.coverImage} alt={book.title} className="w-full h-full object-cover rounded-t-lg" />
+                ) : (
+                  <div className="w-full h-full bg-gray-100 rounded-t-lg flex flex-col items-center justify-center text-gray-400">
+                    <BookOpen className="w-12 h-12" />
+                    <p className="mt-2 text-sm font-medium">No Cover</p>
+                  </div>
+                )}
+                <div className="absolute top-3 right-3">
+                  <span className={`px-2.5 py-1 text-xs font-semibold rounded-full shadow-md ${book.isPublished ? 'bg-blue-500 text-white' : 'bg-white text-gray-800'}`}>
+                    {book.isPublished ? "Published" : "Draft"}
+                  </span>
+                </div>
               </div>
-              <div className="p-6 bg-gray-50/50 border-t border-gray-200">
-                <button onClick={() => openEditor(book)} className="w-full px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors flex items-center justify-center"><Edit className="mr-2 h-4 w-4" />Open Editor</button>
+              <div className="p-4 flex-grow flex flex-col">
+                <h2 className="text-base font-bold text-gray-900 truncate">{book.title}</h2>
+                <p className="text-sm text-gray-600 flex-grow mb-4">{book.description}</p>
+                <div className="flex items-center gap-2">
+                  <button onClick={() => openEditor(book)} className="flex-1 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors flex items-center justify-center text-sm font-medium">
+                    <Edit className="mr-2 h-4 w-4" />
+                    Open Editor
+                  </button>
+                  <button onClick={() => setCoverModalBook(book)} className="p-2 bg-gray-100 text-gray-600 rounded-lg hover:bg-gray-200 transition-colors" title="Change Cover">
+                    <ImageIcon className="h-4 w-4" />
+                  </button>
+                </div>
               </div>
             </div>
           ))
@@ -89,6 +128,16 @@ export default function DashboardPage() {
       {/* Create Book Dialog */}
       {showCreateDialog && (
         <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50"><div className="bg-white rounded-lg shadow-xl w-full max-w-md m-4"><div className="p-6 border-b border-gray-200 flex justify-between items-center"><h2 className="text-lg font-bold text-gray-900">Create New Textbook</h2><button onClick={() => setShowCreateDialog(false)} className="p-1 hover:bg-gray-100 rounded-full"><X className="w-5 h-5 text-gray-600" /></button></div><div className="p-6 space-y-4"><div><label htmlFor="title" className="block text-sm font-medium text-gray-700 mb-1">Title</label><input type="text" id="title" value={newBook.title} onChange={(e) => setNewBook(p => ({ ...p, title: e.target.value }))} className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-black" /></div><div><label htmlFor="description" className="block text-sm font-medium text-gray-700 mb-1">Description</label><textarea id="description" value={newBook.description} onChange={(e) => setNewBook(p => ({ ...p, description: e.target.value }))} rows={3} className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-black" /></div></div><div className="p-6 bg-gray-50 border-t border-gray-200 flex justify-end"><button onClick={handleCreateBook} disabled={createBookMutation.isPending} className="px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors flex items-center">{createBookMutation.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}Create Textbook</button></div></div></div>
+      )}
+
+      {/* Render the Cover Selection Modal */}
+      {coverModalBook && (
+        <CoverSelectionModal
+          book={coverModalBook}
+          onClose={() => setCoverModalBook(null)}
+          onSave={(coverImage) => updateCoverMutation.mutate({ id: coverModalBook.id, coverImage })}
+          isSaving={updateCoverMutation.isPending}
+        />
       )}
     </div>
   );
