@@ -24,7 +24,8 @@ import { SelectionDebug } from "./SelectionDebug";
 import { CustomSelection } from "./hooks/useMultiPageSelection";
 import { ReflowDebugger } from "./ReflowDebugger";
 import { LinkPopover } from "./LinkPopover";
-import { TableToolbar, TableAction } from "./TableToolbar"; // <-- Import TableToolbar
+import { TableToolbar, TableAction } from "./TableToolbar";
+import { HeaderFooterEditor } from "./HeaderFooterEditor";
 
 interface DocumentEditorProps {
   pageContainerRef: React.RefObject<HTMLDivElement | null>;
@@ -50,6 +51,7 @@ interface DocumentEditorProps {
   insertTemplate: (html: string) => void;
   rehydrateMathBlocks: (container: HTMLElement) => void;
   rehydrateGraphBlocks: (container: HTMLElement) => void;
+  rehydratePageNumbers: (container: HTMLElement) => void;
   isContentHubOpen: boolean;
   isHubExpanded: boolean;
   onGalleryTemplateDrop: () => void;
@@ -103,6 +105,7 @@ export const DocumentEditor = forwardRef<
     insertTemplate,
     rehydrateMathBlocks,
     rehydrateGraphBlocks,
+    rehydratePageNumbers,
     isContentHubOpen,
     isHubExpanded,
     onGalleryTemplateDrop,
@@ -146,11 +149,17 @@ export const DocumentEditor = forwardRef<
     useState<HTMLElement | null>(null);
   const [selectedMathElement, setSelectedMathElement] =
     useState<HTMLElement | null>(null);
-  
-  // --- NEW STATE FOR TABLE EDITING ---
   const [selectedTableCell, setSelectedTableCell] = useState<HTMLElement | null>(null);
   const [tableToolbarPosition, setTableToolbarPosition] = useState<{ top: number; left: number } | null>(null);
-  // --- END NEW STATE ---
+
+  const [headerHtml, setHeaderHtml] = useState('');
+  const [footerHtml, setFooterHtml] = useState('');
+  const [editingHeaderFooter, setEditingHeaderFooter] = useState<{
+    area: 'header' | 'footer';
+    position: { top: number; left: number; width: number; };
+  } | null>(null);
+  
+  const [showHfZones, setShowHfZones] = useState(false);
 
   const {
     currentLineSpacing,
@@ -201,7 +210,7 @@ export const DocumentEditor = forwardRef<
   }, [pageContainerRef]);
 
   const updateToolbarState = useCallback(() => {
-    if (!pageContainerRef.current) return;
+    if (!pageContainerRef.current || editingHeaderFooter) return;
 
     setIsBold(document.queryCommandState("bold"));
     setIsItalic(document.queryCommandState("italic"));
@@ -299,7 +308,7 @@ export const DocumentEditor = forwardRef<
     else if (document.queryCommandState("justifyRight")) setTextAlign("right");
     else if (document.queryCommandState("justifyFull")) setTextAlign("justify");
     else setTextAlign("left");
-  }, [pageContainerRef, detectCurrentLineSpacing]);
+  }, [pageContainerRef, detectCurrentLineSpacing, editingHeaderFooter]);
 
   const saveSelection = useCallback(() => {
     const selection = window.getSelection();
@@ -371,16 +380,11 @@ export const DocumentEditor = forwardRef<
     updateToolbarState();
   };
 
-  // --- NEW: TABLE ACTION HANDLER ---
   const handleTableAction = useCallback((action: TableAction) => {
-    // --- FIX STARTS HERE ---
-    // Add a guard to ensure the cell is still part of the document
     if (!selectedTableCell || !document.body.contains(selectedTableCell)) {
-      // If the cell is gone, clear the state and do nothing.
       setSelectedTableCell(null);
       return;
     }
-    // --- FIX ENDS HERE ---
 
     const cell = selectedTableCell;
     const row = cell.parentElement as HTMLTableRowElement;
@@ -453,10 +457,82 @@ export const DocumentEditor = forwardRef<
     saveToHistory(true);
     scheduleReflow();
   }, [selectedTableCell, saveToHistory, scheduleReflow]);
-  // --- END NEW ---
 
-  // ... (keep applyStyleAcrossPages, applyCommand, applyStyle, etc.)
-  
+  const handleEditHeaderFooter = (area: 'header' | 'footer') => {
+    if (!pageContainerRef.current || !scrollContainerRef.current) return;
+    
+    setShowHfZones(true);
+
+    setTimeout(() => {
+      const firstPage = pageContainerRef.current?.querySelector('.page');
+      if (!firstPage) return;
+
+      const areaElement = firstPage.querySelector(`.page-${area}`) as HTMLElement;
+      if (!areaElement) return;
+
+      if (area === 'header') {
+        scrollContainerRef.current?.scrollTo({ top: 0, behavior: 'smooth' });
+      } else {
+        scrollContainerRef.current?.scrollTo({ top: scrollContainerRef.current.scrollHeight, behavior: 'smooth' });
+      }
+
+      const areaRect = areaElement.getBoundingClientRect();
+      const containerRect = scrollContainerRef.current!.getBoundingClientRect();
+      
+      setEditingHeaderFooter({
+        area,
+        position: {
+          top: areaRect.top - containerRect.top + scrollContainerRef.current!.scrollTop,
+          left: areaRect.left - containerRect.left,
+          width: areaRect.width,
+        }
+      });
+    }, 50);
+  };
+
+  const handleCloseHeaderFooter = (finalHtml: string) => {
+    if (!editingHeaderFooter || !pageContainerRef.current) return;
+
+    const { area } = editingHeaderFooter;
+    
+    if (area === 'header') {
+      setHeaderHtml(finalHtml);
+    } else {
+      setFooterHtml(finalHtml);
+    }
+
+    const allAreaElements = pageContainerRef.current.querySelectorAll<HTMLElement>(`.page-${area}`);
+    allAreaElements.forEach(el => {
+      el.innerHTML = finalHtml;
+    });
+
+    rehydratePageNumbers(pageContainerRef.current);
+
+    saveToHistory(true);
+
+    setEditingHeaderFooter(null);
+    setShowHfZones(false);
+  };
+
+  useEffect(() => {
+    if (!pageContainerRef.current || editingHeaderFooter) return;
+    const container = pageContainerRef.current;
+    
+    const headers = container.querySelectorAll<HTMLElement>('.page-header');
+    const footers = container.querySelectorAll<HTMLElement>('.page-footer');
+    
+    headers.forEach(h => {
+      if (h.innerHTML !== headerHtml) h.innerHTML = headerHtml;
+    });
+    footers.forEach(f => {
+      if (f.innerHTML !== footerHtml) f.innerHTML = footerHtml;
+    });
+    
+    // --- FIX: This redundant call was causing the error. It is now removed. ---
+    // rehydratePageNumbers(container);
+
+  }, [headerHtml, footerHtml, pageContainerRef, rehydratePageNumbers, totalPages, editingHeaderFooter]);
+
   const applyStyleAcrossPages = useCallback(
     (command: string, value?: string) => {
       if (
@@ -1274,8 +1350,9 @@ export const DocumentEditor = forwardRef<
     if (container && container.innerHTML && !isInitialized.current) {
       rehydrateMathBlocks(container);
       rehydrateGraphBlocks(container);
+      rehydratePageNumbers(container);
     }
-  }, [pageContainerRef, rehydrateMathBlocks, rehydrateGraphBlocks]);
+  }, [pageContainerRef, rehydrateMathBlocks, rehydrateGraphBlocks, rehydratePageNumbers]);
 
   useEffect(() => {
     const container = pageContainerRef.current;
@@ -1670,15 +1747,18 @@ export const DocumentEditor = forwardRef<
     const handleGlobalMouseDown = (e: MouseEvent) => {
       const target = e.target as HTMLElement;
 
-      if (toolbarRef.current && toolbarRef.current.contains(target)) {
+      if (
+        toolbarRef.current?.contains(target) ||
+        target.closest(
+          ".image-toolbar, .template-toolbar, .graph-toolbar, .math-toolbar, [data-resize-handle], .link-popover-container, .table-toolbar-container"
+        )
+      ) {
         return;
       }
 
-      if (
-        target.closest(
-          ".image-toolbar, .template-toolbar, .graph-toolbar, .math-toolbar, [data-resize-handle], .link-popover-container, .table-toolbar-container" // <-- Add table toolbar
-        )
-      ) {
+      const hfZone = target.closest('[data-hf]') as HTMLElement;
+      if (hfZone && showHfZones) {
+        handleEditHeaderFooter(hfZone.dataset.hf as 'header' | 'footer');
         return;
       }
 
@@ -1732,7 +1812,11 @@ export const DocumentEditor = forwardRef<
           setSelectedResizableElement(null);
           setSelectedMathElement(null);
         }
-        startTextSelection(e);
+        if (editingHeaderFooter) {
+          // This case is handled by the HeaderFooterEditor's own click-outside logic
+        } else {
+           startTextSelection(e);
+        }
       } else {
         setSelectedGraphElement(null);
         setSelectedResizableElement(null);
@@ -1752,6 +1836,8 @@ export const DocumentEditor = forwardRef<
     selectedGraphElement,
     selectedResizableElement,
     selectedMathElement,
+    editingHeaderFooter,
+    showHfZones,
   ]);
 
   const cleanupParagraphStructure = useCallback((paragraph: HTMLElement) => {
@@ -2955,7 +3041,6 @@ export const DocumentEditor = forwardRef<
       updateToolbarState();
       updateOverflowWarning();
       
-      // --- NEW: Table cell selection logic ---
       const selection = window.getSelection();
       if (selection && selection.rangeCount > 0) {
         const node = selection.anchorNode;
@@ -3014,7 +3099,6 @@ export const DocumentEditor = forwardRef<
     insertContent,
   ]);
   
-  // --- NEW: useEffect for positioning table toolbar ---
   useEffect(() => {
     if (selectedTableCell && scrollContainerRef.current) {
       const table = selectedTableCell.closest('table');
@@ -3023,10 +3107,9 @@ export const DocumentEditor = forwardRef<
         const containerRect = scrollContainerRef.current.getBoundingClientRect();
         const scrollTop = scrollContainerRef.current.scrollTop;
 
-        // Position the toolbar to the outmost right of the entire table
         setTableToolbarPosition({
-          top: tableRect.top - containerRect.top + scrollTop, // Align with the top of the table
-          left: tableRect.right - containerRect.left + 10, // 10px offset from the right edge of the table
+          top: tableRect.top - containerRect.top + scrollTop,
+          left: tableRect.right - containerRect.left + 10,
         });
       }
     } else {
@@ -3034,13 +3117,10 @@ export const DocumentEditor = forwardRef<
     }
   }, [selectedTableCell]);
 
-  // --- NEW: useEffect for highlighting selected table cell ---
   useEffect(() => {
-    // Clear previous selection
     pageContainerRef.current?.querySelectorAll('.selectedCell').forEach(cell => {
       cell.classList.remove('selectedCell');
     });
-    // Add to current selection
     if (selectedTableCell) {
       selectedTableCell.classList.add('selectedCell');
     }
@@ -3178,6 +3258,8 @@ export const DocumentEditor = forwardRef<
             onLineSpacingMenuOpen={saveSelection}
             onInsertMath={() => insertMath()}
             onLink={handleLink}
+            onEditHeader={() => handleEditHeaderFooter('header')}
+            onEditFooter={() => handleEditHeaderFooter('footer')}
             canUndo={canUndo}
             canRedo={canRedo}
             isBold={isBold}
@@ -3203,9 +3285,8 @@ export const DocumentEditor = forwardRef<
 
       <div
         ref={scrollContainerRef}
-        className="flex-1 overflow-y-auto pt-6 bg-gray-100 flex flex-col items-center relative"
+        className={`flex-1 overflow-y-auto pt-6 bg-gray-100 flex flex-col items-center relative ${showHfZones ? 'show-hf-zones' : ''}`}
       >
-        {/* --- NEW: RENDER TABLE TOOLBAR --- */}
         {tableToolbarPosition && (
           <div
             className="table-toolbar-container absolute z-30"
@@ -3217,7 +3298,15 @@ export const DocumentEditor = forwardRef<
             <TableToolbar onAction={handleTableAction} />
           </div>
         )}
-        {/* --- END NEW --- */}
+
+        {editingHeaderFooter && (
+          <HeaderFooterEditor
+            areaType={editingHeaderFooter.area}
+            initialHtml={editingHeaderFooter.area === 'header' ? headerHtml : footerHtml}
+            position={editingHeaderFooter.position}
+            onClose={handleCloseHeaderFooter}
+          />
+        )}
 
         <div className="selection-overlay">
           {highlightRects.map((rect, index) => {

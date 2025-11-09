@@ -1,3 +1,5 @@
+/* src/styles/globals.css */
+
 @import "tailwindcss";
 
 :root {
@@ -58,6 +60,90 @@ body {
   border-bottom: 1px solid #d1d5db;
   transition: min-height 0.2s ease-out;
 }
+
+/* --- REVISED HEADER & FOOTER STYLES --- */
+.page-header,
+.page-footer {
+  position: absolute;
+  left: 1in;
+  right: 1in;
+  height: 0.75in;
+  display: flex;
+  align-items: center;
+  font-size: 10pt;
+  color: #6b7280;
+  z-index: 5;
+  pointer-events: none;
+  border-color: transparent; 
+  transition: background-color 0.2s ease-in-out, border-color 0.2s ease-in-out;
+}
+
+.page-header {
+  top: 0.25in;
+  border-bottom: 1px solid transparent;
+}
+
+.page-footer {
+  bottom: 0.25in;
+  border-top: 1px solid transparent;
+}
+
+/* NEW: Standalone Page Number Container */
+.page-number-container {
+  position: absolute;
+  bottom: 0.25in;
+  right: 1in;
+  height: 0.75in;
+  display: flex;
+  align-items: center;
+  font-size: 10pt;
+  color: #6b7280;
+  z-index: 6; /* Higher z-index to sit on top of the footer zone */
+  pointer-events: none; /* The container itself isn't interactive */
+}
+
+/* The placeholder/rendered number inside the container IS interactive */
+.page-number-container .page-number-placeholder,
+.page-number-container .page-number-render {
+  pointer-events: auto;
+}
+
+.page-container.show-hf-zones .page-header,
+.page-container.show-hf-zones .page-footer {
+  pointer-events: auto;
+  cursor: pointer;
+}
+
+.page-container.show-hf-zones .page-header {
+  border-bottom-color: #e5e7eb;
+}
+
+.page-container.show-hf-zones .page-footer {
+  border-top-color: #e5e7eb;
+}
+
+.page-container.show-hf-zones .page-header:hover,
+.page-container.show-hf-zones .page-footer:hover {
+  background-color: rgba(59, 130, 246, 0.05);
+}
+
+.page-number-placeholder {
+  display: inline-block;
+  background-color: #e0e7ff;
+  color: #4338ca;
+  padding: 2px 6px;
+  border-radius: 4px;
+  font-weight: 500;
+  font-size: 9pt;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+.page-number-render {
+  display: inline-block;
+}
+/* --- END REVISED STYLES --- */
+
 
 .page-content {
   padding: 1in 1in 0.1in 1in;
@@ -162,23 +248,6 @@ body {
 .page-content > *:last-child {
   padding-bottom: 0 !important;
 }
-
-/* --- FIX: REMOVED the conflicting data-attribute-based rules --- */
-/* The JavaScript in useTextReflow now handles this styling directly via inline styles. */
-/*
-.page-content p[data-split-point="start"],
-.page-content p[data-split-point="middle"] {
-  padding-bottom: 0; 
-}
-
-.page-content p[data-split-point="end"] {
-  padding-bottom: 1.25rem;
-}
-
-.page-content p:not([data-split-point]) {
-  padding-bottom: 1.25rem;
-}
-*/
 
 .page-content ul, .page-content ol {
   padding-left: 1.5rem;

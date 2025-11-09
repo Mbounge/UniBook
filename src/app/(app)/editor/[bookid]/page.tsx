@@ -1,3 +1,5 @@
+// src/app/(app)/editor/[bookid]/page.tsx
+
 "use client";
 
 import React, { useState, useEffect, useRef } from "react";
@@ -109,6 +111,7 @@ const EditorComponent = () => {
     insertImage, insertContent, insertTemplate, 
     insertMath, rehydrateMathBlocks,
     insertGraph, rehydrateGraphBlocks,
+    rehydratePageNumbers,
     addNewPage,
     resetHistory,
     scheduleReflow,
@@ -151,17 +154,55 @@ const EditorComponent = () => {
     if (bookData && pageContainerRef.current && !isContentLoaded) {
       pageContainerRef.current.innerHTML = bookData.content;
 
-      rehydrateMathBlocks(pageContainerRef.current);
-      rehydrateGraphBlocks(pageContainerRef.current);
-
+      // --- FIX: Defer DOM manipulation and hydration to prevent race conditions ---
       setTimeout(() => {
-        fullDocumentReflow(); // Use the full reflow on initial load as well
+        if (!pageContainerRef.current) return;
+
+        const pages = pageContainerRef.current.querySelectorAll('.page');
+        pages.forEach(page => {
+          if (!page.querySelector('.page-header')) {
+            const headerDiv = document.createElement("div");
+            headerDiv.className = "page-header";
+            headerDiv.setAttribute("data-hf", "header");
+            page.insertBefore(headerDiv, page.firstChild);
+          }
+          if (!page.querySelector('.page-footer')) {
+            const footerDiv = document.createElement("div");
+            footerDiv.className = "page-footer";
+            footerDiv.setAttribute("data-hf", "footer");
+            // Find the page-content to insert before, otherwise append
+            const content = page.querySelector('.page-content');
+            if (content) {
+              page.insertBefore(footerDiv, content);
+            } else {
+              page.appendChild(footerDiv);
+            }
+          }
+          if (!page.querySelector('.page-number-container')) {
+            const pageNumberContainer = document.createElement("div");
+            pageNumberContainer.className = "page-number-container";
+            pageNumberContainer.innerHTML = '<span class="page-number-placeholder" contenteditable="false">#</span>';
+            // Find the page-content to insert before, otherwise append
+            const content = page.querySelector('.page-content');
+            if (content) {
+              page.insertBefore(pageNumberContainer, content);
+            } else {
+              page.appendChild(pageNumberContainer);
+            }
+          }
+        });
+
+        rehydrateMathBlocks(pageContainerRef.current);
+        rehydrateGraphBlocks(pageContainerRef.current);
+        rehydratePageNumbers(pageContainerRef.current);
+        
+        fullDocumentReflow();
         saveToHistory(true);
-      }, 150);
+      }, 50); // A small delay is enough for the browser to complete its initial layout pass.
 
       setIsContentLoaded(true);
     }
-  }, [bookData, pageContainerRef, isContentLoaded, saveToHistory, rehydrateMathBlocks, rehydrateGraphBlocks, fullDocumentReflow]);
+  }, [bookData, pageContainerRef, isContentLoaded, saveToHistory, rehydrateMathBlocks, rehydrateGraphBlocks, rehydratePageNumbers, fullDocumentReflow]);
 
   useEffect(() => {
     if (showTocPanel || leftPanelContent) {
@@ -212,11 +253,9 @@ const EditorComponent = () => {
     setLeftPanelContent(null);
   };
 
-  // --- MODIFIED: Orchestrate the import process ---
   const handleImport = (htmlBlocks: string[], createNewPages: boolean) => { 
-    setIsImporting(true); // Show loading overlay
+    setIsImporting(true);
     
-    // Use setTimeout to allow the UI to update and show the loader
     setTimeout(() => {
       try {
         insertContent(htmlBlocks, createNewPages, true);
@@ -224,11 +263,10 @@ const EditorComponent = () => {
         console.error("Error during content import:", error);
         toast({ title: "Import Failed", description: "An error occurred while importing content.", variant: "destructive" });
       } finally {
-        // The reflow is now handled inside insertContent, so we just hide the loader
         setIsImporting(false); 
         setShowContentPanel(false);
       }
-    }, 50); // A small delay is enough for the loader to render
+    }, 50);
   };
 
   const handleSaveDraft = () => {
@@ -373,6 +411,7 @@ const EditorComponent = () => {
               insertGraph={insertGraph}
               rehydrateMathBlocks={rehydrateMathBlocks}
               rehydrateGraphBlocks={rehydrateGraphBlocks}
+              rehydratePageNumbers={rehydratePageNumbers}
               insertTemplate={insertTemplate}
               resetHistory={resetHistory}
               scheduleReflow={scheduleReflow}

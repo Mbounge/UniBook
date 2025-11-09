@@ -6,7 +6,8 @@ import React, { useState, useEffect, useRef } from 'react';
 import { 
   Bold, Italic, Underline, AlignLeft, AlignCenter, AlignRight, AlignJustify,
   Image, Undo, Redo, Highlighter, List, ListOrdered,
-  MessageSquareQuote, Code, ChevronDown, ListTree, Table, Sigma, Link // <-- Import Link icon
+  MessageSquareQuote, Code, ChevronDown, ListTree, Table, Sigma, Link,
+  ArrowUpToLine, ArrowDownToLine
 } from 'lucide-react';
 import { TableCreationGrid } from './TableCreationGrid';
 import { ColorPicker } from './ColorPicker';
@@ -21,6 +22,23 @@ const ToolbarButton = React.forwardRef<HTMLButtonElement, { onClick: () => void;
   )
 );
 ToolbarButton.displayName = 'ToolbarButton';
+
+// --- NEW LABELED BUTTON COMPONENT ---
+const LabeledToolbarButton: React.FC<{
+  onClick: () => void;
+  title: string;
+  children: React.ReactNode;
+}> = ({ onClick, title, children }) => (
+  <button
+    onMouseDown={(e) => e.preventDefault()}
+    onClick={onClick}
+    title={title}
+    className="flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-medium bg-gray-50 text-gray-600 hover:bg-gray-100 hover:text-gray-800 border border-gray-200 transition-all duration-200 hover:scale-105 active:scale-95"
+  >
+    {children}
+  </button>
+);
+// --- END NEW COMPONENT ---
 
 const Dropdown = ({ options, value, onChange, title, widthClass = "w-40" }: { options: { label: string, value: string }[], value: string, onChange: (value: string) => void, title: string, widthClass?: string }) => {
   const [isOpen, setIsOpen] = useState(false);
@@ -76,7 +94,9 @@ interface EditorToolbarProps {
   onLineSpacingChange: (spacing: LineSpacing) => void;
   onLineSpacingMenuOpen: () => void;
   onInsertMath: () => void;
-  onLink: () => void; // <-- Add onLink prop
+  onLink: () => void;
+  onEditHeader: () => void;
+  onEditFooter: () => void;
   isTocOpen: boolean;
   isStyleStudioOpen: boolean;
   isAiPanelOpen: boolean;
@@ -86,7 +106,7 @@ interface EditorToolbarProps {
   isItalic: boolean;
   isUnderline: boolean;
   isHighlighted: boolean;
-  isLink: boolean; // <-- Add isLink prop
+  isLink: boolean;
   textAlign: string;
   currentBlockType: string;
   currentFont: string;
@@ -97,13 +117,13 @@ interface EditorToolbarProps {
 
 export const EditorToolbar: React.FC<EditorToolbarProps> = (props) => {
   const {
-    canUndo, canRedo, isBold, isItalic, isUnderline, isHighlighted, isLink, textAlign, // <-- Destructure isLink
+    canUndo, canRedo, isBold, isItalic, isUnderline, isHighlighted, isLink, textAlign,
     currentBlockType, currentFont, currentSize, currentTextColor, currentLineSpacing,
     onUndo, onRedo, onBlockTypeChange, onFontChange, onSizeChange, onBold, onItalic,
     onUnderline, onHighlight, onAlign, onBulletedList, onNumberedList, onInsertImage,
     onBlockquote, onCodeBlock, onToggleOutline, onInsertTable, onTableMenuOpen, 
     onTextColorChange, onColorMenuOpen, onLineSpacingChange, onLineSpacingMenuOpen, 
-    onInsertMath, onLink, // <-- Destructure onLink
+    onInsertMath, onLink, onEditHeader, onEditFooter,
     isTocOpen
   } = props;
 
@@ -162,7 +182,6 @@ export const EditorToolbar: React.FC<EditorToolbarProps> = (props) => {
       <ToolbarButton onClick={onBold} title="Bold" isActive={isBold}><Bold className="w-4 h-4" /></ToolbarButton>
       <ToolbarButton onClick={onItalic} title="Italic" isActive={isItalic}><Italic className="w-4 h-4" /></ToolbarButton>
       <ToolbarButton onClick={onUnderline} title="Underline" isActive={isUnderline}><Underline className="w-4 h-4" /></ToolbarButton>
-      {/* Add Link Button Here */}
       <ToolbarButton onClick={onLink} title="Link" isActive={isLink}><Link className="w-4 h-4" /></ToolbarButton>
       <ToolbarButton onClick={onHighlight} title="Highlight" isActive={isHighlighted}><Highlighter className="w-4 h-4" /></ToolbarButton>
       <ColorPicker 
@@ -198,6 +217,17 @@ export const EditorToolbar: React.FC<EditorToolbarProps> = (props) => {
           </div>
         )}
       </div>
+      {/* --- REVISED HEADER/FOOTER BUTTONS --- */}
+      <div className="h-6 w-px bg-gray-200 mx-2"></div>
+      <LabeledToolbarButton onClick={onEditHeader} title="Edit Header">
+        <ArrowUpToLine className="w-4 h-4" />
+        <span>Header</span>
+      </LabeledToolbarButton>
+      <LabeledToolbarButton onClick={onEditFooter} title="Edit Footer">
+        <ArrowDownToLine className="w-4 h-4" />
+        <span>Footer</span>
+      </LabeledToolbarButton>
+      {/* --- END REVISED BUTTONS --- */}
     </div>
   );
 };

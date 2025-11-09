@@ -1,3 +1,5 @@
+// src/components/editor/hooks/useEditor.tsx
+
 "use client";
 
 import React, { useState, useCallback, useRef, useEffect } from "react";
@@ -7,16 +9,35 @@ import { GraphBlock, GraphData } from "../GraphBlock";
 import { useHistory } from "./useHistory";
 import { useTextReflow } from "./useTextReflow";
 import { useMultiPageSelection } from "./useMultiPageSelection";
+import { PageNumber } from "../PageNumber";
 
 const createNewPage = (): HTMLElement => {
   const newPageDiv = document.createElement("div");
   newPageDiv.className = "page";
 
+  const headerDiv = document.createElement("div");
+  headerDiv.className = "page-header";
+  headerDiv.setAttribute("data-hf", "header");
+  headerDiv.innerHTML = '';
+
+  const footerDiv = document.createElement("div");
+  footerDiv.className = "page-footer";
+  footerDiv.setAttribute("data-hf", "footer");
+  footerDiv.innerHTML = '';
+
+  const pageNumberContainer = document.createElement("div");
+  pageNumberContainer.className = "page-number-container";
+  pageNumberContainer.innerHTML = '<span class="page-number-placeholder" contenteditable="false">#</span>';
+
   const newPageContent = document.createElement("div");
   newPageContent.className = "page-content";
   newPageContent.contentEditable = "true";
 
+  newPageDiv.appendChild(headerDiv);
+  newPageDiv.appendChild(footerDiv);
+  newPageDiv.appendChild(pageNumberContainer);
   newPageDiv.appendChild(newPageContent);
+
   return newPageDiv;
 };
 
@@ -68,7 +89,6 @@ export const useEditor = (
       currentPage = currentPage.nextElementSibling as HTMLElement | null;
       pageIndex++;
     }
-    // After the forward pass, do a backward pass to consolidate space
     const firstPage = editorRef.current.querySelector('.page') as HTMLElement | null;
     if (firstPage) {
       console.log('[Reflow] Starting Backward Consolidation Pass...');
@@ -90,18 +110,44 @@ export const useEditor = (
     startTextSelection,
   } = useMultiPageSelection(editorRef);
 
+  // --- FIX: The unmount logic is now synchronous within this function ---
   const unmountAllReactComponents = useCallback(() => {
-    reactRootsRef.current.forEach((root) => root.unmount());
+    reactRootsRef.current.forEach((root) => {
+      // This synchronous call is now safe because we will call this entire function asynchronously.
+      root.unmount();
+    });
     reactRootsRef.current.clear();
   }, []);
 
   const mountReactComponent = useCallback(
     (component: React.ReactElement, wrapper: HTMLElement) => {
-      const root = createRoot(wrapper);
-      root.render(component);
-      reactRootsRef.current.set(wrapper, root);
+      if (reactRootsRef.current.has(wrapper)) {
+        const root = reactRootsRef.current.get(wrapper)!;
+        root.render(component);
+      } else {
+        const root = createRoot(wrapper);
+        root.render(component);
+        reactRootsRef.current.set(wrapper, root);
+      }
     },
     []
+  );
+
+  const rehydratePageNumbers = useCallback(
+    (container: HTMLElement) => {
+      const pages = Array.from(container.querySelectorAll('.page'));
+      pages.forEach((page, index) => {
+        const pageNumberPlaceholders = page.querySelectorAll(".page-number-placeholder");
+        pageNumberPlaceholders.forEach((el) => {
+          const wrapper = el as HTMLElement;
+          mountReactComponent(
+            <PageNumber pageNumber={index + 1} />,
+            wrapper
+          );
+        });
+      });
+    },
+    [mountReactComponent]
   );
 
   const rehydrateMathBlocks = useCallback(
@@ -187,6 +233,7 @@ export const useEditor = (
         editorRef.current.innerHTML = state.html;
         rehydrateMathBlocks(editorRef.current);
         rehydrateGraphBlocks(editorRef.current);
+        rehydratePageNumbers(editorRef.current);
 
         const elementToFocus = restoreSelection(
           editorRef.current,
@@ -210,6 +257,7 @@ export const useEditor = (
       unmountAllReactComponents,
       rehydrateMathBlocks,
       rehydrateGraphBlocks,
+      rehydratePageNumbers,
       restoreSelection,
     ]
   );
@@ -324,7 +372,6 @@ export const useEditor = (
         ? (allPages[allPages.length - 1] as HTMLElement)
         : null;
 
-    // --- STEP 1: PAD THE LAST PAGE ---
     if (lastPageBeforeAdding) {
       const lastPageContent = lastPageBeforeAdding.querySelector('.page-content') as HTMLElement;
       if (lastPageContent) {
@@ -351,25 +398,21 @@ export const useEditor = (
       }
     }
 
-    const newPageDiv = document.createElement("div");
-    newPageDiv.className = "page";
-    const newPageContent = document.createElement("div");
-    newPageContent.className = "page-content";
-    newPageContent.contentEditable = "true";
-    newPageContent.dataset.placeholder = "Start typing on your new page...";
-    newPageDiv.appendChild(newPageContent);
+    const newPageDiv = createNewPage();
     editorRef.current.appendChild(newPageDiv);
+    
+    rehydratePageNumbers(editorRef.current);
 
     if (lastPageBeforeAdding) {
       reflowPage(lastPageBeforeAdding);
     }
 
-    newPageContent.innerHTML = ''; // Wipe all temporary content
+    const newPageContent = newPageDiv.querySelector('.page-content') as HTMLElement;
+    newPageContent.innerHTML = '';
     const finalParagraph = document.createElement("p");
     finalParagraph.innerHTML = "<br>";
     newPageContent.appendChild(finalParagraph);
 
-    // --- STEP 5: SET CURSOR ---
     newPageDiv.scrollIntoView({ behavior: "smooth", block: "start" });
     const range = document.createRange();
     const selection = window.getSelection();
@@ -381,7 +424,7 @@ export const useEditor = (
     setTimeout(() => {
       saveToHistory(true);
     }, 100);
-  }, [editorRef, saveToHistory, reflowPage, getContentHeight, getAvailableHeight]);
+  }, [editorRef, saveToHistory, reflowPage, getContentHeight, getAvailableHeight, rehydratePageNumbers]);
 
 
   const ensureCursorFriendlyBlocks = (
@@ -1011,9 +1054,12 @@ export const useEditor = (
     [editorRef, saveToHistory, findInsertionTarget, addNewPage, scheduleReflow]
   );
 
+  // --- FIX: This is the final, correct cleanup logic ---
   useEffect(() => {
     return () => {
-      unmountAllReactComponents();
+      // When the component unmounts, schedule the entire cleanup to run asynchronously.
+      // This prevents the "unmounting while rendering" error.
+      setTimeout(unmountAllReactComponents, 0);
     };
   }, [unmountAllReactComponents]);
 
@@ -1031,6 +1077,7 @@ export const useEditor = (
     saveToHistory,
     rehydrateMathBlocks,
     rehydrateGraphBlocks,
+    rehydratePageNumbers,
     resetHistory,
     scheduleReflow,
     immediateReflow,
@@ -1041,7 +1088,7 @@ export const useEditor = (
     getContentHeight,
     getAvailableHeight,
     fullDocumentReflow, 
-    reflowSplitTable, // Add this
+    reflowSplitTable,
     reflowSplitList,
 
     highlightRects,
