@@ -1,5 +1,3 @@
-// src/components/editor/DocumentEditor.tsx
-
 "use client";
 
 import React, {
@@ -26,6 +24,7 @@ import { ReflowDebugger } from "./ReflowDebugger";
 import { LinkPopover } from "./LinkPopover";
 import { TableToolbar, TableAction } from "./TableToolbar";
 import { HeaderFooterEditor } from "./HeaderFooterEditor";
+import { FindReplacePanel, FindOptions } from "./FindReplacePanel"; // --- NEW IMPORT ---
 
 interface DocumentEditorProps {
   pageContainerRef: React.RefObject<HTMLDivElement | null>;
@@ -75,6 +74,18 @@ interface DocumentEditorProps {
   forceRecalculateRects: () => void;
   startTextSelection: (e: MouseEvent) => void;
   addNewPage: () => void;
+  // --- NEW PROPS FOR FIND/REPLACE ---
+  findAll: (query: string, options: FindOptions) => void;
+  findNext: () => void;
+  findPrev: () => void;
+  replace: (replaceText: string) => void;
+  replaceAll: (replaceText: string) => void;
+  clearFindHighlights: () => void;
+  findMatchIndex: number;
+  findTotalMatches: number;
+  isSearching: boolean;
+  findHighlightRects: DOMRect[];
+  // --- END NEW PROPS ---
 }
 
 export interface DocumentEditorHandle {
@@ -128,6 +139,18 @@ export const DocumentEditor = forwardRef<
     forceRecalculateRects,
     startTextSelection,
     addNewPage,
+    // --- NEW PROPS DESTRUCTURED ---
+    findAll,
+    findNext,
+    findPrev,
+    replace,
+    replaceAll,
+    clearFindHighlights,
+    findMatchIndex,
+    findTotalMatches,
+    isSearching,
+    findHighlightRects,
+    // --- END NEW PROPS ---
   } = props;
 
   useImperativeHandle(
@@ -160,6 +183,10 @@ export const DocumentEditor = forwardRef<
   } | null>(null);
   
   const [showHfZones, setShowHfZones] = useState(false);
+
+  // --- NEW STATE FOR FIND/REPLACE PANEL ---
+  const [showFindReplace, setShowFindReplace] = useState(false);
+  // --- END NEW STATE ---
 
   const {
     currentLineSpacing,
@@ -527,9 +554,6 @@ export const DocumentEditor = forwardRef<
     footers.forEach(f => {
       if (f.innerHTML !== footerHtml) f.innerHTML = footerHtml;
     });
-    
-    // --- FIX: This redundant call was causing the error. It is now removed. ---
-    // rehydratePageNumbers(container);
 
   }, [headerHtml, footerHtml, pageContainerRef, rehydratePageNumbers, totalPages, editingHeaderFooter]);
 
@@ -2221,6 +2245,12 @@ export const DocumentEditor = forwardRef<
             redo();
             runParagraphAnalysis();
             return;
+          // --- NEW SHORTCUT FOR FIND/REPLACE ---
+          case "f":
+            event.preventDefault();
+            setShowFindReplace(true);
+            return;
+          // --- END NEW SHORTCUT ---
         }
         if (event.shiftKey && event.key.toLowerCase() === "z") {
           event.preventDefault();
@@ -2229,6 +2259,16 @@ export const DocumentEditor = forwardRef<
           return;
         }
       }
+      
+      // --- NEW: Close find/replace with Escape key ---
+      if (event.key === 'Escape') {
+        if (showFindReplace) {
+          event.preventDefault();
+          setShowFindReplace(false);
+          clearFindHighlights();
+        }
+      }
+      // --- END NEW LOGIC ---
 
       if (customSelection && selectedText) {
         if (event.key === "Backspace" || event.key === "Delete") {
@@ -3097,6 +3137,8 @@ export const DocumentEditor = forwardRef<
     selectedMathElement,
     insertImage,
     insertContent,
+    showFindReplace, // --- NEW DEPENDENCY ---
+    clearFindHighlights, // --- NEW DEPENDENCY ---
   ]);
   
   useEffect(() => {
@@ -3276,6 +3318,7 @@ export const DocumentEditor = forwardRef<
             onToggleOutline={onToggleOutline}
             onToggleStyleStudio={onToggleTemplateGallery}
             onToggleAiPanel={onToggleAiPanel}
+            onFind={() => setShowFindReplace(true)}
             isTocOpen={isTocOpen}
             isStyleStudioOpen={isTemplateGalleryOpen}
             isAiPanelOpen={isAiPanelOpen}
@@ -3287,6 +3330,28 @@ export const DocumentEditor = forwardRef<
         ref={scrollContainerRef}
         className={`flex-1 overflow-y-auto pt-6 bg-gray-100 flex flex-col items-center relative ${showHfZones ? 'show-hf-zones' : ''}`}
       >
+        {/* --- NEW: RENDER FIND/REPLACE PANEL --- */}
+        {showFindReplace && (
+          <FindReplacePanel
+            onFindNext={findAll}
+            onFindPrev={findPrev}
+            onReplace={replace}
+            onReplaceAll={(q, r, o) => {
+              findAll(q, o);
+              replaceAll(r);
+            }}
+            onClose={() => {
+              setShowFindReplace(false);
+              clearFindHighlights();
+            }}
+            onClearHighlights={clearFindHighlights}
+            matchIndex={findMatchIndex}
+            totalMatches={findTotalMatches}
+            isSearching={isSearching}
+          />
+        )}
+        {/* --- END NEW PANEL --- */}
+
         {tableToolbarPosition && (
           <div
             className="table-toolbar-container absolute z-30"
@@ -3309,6 +3374,27 @@ export const DocumentEditor = forwardRef<
         )}
 
         <div className="selection-overlay">
+          {/* --- NEW: RENDER FIND HIGHLIGHTS --- */}
+          {findHighlightRects.map((rect, index) => {
+            const containerRect = scrollContainerRef.current?.getBoundingClientRect();
+            if (!containerRect) return null;
+            const scrollTop = scrollContainerRef.current?.scrollTop || 0;
+            const isCurrentMatch = index === findMatchIndex;
+            return (
+              <div
+                key={`find-${index}`}
+                className={`find-match-highlight ${isCurrentMatch ? 'current' : ''}`}
+                style={{
+                  top: rect.top - containerRect.top + scrollTop,
+                  left: rect.left - containerRect.left,
+                  width: rect.width,
+                  height: rect.height,
+                }}
+              />
+            );
+          })}
+          {/* --- END NEW HIGHLIGHTS --- */}
+
           {highlightRects.map((rect, index) => {
             const containerRect =
               scrollContainerRef.current?.getBoundingClientRect();
@@ -3381,10 +3467,10 @@ export const DocumentEditor = forwardRef<
         className="hidden"
       />
 
-      <ReflowDebugger
+      {/* <ReflowDebugger
         pageContainerRef={pageContainerRef}
         currentPage={currentPage}
-      />
+      /> */}
 
       <StatusBar
         currentPage={currentPage}
@@ -3399,11 +3485,11 @@ export const DocumentEditor = forwardRef<
         isMultiPageSelection={isMultiPageSelection}
         selectedPages={selectedPages}
       />
-      <SelectionDebug
+      {/* <SelectionDebug
         selectedText={selectedText}
         isMultiPageSelection={isMultiPageSelection}
         selectedPages={selectedPages}
-      />
+      /> */}
     </div>
   );
 });

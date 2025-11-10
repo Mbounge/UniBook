@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useState, useEffect, useRef } from 'react';
-import { X, ChevronUp, ChevronDown, CaseSensitive, WholeWord } from 'lucide-react';
+import { X, ChevronUp, ChevronDown, CaseSensitive, WholeWord, Search } from 'lucide-react';
 
 // This interface will be used by the useEditor hook later.
 export interface FindOptions {
@@ -50,7 +50,6 @@ export const FindReplacePanel: React.FC<FindReplacePanelProps> = ({
   const panelRef = useRef<HTMLDivElement>(null);
   const findInputRef = useRef<HTMLInputElement>(null);
 
-  // Debounce effect for triggering search automatically as the user types.
   useEffect(() => {
     if (findQuery.length === 0) {
       onClearHighlights();
@@ -61,14 +60,13 @@ export const FindReplacePanel: React.FC<FindReplacePanelProps> = ({
       if (findQuery.length > 0) {
         onFindNext(findQuery, options);
       }
-    }, 300); // 300ms debounce
+    }, 300);
 
     return () => {
       clearTimeout(handler);
     };
   }, [findQuery, options, onFindNext, onClearHighlights]);
 
-  // Focus the find input when the panel first opens.
   useEffect(() => {
     findInputRef.current?.focus();
     findInputRef.current?.select();
@@ -104,11 +102,25 @@ export const FindReplacePanel: React.FC<FindReplacePanelProps> = ({
   return (
     <div
       ref={panelRef}
-      className="absolute top-4 right-4 z-40 w-80 bg-white/90 backdrop-blur-sm rounded-lg shadow-lg border border-gray-200 animate-in fade-in slide-in-from-top-4 duration-300"
-      onMouseDown={(e) => e.stopPropagation()} // Prevents the editor from losing focus when interacting with the panel.
+      // --- FIX: Added a stable class name for focus detection ---
+      className="find-replace-panel absolute top-4 right-4 z-40 w-80 bg-white/95 backdrop-blur-sm rounded-lg shadow-xl border border-gray-200 animate-in fade-in slide-in-from-top-4 duration-300"
+      onMouseDown={(e) => e.stopPropagation()}
     >
-      <div className="p-3 space-y-2">
-        {/* Find Input */}
+      <div className="flex items-center justify-between p-2 border-b border-gray-200">
+        <div className="flex items-center gap-2">
+          <Search className="w-4 h-4 text-gray-500 ml-2" />
+          <h3 className="text-sm font-semibold text-gray-800">Find & Replace</h3>
+        </div>
+        <button
+          onClick={onClose}
+          className="p-1.5 rounded-full hover:bg-gray-200"
+          title="Close (Esc)"
+        >
+          <X className="w-4 h-4 text-gray-600" />
+        </button>
+      </div>
+
+      <div className="p-3 space-y-3">
         <div className="relative">
           <input
             ref={findInputRef}
@@ -117,20 +129,21 @@ export const FindReplacePanel: React.FC<FindReplacePanelProps> = ({
             value={findQuery}
             onChange={(e) => setFindQuery(e.target.value)}
             onKeyDown={handleKeyDown}
-            className="w-full bg-gray-50 border border-gray-200 rounded-md pl-3 pr-24 py-1.5 text-sm focus:ring-2 focus:ring-blue-200 focus:border-blue-400 outline-none"
+            className="w-full bg-gray-50 border border-gray-300 rounded-md pl-3 pr-28 py-2 text-sm focus:ring-2 focus:ring-blue-200 focus:border-blue-400 outline-none transition-colors"
           />
-          <div className="absolute inset-y-0 right-0 flex items-center pr-2 gap-0.5">
+          <div className="absolute inset-y-0 right-0 flex items-center pr-2 gap-1">
             {totalMatches > 0 ? (
-              <span className="text-xs text-gray-500 font-mono">
+              <span className="text-xs text-gray-500 font-mono px-1">
                 {matchIndex + 1}/{totalMatches}
               </span>
             ) : findQuery && !isSearching ? (
-               <span className="text-xs text-gray-500 font-mono">0/0</span>
+               <span className="text-xs text-gray-500 font-mono px-1">0/0</span>
             ) : null}
+            <div className="h-4 w-px bg-gray-300"></div>
             <button
               onClick={handleFindPrev}
               disabled={!findQuery || totalMatches === 0}
-              className="p-1 rounded hover:bg-gray-200 disabled:opacity-40"
+              className="p-1.5 rounded hover:bg-gray-200 disabled:opacity-40"
               title="Previous match (Shift+Enter)"
             >
               <ChevronUp className="w-4 h-4 text-gray-600" />
@@ -138,7 +151,7 @@ export const FindReplacePanel: React.FC<FindReplacePanelProps> = ({
             <button
               onClick={handleFindNext}
               disabled={!findQuery || totalMatches === 0}
-              className="p-1 rounded hover:bg-gray-200 disabled:opacity-40"
+              className="p-1.5 rounded hover:bg-gray-200 disabled:opacity-40"
               title="Next match (Enter)"
             >
               <ChevronDown className="w-4 h-4 text-gray-600" />
@@ -146,19 +159,17 @@ export const FindReplacePanel: React.FC<FindReplacePanelProps> = ({
           </div>
         </div>
 
-        {/* Replace Input */}
         <div className="relative">
           <input
             type="text"
             placeholder="Replace"
             value={replaceQuery}
             onChange={(e) => setReplaceQuery(e.target.value)}
-            className="w-full bg-gray-50 border border-gray-200 rounded-md pl-3 pr-3 py-1.5 text-sm focus:ring-2 focus:ring-blue-200 focus:border-blue-400 outline-none"
+            className="w-full bg-gray-50 border border-gray-300 rounded-md pl-3 pr-3 py-2 text-sm focus:ring-2 focus:ring-blue-200 focus:border-blue-400 outline-none transition-colors"
           />
         </div>
 
-        {/* Actions and Options */}
-        <div className="flex items-center justify-between">
+        <div className="flex items-center justify-between bg-gray-50 p-1.5 rounded-md">
           <div className="flex items-center gap-1">
             <OptionButton
               title="Match Case"
@@ -175,7 +186,7 @@ export const FindReplacePanel: React.FC<FindReplacePanelProps> = ({
               <WholeWord className="w-4 h-4" />
             </OptionButton>
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-3">
             <button
               onClick={handleReplace}
               disabled={!findQuery || totalMatches === 0}
@@ -193,14 +204,6 @@ export const FindReplacePanel: React.FC<FindReplacePanelProps> = ({
           </div>
         </div>
       </div>
-      
-      <button
-        onClick={onClose}
-        className="absolute top-2 right-2 p-1 rounded-full hover:bg-gray-200"
-        title="Close"
-      >
-        <X className="w-4 h-4 text-gray-500" />
-      </button>
     </div>
   );
 };

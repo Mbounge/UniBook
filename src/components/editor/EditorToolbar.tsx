@@ -1,5 +1,3 @@
-// src/components/editor/EditorToolbar.tsx
-
 'use client';
 
 import React, { useState, useEffect, useRef } from 'react';
@@ -7,7 +5,7 @@ import {
   Bold, Italic, Underline, AlignLeft, AlignCenter, AlignRight, AlignJustify,
   Image, Undo, Redo, Highlighter, List, ListOrdered,
   MessageSquareQuote, Code, ChevronDown, ListTree, Table, Sigma, Link,
-  ArrowUpToLine, ArrowDownToLine
+  ArrowUpToLine, ArrowDownToLine, Search // --- NEW IMPORT ---
 } from 'lucide-react';
 import { TableCreationGrid } from './TableCreationGrid';
 import { ColorPicker } from './ColorPicker';
@@ -23,7 +21,6 @@ const ToolbarButton = React.forwardRef<HTMLButtonElement, { onClick: () => void;
 );
 ToolbarButton.displayName = 'ToolbarButton';
 
-// --- NEW LABELED BUTTON COMPONENT ---
 const LabeledToolbarButton: React.FC<{
   onClick: () => void;
   title: string;
@@ -38,7 +35,6 @@ const LabeledToolbarButton: React.FC<{
     {children}
   </button>
 );
-// --- END NEW COMPONENT ---
 
 const Dropdown = ({ options, value, onChange, title, widthClass = "w-40" }: { options: { label: string, value: string }[], value: string, onChange: (value: string) => void, title: string, widthClass?: string }) => {
   const [isOpen, setIsOpen] = useState(false);
@@ -97,6 +93,7 @@ interface EditorToolbarProps {
   onLink: () => void;
   onEditHeader: () => void;
   onEditFooter: () => void;
+  onFind: () => void; // --- NEW PROP ---
   isTocOpen: boolean;
   isStyleStudioOpen: boolean;
   isAiPanelOpen: boolean;
@@ -123,7 +120,7 @@ export const EditorToolbar: React.FC<EditorToolbarProps> = (props) => {
     onUnderline, onHighlight, onAlign, onBulletedList, onNumberedList, onInsertImage,
     onBlockquote, onCodeBlock, onToggleOutline, onInsertTable, onTableMenuOpen, 
     onTextColorChange, onColorMenuOpen, onLineSpacingChange, onLineSpacingMenuOpen, 
-    onInsertMath, onLink, onEditHeader, onEditFooter,
+    onInsertMath, onLink, onEditHeader, onEditFooter, onFind, // --- NEW PROP DESTRUCTURED ---
     isTocOpen
   } = props;
 
@@ -170,6 +167,11 @@ export const EditorToolbar: React.FC<EditorToolbarProps> = (props) => {
   return (
     <div className="bg-white/90 backdrop-blur-sm border border-gray-200/50 rounded-lg p-3 flex items-center flex-wrap gap-1">
       <ToolbarButton onClick={onToggleOutline} title="Outline" isActive={isTocOpen}><ListTree className="w-4 h-4" /></ToolbarButton>
+      {/* --- NEW FIND BUTTON --- */}
+      <ToolbarButton onClick={onFind} title="Find & Replace (Ctrl+F)">
+        <Search className="w-4 h-4" />
+      </ToolbarButton>
+      {/* --- END NEW BUTTON --- */}
       <div className="h-6 w-px bg-gray-200 mx-2"></div>
       <ToolbarButton onClick={onUndo} title="Undo" disabled={!canUndo}><Undo className="w-4 h-4" /></ToolbarButton>
       <ToolbarButton onClick={onRedo} title="Redo" disabled={!canRedo}><Redo className="w-4 h-4" /></ToolbarButton>
@@ -217,7 +219,6 @@ export const EditorToolbar: React.FC<EditorToolbarProps> = (props) => {
           </div>
         )}
       </div>
-      {/* --- REVISED HEADER/FOOTER BUTTONS --- */}
       <div className="h-6 w-px bg-gray-200 mx-2"></div>
       <LabeledToolbarButton onClick={onEditHeader} title="Edit Header">
         <ArrowUpToLine className="w-4 h-4" />
@@ -227,7 +228,6 @@ export const EditorToolbar: React.FC<EditorToolbarProps> = (props) => {
         <ArrowDownToLine className="w-4 h-4" />
         <span>Footer</span>
       </LabeledToolbarButton>
-      {/* --- END REVISED BUTTONS --- */}
     </div>
   );
 };

@@ -1,5 +1,3 @@
-// src/components/editor/hooks/useEditor.tsx
-
 "use client";
 
 import React, { useState, useCallback, useRef, useEffect } from "react";
@@ -10,6 +8,7 @@ import { useHistory } from "./useHistory";
 import { useTextReflow } from "./useTextReflow";
 import { useMultiPageSelection } from "./useMultiPageSelection";
 import { PageNumber } from "../PageNumber";
+import { useFindReplace } from "./useFindReplace";
 
 const createNewPage = (): HTMLElement => {
   const newPageDiv = document.createElement("div");
@@ -110,10 +109,23 @@ export const useEditor = (
     startTextSelection,
   } = useMultiPageSelection(editorRef);
 
-  // --- FIX: The unmount logic is now synchronous within this function ---
+  // --- NEW: INSTANTIATE FIND/REPLACE HOOK ---
+  const {
+    findAll,
+    findNext,
+    findPrev,
+    replace,
+    replaceAll,
+    clearFindHighlights,
+    findMatchIndex,
+    findTotalMatches,
+    isSearching,
+    findHighlightRects,
+  } = useFindReplace(editorRef, saveToHistory, fullDocumentReflow);
+  // --- END NEW HOOK ---
+
   const unmountAllReactComponents = useCallback(() => {
     reactRootsRef.current.forEach((root) => {
-      // This synchronous call is now safe because we will call this entire function asynchronously.
       root.unmount();
     });
     reactRootsRef.current.clear();
@@ -1054,11 +1066,8 @@ export const useEditor = (
     [editorRef, saveToHistory, findInsertionTarget, addNewPage, scheduleReflow]
   );
 
-  // --- FIX: This is the final, correct cleanup logic ---
   useEffect(() => {
     return () => {
-      // When the component unmounts, schedule the entire cleanup to run asynchronously.
-      // This prevents the "unmounting while rendering" error.
       setTimeout(unmountAllReactComponents, 0);
     };
   }, [unmountAllReactComponents]);
@@ -1100,5 +1109,18 @@ export const useEditor = (
     customSelection,
     forceRecalculateRects,
     startTextSelection,
+    
+    // --- NEW: EXPORT FIND/REPLACE FUNCTIONALITY ---
+    findAll,
+    findNext,
+    findPrev,
+    replace,
+    replaceAll,
+    clearFindHighlights,
+    findMatchIndex,
+    findTotalMatches,
+    isSearching,
+    findHighlightRects,
+    // --- END NEW EXPORTS ---
   };
 };

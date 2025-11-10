@@ -391,7 +391,7 @@ import {
       const { messages } = await req.json();
       const baseUrl = new URL(req.url).origin;
       const model = genAI.getGenerativeModel({
-        model: "gemini-2.0-flash",
+        model: "gemini-2.5-flash",
         systemInstruction: systemPrompt,
         tools: [
           {

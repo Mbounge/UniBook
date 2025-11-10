@@ -1,5 +1,3 @@
-// src/app/(app)/editor/[bookid]/page.tsx
-
 "use client";
 
 import React, { useState, useEffect, useRef } from "react";
@@ -131,7 +129,19 @@ const EditorComponent = () => {
     startTextSelection,
     fullDocumentReflow,
     reflowSplitTable,
-    reflowSplitList
+    reflowSplitList,
+    // --- NEW: Destructure find/replace functions from useEditor ---
+    findAll,
+    findNext,
+    findPrev,
+    replace,
+    replaceAll,
+    clearFindHighlights,
+    findMatchIndex,
+    findTotalMatches,
+    isSearching,
+    findHighlightRects,
+    // --- END NEW ---
   } = useEditor(pageContainerRef);
 
   const { data: bookData, isLoading: isBookLoading, isError } = useQuery({
@@ -154,7 +164,6 @@ const EditorComponent = () => {
     if (bookData && pageContainerRef.current && !isContentLoaded) {
       pageContainerRef.current.innerHTML = bookData.content;
 
-      // --- FIX: Defer DOM manipulation and hydration to prevent race conditions ---
       setTimeout(() => {
         if (!pageContainerRef.current) return;
 
@@ -170,7 +179,6 @@ const EditorComponent = () => {
             const footerDiv = document.createElement("div");
             footerDiv.className = "page-footer";
             footerDiv.setAttribute("data-hf", "footer");
-            // Find the page-content to insert before, otherwise append
             const content = page.querySelector('.page-content');
             if (content) {
               page.insertBefore(footerDiv, content);
@@ -182,7 +190,6 @@ const EditorComponent = () => {
             const pageNumberContainer = document.createElement("div");
             pageNumberContainer.className = "page-number-container";
             pageNumberContainer.innerHTML = '<span class="page-number-placeholder" contenteditable="false">#</span>';
-            // Find the page-content to insert before, otherwise append
             const content = page.querySelector('.page-content');
             if (content) {
               page.insertBefore(pageNumberContainer, content);
@@ -198,7 +205,7 @@ const EditorComponent = () => {
         
         fullDocumentReflow();
         saveToHistory(true);
-      }, 50); // A small delay is enough for the browser to complete its initial layout pass.
+      }, 50);
 
       setIsContentLoaded(true);
     }
@@ -434,6 +441,18 @@ const EditorComponent = () => {
               startTextSelection={startTextSelection}
               insertContent={insertContent}
               addNewPage={addNewPage}
+              // --- NEW: Pass find/replace props to DocumentEditor ---
+              findAll={findAll}
+              findNext={findNext}
+              findPrev={findPrev}
+              replace={replace}
+              replaceAll={replaceAll}
+              clearFindHighlights={clearFindHighlights}
+              findMatchIndex={findMatchIndex}
+              findTotalMatches={findTotalMatches}
+              isSearching={isSearching}
+              findHighlightRects={findHighlightRects}
+              // --- END NEW ---
             />
           </div>
 

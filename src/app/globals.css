@@ -714,3 +714,16 @@ body {
   pointer-events: none;
   border-radius: 1px;
 }
+
+.find-match-highlight {
+  position: absolute;
+  background-color: rgba(20, 184, 166, 0.3); /* Lighter teal for found matches */
+  pointer-events: none;
+  border-radius: 2px;
+  transition: background-color 0.2s ease-in-out;
+}
+
+.find-match-highlight.current {
+  background-color: rgba(13, 148, 136, 0.6); /* Brighter teal for the current match */
+  box-shadow: 0 0 0 1px rgba(13, 148, 136, 0.8);
+}
