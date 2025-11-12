@@ -17,11 +17,11 @@ import { fetchBookById, updateBook, Book as BookData } from "@/lib/mock-data";
 import { useToast } from "@/hooks/use-toast";
 import { GraphData } from "@/components/editor/GraphBlock";
 
-const LoadingOverlay = () => (
+const LoadingOverlay = ({ message }: { message: string }) => (
   <div className="fixed inset-0 bg-white/80 backdrop-blur-sm flex flex-col items-center justify-center z-[100] animate-in fade-in duration-300">
     <Loader2 className="w-12 h-12 text-blue-600 animate-spin mb-4" />
-    <p className="text-lg font-semibold text-gray-700">Importing content...</p>
-    <p className="text-gray-500">Please wait while we paginate your document.</p>
+    <p className="text-lg font-semibold text-gray-700">{message}</p>
+    <p className="text-gray-500 mt-1">Please wait while we process your content.</p>
   </div>
 );
 
@@ -101,6 +101,7 @@ const EditorComponent = () => {
   const [isContentLoaded, setIsContentLoaded] = useState(false);
   const [isLeftPanelExpanded, setIsLeftPanelExpanded] = useState(false);
   const [isImporting, setIsImporting] = useState(false);
+  const [importMessage, setImportMessage] = useState("Importing content...");
   
   const pageContainerRef = useRef<HTMLDivElement | null>(null);
   
@@ -130,7 +131,6 @@ const EditorComponent = () => {
     fullDocumentReflow,
     reflowSplitTable,
     reflowSplitList,
-    // --- NEW: Destructure find/replace functions from useEditor ---
     findAll,
     findNext,
     findPrev,
@@ -141,7 +141,6 @@ const EditorComponent = () => {
     findTotalMatches,
     isSearching,
     findHighlightRects,
-    // --- END NEW ---
   } = useEditor(pageContainerRef);
 
   const { data: bookData, isLoading: isBookLoading, isError } = useQuery({
@@ -260,20 +259,30 @@ const EditorComponent = () => {
     setLeftPanelContent(null);
   };
 
-  const handleImport = (htmlBlocks: string[], createNewPages: boolean) => { 
+  const handleImport = async (htmlBlocks: string[], createNewPages: boolean) => {
     setIsImporting(true);
-    
-    setTimeout(() => {
-      try {
-        insertContent(htmlBlocks, createNewPages, true);
-      } catch (error) {
-        console.error("Error during content import:", error);
-        toast({ title: "Import Failed", description: "An error occurred while importing content.", variant: "destructive" });
-      } finally {
-        setIsImporting(false); 
-        setShowContentPanel(false);
-      }
-    }, 50);
+    setImportMessage("Preparing content..."); // Set initial message
+
+    // CRITICAL: Yield to the browser to ensure the loading overlay renders.
+    // requestAnimationFrame is perfect for "do this right before the next paint".
+    await new Promise(resolve => requestAnimationFrame(resolve));
+
+    try {
+      // Pass the message setter to the insertContent function
+      await insertContent(htmlBlocks, createNewPages, true, setImportMessage);
+    } catch (error) {
+      console.error("Error during content import:", error);
+      toast({
+        title: "Import Failed",
+        description: "An error occurred while importing content.",
+        variant: "destructive"
+      });
+    } finally {
+      // A brief delay before hiding the overlay can make the transition feel less abrupt.
+      await new Promise(resolve => setTimeout(resolve, 300));
+      setIsImporting(false);
+      setShowContentPanel(false);
+    }
   };
 
   const handleSaveDraft = () => {
@@ -327,7 +336,7 @@ const EditorComponent = () => {
 
   return (
     <div className="h-screen flex flex-col bg-gray-50">
-      {isImporting && <LoadingOverlay />}
+      {isImporting && <LoadingOverlay message={importMessage} />}
       <header className="bg-white/95 backdrop-blur-sm border-b border-gray-200 px-6 py-4 flex-shrink-0 z-20 shadow-sm">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-4">
@@ -384,7 +393,13 @@ const EditorComponent = () => {
                 <ChatAssistant 
                   isPanel={true} 
                   onClose={handleToggleAiPanel} 
-                  onInsertContent={(html) => insertContent([html], false)}
+                  onInsertContent={(html) => {
+                    setIsImporting(true);
+                    setTimeout(async () => {
+                      await insertContent([html], false, false, setImportMessage);
+                      setIsImporting(false);
+                    }, 50);
+                  }}
                   onInsertTemplate={(html) => {
                     insertTemplate(html);
                   }}
@@ -441,7 +456,6 @@ const EditorComponent = () => {
               startTextSelection={startTextSelection}
               insertContent={insertContent}
               addNewPage={addNewPage}
-              // --- NEW: Pass find/replace props to DocumentEditor ---
               findAll={findAll}
               findNext={findNext}
               findPrev={findPrev}
@@ -452,7 +466,6 @@ const EditorComponent = () => {
               findTotalMatches={findTotalMatches}
               isSearching={isSearching}
               findHighlightRects={findHighlightRects}
-              // --- END NEW ---
             />
           </div>
 

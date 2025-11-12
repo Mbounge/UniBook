@@ -26,7 +26,7 @@ const getRectsForMatch = (match: Match): DOMRect[] => {
 export const useFindReplace = (
   editorRef: React.RefObject<HTMLDivElement | null>,
   saveToHistory: (force?: boolean) => void,
-  fullDocumentReflow: () => void
+  fullDocumentReflow: () => Promise<void> // --- MODIFICATION: Updated function signature to reflect it's a Promise
 ) => {
   const [matches, setMatches] = useState<Match[]>([]);
   const [currentIndex, setCurrentIndex] = useState(-1);
@@ -116,16 +116,12 @@ export const useFindReplace = (
     elementToScroll?.scrollIntoView({ behavior: 'smooth', block: 'center' });
   }, [matches, clearFindHighlights]);
 
-  // --- FIX: Implement focus save/restore logic here ---
   useEffect(() => {
     if (matches.length > 0 && currentIndex >= 0) {
-      // 1. Save the currently focused element BEFORE we change the selection.
       const activeEl = document.activeElement;
 
-      // 2. Select the match, which will steal focus.
       selectMatch(currentIndex);
 
-      // 3. Check if the original focused element was inside our panel. If so, give focus back.
       if (activeEl && (activeEl as HTMLElement).closest('.find-replace-panel')) {
         (activeEl as HTMLElement).focus();
       }
@@ -171,7 +167,9 @@ export const useFindReplace = (
     }
   }, [matches, currentIndex, saveToHistory, findAll, clearFindHighlights]);
 
-  const replaceAll = useCallback((replaceText: string) => {
+  // --- MODIFICATION START ---
+  // Made this function async and replaced setTimeout with await.
+  const replaceAll = useCallback(async (replaceText: string) => {
     if (matches.length === 0) return;
 
     for (let i = matches.length - 1; i >= 0; i--) {
@@ -187,8 +185,9 @@ export const useFindReplace = (
 
     clearFindHighlights();
     saveToHistory(true);
-    setTimeout(fullDocumentReflow, 100);
+    await fullDocumentReflow();
   }, [matches, saveToHistory, clearFindHighlights, fullDocumentReflow]);
+  // --- MODIFICATION END ---
 
   return {
     findAll,

@@ -3467,10 +3467,10 @@ export const DocumentEditor = forwardRef<
         className="hidden"
       />
 
-      {/* <ReflowDebugger
+      <ReflowDebugger
         pageContainerRef={pageContainerRef}
         currentPage={currentPage}
-      /> */}
+      />
 
       <StatusBar
         currentPage={currentPage}
@@ -3485,11 +3485,11 @@ export const DocumentEditor = forwardRef<
         isMultiPageSelection={isMultiPageSelection}
         selectedPages={selectedPages}
       />
-      {/* <SelectionDebug
+      <SelectionDebug
         selectedText={selectedText}
         isMultiPageSelection={isMultiPageSelection}
         selectedPages={selectedPages}
-      /> */}
+      />
     </div>
   );
 });

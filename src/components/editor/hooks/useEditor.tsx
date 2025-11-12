@@ -77,7 +77,7 @@ export const useEditor = (
     reflowSplitList
   } = useTextReflow(editorRef, saveToHistory);
 
-  const fullDocumentReflow = useCallback(() => {
+  const fullDocumentReflow = useCallback(async () => {
     if (!editorRef.current) return;
     console.log('[Reflow] Starting Full Document Reflow...');
     let currentPage = editorRef.current.querySelector('.page') as HTMLElement | null;
@@ -109,7 +109,6 @@ export const useEditor = (
     startTextSelection,
   } = useMultiPageSelection(editorRef);
 
-  // --- NEW: INSTANTIATE FIND/REPLACE HOOK ---
   const {
     findAll,
     findNext,
@@ -122,7 +121,6 @@ export const useEditor = (
     isSearching,
     findHighlightRects,
   } = useFindReplace(editorRef, saveToHistory, fullDocumentReflow);
-  // --- END NEW HOOK ---
 
   const unmountAllReactComponents = useCallback(() => {
     reactRootsRef.current.forEach((root) => {
@@ -720,13 +718,17 @@ export const useEditor = (
   );
 
   const insertContent = useCallback(
-    (
+    async (
       htmlBlocks: string[],
       createNewPages: boolean,
-      isInternal: boolean = false
+      isInternal: boolean = false,
+      setProgressMessage?: (message: string) => void
     ) => {
       if (!editorRef.current) return;
       saveToHistory(true);
+
+      setProgressMessage?.("Sanitizing content...");
+      await new Promise(resolve => setTimeout(resolve, 10)); // Yield
 
       const sanitizeAndStyle = (html: string): string => {
         if (isInternal) {
@@ -926,48 +928,77 @@ export const useEditor = (
         }
       });
 
-      const fragment = finalFragment;
-      const lastNodeRef = fragment.lastChild;
+      const fragmentNodes = Array.from(finalFragment.childNodes);
+      const lastNodeRef = fragmentNodes.length > 0 ? fragmentNodes[fragmentNodes.length - 1] : null;
 
       const selection = window.getSelection();
+      let insertionPoint: Node | null = null;
+      let insertBeforeNode: Node | null = null;
+
       if (!selection || selection.rangeCount === 0) {
-        const lastPage = editorRef.current.querySelector(
-          ".page-content:last-child"
-        );
-        lastPage?.appendChild(fragment);
+        insertionPoint = editorRef.current.querySelector(".page-content:last-child");
       } else {
         const range = selection.getRangeAt(0);
         let node = range.startContainer;
-        let targetBlock = (
-          node.nodeType === Node.ELEMENT_NODE ? node : node.parentElement
-        ) as HTMLElement;
-        while (
-          targetBlock &&
-          targetBlock.parentElement &&
-          !targetBlock.parentElement.classList.contains("page-content")
-        ) {
+        let targetBlock = (node.nodeType === Node.ELEMENT_NODE ? node : node.parentElement) as HTMLElement;
+        while (targetBlock && targetBlock.parentElement && !targetBlock.parentElement.classList.contains("page-content")) {
           targetBlock = targetBlock.parentElement;
         }
-        if (
-          targetBlock &&
-          targetBlock.parentElement?.classList.contains("page-content")
-        ) {
-          const isEffectivelyEmpty =
-            (!targetBlock.textContent?.trim() &&
-              !targetBlock.querySelector(
-                "img, .image-wrapper, .graph-wrapper, .math-wrapper, .template-wrapper"
-              )) ||
-            targetBlock.innerHTML.toLowerCase().trim() === "<br>";
+        if (targetBlock && targetBlock.parentElement?.classList.contains("page-content")) {
+          const isEffectivelyEmpty = (!targetBlock.textContent?.trim() && !targetBlock.querySelector("img, .image-wrapper, .graph-wrapper, .math-wrapper, .template-wrapper")) || targetBlock.innerHTML.toLowerCase().trim() === "<br>";
           if (isEffectivelyEmpty) {
-            targetBlock.replaceWith(fragment);
+            insertionPoint = targetBlock.parentElement;
+            insertBeforeNode = targetBlock;
           } else {
-            targetBlock.after(fragment);
+            insertionPoint = targetBlock.parentElement;
+            insertBeforeNode = targetBlock.nextSibling;
           }
         } else {
           range.deleteContents();
-          range.insertNode(fragment);
+          const emptySpan = document.createElement('span');
+          range.insertNode(emptySpan);
+          insertionPoint = emptySpan.parentElement;
+          insertBeforeNode = emptySpan;
         }
       }
+
+      if (!insertionPoint) {
+        insertionPoint = editorRef.current.querySelector(".page-content:last-child");
+      }
+
+      if (!insertionPoint) {
+        console.error("Could not find a valid insertion point for content.");
+        setProgressMessage?.("Error: Could not find insertion point.");
+        return;
+      }
+
+      setProgressMessage?.("Adding new content...");
+      await new Promise(resolve => setTimeout(resolve, 10)); // Yield
+
+      const CHUNK_SIZE = 5;
+      for (let i = 0; i < fragmentNodes.length; i += CHUNK_SIZE) {
+        const chunk = fragmentNodes.slice(i, i + CHUNK_SIZE);
+        const chunkFragment = document.createDocumentFragment();
+        chunk.forEach(node => chunkFragment.appendChild(node));
+
+        if (insertBeforeNode) {
+          insertionPoint.insertBefore(chunkFragment, insertBeforeNode);
+        } else {
+          insertionPoint.appendChild(chunkFragment);
+        }
+        
+        await new Promise(resolve => setTimeout(resolve, 20)); 
+      }
+      
+      if (insertBeforeNode instanceof Element && insertBeforeNode.tagName === 'SPAN' && insertBeforeNode.innerHTML === '') {
+        insertBeforeNode.remove();
+      } else if (insertBeforeNode instanceof Element && insertBeforeNode.tagName !== 'SPAN') {
+        const prevSibling = insertBeforeNode.previousSibling;
+        if (prevSibling instanceof Element) {
+          prevSibling.remove();
+        }
+      }
+      
       if (lastNodeRef) {
         const newRange = document.createRange();
         newRange.setStartAfter(lastNodeRef);
@@ -975,25 +1006,62 @@ export const useEditor = (
         selection?.removeAllRanges();
         selection?.addRange(newRange);
       }
+
+      await document.fonts.ready;
       
-      setTimeout(async () => {
-        await document.fonts.ready;
-        if (editorRef.current) {
-          rehydrateMathBlocks(editorRef.current);
-          rehydrateGraphBlocks(editorRef.current);
+      if (editorRef.current) {
+        setProgressMessage?.("Applying styles...");
+        await new Promise(resolve => setTimeout(resolve, 50));
+        rehydrateMathBlocks(editorRef.current);
+        rehydrateGraphBlocks(editorRef.current);
+        
+        await new Promise(resolve => setTimeout(resolve, 100));
+        
+        const paginationMessages = [
+            "Arranging content onto pages...",
+            "Optimizing text flow...",
+            "Adjusting page breaks...",
+            "Formatting new pages..."
+        ];
+        let messageIndex = 0;
+        setProgressMessage?.(paginationMessages[0]);
+        
+        
+        const pages = Array.from(editorRef.current.querySelectorAll('.page'));
+        for (let i = 0; i < pages.length; i++) {
+          const page = pages[i] as HTMLElement;
+          reflowPage(page);
           
           
-          fullDocumentReflow();
+          if (i > 0 && i % 2 === 0) {
+            messageIndex = (messageIndex + 1) % paginationMessages.length;
+            setProgressMessage?.(paginationMessages[messageIndex]);
+          }
+         
+          
+          await new Promise(resolve => setTimeout(resolve, 50));
         }
-        saveToHistory(true);
-      }, 100); 
+        
+        setProgressMessage?.("Finalizing layout...");
+        await new Promise(resolve => setTimeout(resolve, 100));
+        
+        const firstPage = editorRef.current.querySelector('.page') as HTMLElement | null;
+        if (firstPage) {
+          reflowBackwardFromPage(firstPage);
+        }
+        
+        await new Promise(resolve => setTimeout(resolve, 100));
+      }
+      
+      saveToHistory(true);
     },
     [
       editorRef,
       saveToHistory,
       findInsertionTarget,
       addNewPage,
-      fullDocumentReflow,
+      reflowPage,
+      reflowBackwardFromPage,
       rehydrateGraphBlocks,
       rehydrateMathBlocks,
     ]
@@ -1110,7 +1178,6 @@ export const useEditor = (
     forceRecalculateRects,
     startTextSelection,
     
-    // --- NEW: EXPORT FIND/REPLACE FUNCTIONALITY ---
     findAll,
     findNext,
     findPrev,
@@ -1121,6 +1188,5 @@ export const useEditor = (
     findTotalMatches,
     isSearching,
     findHighlightRects,
-    // --- END NEW EXPORTS ---
   };
 };
