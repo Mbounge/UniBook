@@ -1,16 +1,21 @@
-//src/component/editor/hooks/useHistory.ts
-
 'use client';
 
 import { useState, useCallback, useRef } from 'react';
 
+interface HistoryPatch {
+  pageIndex: number;
+  html: string; // innerHTML of the .page element
+}
+
 interface HistoryState {
-  html: string;
+  patches: HistoryPatch[];
   startOffset: number;
   endOffset: number;
 }
 
-const INPUT_DEBOUNCE_MS = 1000;
+// --- MODIFICATION START: Shorter, snappier debounce time ---
+const INPUT_DEBOUNCE_MS = 200;
+// --- MODIFICATION END ---
 
 const getSelectionOffsets = (container: HTMLElement): { startOffset: number; endOffset: number } => {
   const selection = window.getSelection();
@@ -24,7 +29,6 @@ const getSelectionOffsets = (container: HTMLElement): { startOffset: number; end
   return { startOffset, endOffset };
 };
 
-// --- MODIFICATION: This function now returns the element to scroll to ---
 const restoreSelectionFromOffsets = (container: HTMLElement, startOffset: number, endOffset: number): HTMLElement | null => {
   const selection = window.getSelection();
   if (!selection) return null;
@@ -56,7 +60,6 @@ const restoreSelectionFromOffsets = (container: HTMLElement, startOffset: number
       selection.removeAllRanges();
       selection.addRange(range);
 
-      // Find the common ancestor element and return it for scrolling.
       let elementToScrollTo = range.commonAncestorContainer;
       if (elementToScrollTo.nodeType === Node.TEXT_NODE) {
         elementToScrollTo = elementToScrollTo.parentElement!;
@@ -68,52 +71,98 @@ const restoreSelectionFromOffsets = (container: HTMLElement, startOffset: number
       return null;
     }
   } else {
-    // If selection fails, we can't scroll to it.
     try {
         range.selectNodeContents(container);
         range.collapse(true);
         selection.removeAllRanges();
         selection.addRange(range);
     } catch (e) { console.error("Failed to set cursor in empty editor:", e); }
-    return container; // Return the main container as a fallback
+    return container;
   }
 };
+
+const getCleanPageSnapshot = (pageElement: HTMLElement): string => {
+  const pageClone = pageElement.cloneNode(true) as HTMLElement;
+  pageClone.querySelectorAll('.math-wrapper, .graph-wrapper').forEach(el => { el.innerHTML = ''; });
+  pageClone.querySelectorAll('.image-resize-overlay, .template-resize-overlay, .image-toolbar, .template-toolbar, .graph-resize-overlay, .graph-toolbar, .math-resize-overlay, .math-toolbar').forEach(el => el.remove());
+  pageClone.querySelectorAll('.template-selected, .graph-selected, .math-selected').forEach(el => { 
+    el.classList.remove('template-selected'); 
+    el.classList.remove('graph-selected');
+    el.classList.remove('math-selected');
+  });
+  return pageClone.innerHTML;
+};
+
 
 export const useHistory = (editorRef: React.RefObject<HTMLDivElement | null>) => {
   const [history, setHistory] = useState<HistoryState[]>([]);
   const [currentIndex, setCurrentIndex] = useState(-1);
   const inputTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const isTyping = useRef(false);
+  const pendingPatches = useRef<Map<number, string>>(new Map());
 
   const canUndo = currentIndex > 0;
   const canRedo = currentIndex < history.length - 1;
 
-  const getCleanSnapshot = useCallback((): string => {
-    if (!editorRef.current) return '';
-    const editorClone = editorRef.current.cloneNode(true) as HTMLElement;
-    editorClone.querySelectorAll('.math-wrapper, .graph-wrapper').forEach(el => { el.innerHTML = ''; });
-    editorClone.querySelectorAll('.image-resize-overlay, .template-resize-overlay, .image-toolbar, .template-toolbar, .graph-resize-overlay, .graph-toolbar').forEach(el => el.remove());
-    editorClone.querySelectorAll('.template-selected, .graph-selected').forEach(el => { el.classList.remove('template-selected'); el.classList.remove('graph-selected'); });
-    return editorClone.innerHTML;
-  }, [editorRef]);
-
   const commit = useCallback(() => {
-    if (!editorRef.current) return;
+    if (!editorRef.current || pendingPatches.current.size === 0) {
+      if (inputTimeoutRef.current) clearTimeout(inputTimeoutRef.current);
+      isTyping.current = false;
+      return;
+    };
+    
     isTyping.current = false;
     if (inputTimeoutRef.current) clearTimeout(inputTimeoutRef.current);
+
     const { startOffset, endOffset } = getSelectionOffsets(editorRef.current);
-    const newHtml = getCleanSnapshot();
-    if (history[currentIndex]?.html === newHtml) return;
-    const newState: HistoryState = { html: newHtml, startOffset, endOffset };
+    
+    const newPatches: HistoryPatch[] = [];
+    pendingPatches.current.forEach((html, pageIndex) => {
+      newPatches.push({ pageIndex, html });
+    });
+    pendingPatches.current.clear();
+
+    const newState: HistoryState = { patches: newPatches, startOffset, endOffset };
     const newHistory = [...history.slice(0, currentIndex + 1), newState].slice(-100);
+    
     setHistory(newHistory);
     setCurrentIndex(newHistory.length - 1);
-  }, [getCleanSnapshot, history, currentIndex, editorRef]);
+  }, [history, currentIndex, editorRef]);
 
-  const record = useCallback((type: 'action' | 'input') => {
+  const record = useCallback((type: 'action' | 'input', affectedElements?: HTMLElement[]) => {
+    if (!editorRef.current) return;
     if (inputTimeoutRef.current) clearTimeout(inputTimeoutRef.current);
+
+    const allPages = Array.from(editorRef.current.querySelectorAll('.page'));
+    let elementsToPatch = affectedElements || [];
+
+    if (elementsToPatch.length === 0) {
+      const selection = window.getSelection();
+      if (selection && selection.rangeCount > 0) {
+        const range = selection.getRangeAt(0);
+        const startNode = range.startContainer;
+        const parentElement = startNode.nodeType === Node.ELEMENT_NODE ? startNode as HTMLElement : startNode.parentElement;
+        const page = parentElement?.closest('.page');
+        if (page instanceof HTMLElement) {
+          elementsToPatch.push(page);
+        }
+      }
+    }
+
+    elementsToPatch.forEach(el => {
+      const page = el.closest('.page') as HTMLElement;
+      if (page) {
+        const pageIndex = allPages.indexOf(page);
+        if (pageIndex !== -1) {
+          pendingPatches.current.set(pageIndex, getCleanPageSnapshot(page));
+        }
+      }
+    });
+
     if (type === 'action') {
-      if (isTyping.current) commit();
+      if (isTyping.current) {
+        commit(); 
+      }
       setTimeout(commit, 50); 
     } else {
       isTyping.current = true;
@@ -122,7 +171,21 @@ export const useHistory = (editorRef: React.RefObject<HTMLDivElement | null>) =>
   }, [commit]);
 
   const undo = useCallback((): HistoryState | null => {
-    if (isTyping.current) commit();
+    // --- MODIFICATION START: Commit any pending typing before undoing ---
+    if (isTyping.current) {
+      commit();
+      // We need a small delay to allow the state update from commit() to process
+      // before we calculate the correct index for undo.
+      setTimeout(() => {
+        if (canUndo) {
+          setCurrentIndex(prev => prev - 1);
+        }
+      }, 50);
+      // Return the state that is *currently* at the tip of the history stack
+      return canUndo ? history[currentIndex -1] : null;
+    }
+    // --- MODIFICATION END ---
+    
     if (canUndo) {
       setCurrentIndex(prev => prev - 1);
       return history[currentIndex - 1];
@@ -140,20 +203,28 @@ export const useHistory = (editorRef: React.RefObject<HTMLDivElement | null>) =>
   
   const initialize = useCallback(() => {
      if (editorRef.current && history.length === 0) {
-        const initialHtml = getCleanSnapshot();
-        const initialState: HistoryState = { html: initialHtml, startOffset: 0, endOffset: 0 };
+        const allPages = Array.from(editorRef.current.querySelectorAll('.page')) as HTMLElement[];
+        const initialPatches = allPages.map((page, index) => ({
+          pageIndex: index,
+          html: getCleanPageSnapshot(page)
+        }));
+        const initialState: HistoryState = { patches: initialPatches, startOffset: 0, endOffset: 0 };
         setHistory([initialState]);
         setCurrentIndex(0);
      }
-  }, [editorRef, getCleanSnapshot, history.length]);
+  }, [editorRef, history.length]);
 
   const resetHistory = useCallback(() => {
     if (!editorRef.current) return;
-    const initialHtml = getCleanSnapshot();
-    const initialState: HistoryState = { html: initialHtml, startOffset: 0, endOffset: 0 };
+    const allPages = Array.from(editorRef.current.querySelectorAll('.page')) as HTMLElement[];
+    const initialPatches = allPages.map((page, index) => ({
+      pageIndex: index,
+      html: getCleanPageSnapshot(page)
+    }));
+    const initialState: HistoryState = { patches: initialPatches, startOffset: 0, endOffset: 0 };
     setHistory([initialState]);
     setCurrentIndex(0);
-  }, [editorRef, getCleanSnapshot]);
+  }, [editorRef]);
 
   return {
     record,

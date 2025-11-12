@@ -159,6 +159,7 @@ const EditorComponent = () => {
     }
   });
 
+  // --- MODIFICATION START: The main fix for the initialization bug is here ---
   useEffect(() => {
     if (bookData && pageContainerRef.current && !isContentLoaded) {
       pageContainerRef.current.innerHTML = bookData.content;
@@ -203,12 +204,17 @@ const EditorComponent = () => {
         rehydratePageNumbers(pageContainerRef.current);
         
         fullDocumentReflow();
-        saveToHistory(true);
+        
+        // CRITICAL FIX: Reset the history to establish a clean baseline *after*
+        // the content is fully loaded and processed.
+        resetHistory();
+        
       }, 50);
 
       setIsContentLoaded(true);
     }
-  }, [bookData, pageContainerRef, isContentLoaded, saveToHistory, rehydrateMathBlocks, rehydrateGraphBlocks, rehydratePageNumbers, fullDocumentReflow]);
+  }, [bookData, pageContainerRef, isContentLoaded, resetHistory, rehydrateMathBlocks, rehydrateGraphBlocks, rehydratePageNumbers, fullDocumentReflow]);
+  // --- MODIFICATION END ---
 
   useEffect(() => {
     if (showTocPanel || leftPanelContent) {
@@ -261,14 +267,11 @@ const EditorComponent = () => {
 
   const handleImport = async (htmlBlocks: string[], createNewPages: boolean) => {
     setIsImporting(true);
-    setImportMessage("Preparing content..."); // Set initial message
+    setImportMessage("Preparing content...");
 
-    // CRITICAL: Yield to the browser to ensure the loading overlay renders.
-    // requestAnimationFrame is perfect for "do this right before the next paint".
     await new Promise(resolve => requestAnimationFrame(resolve));
 
     try {
-      // Pass the message setter to the insertContent function
       await insertContent(htmlBlocks, createNewPages, true, setImportMessage);
     } catch (error) {
       console.error("Error during content import:", error);
@@ -278,7 +281,6 @@ const EditorComponent = () => {
         variant: "destructive"
       });
     } finally {
-      // A brief delay before hiding the overlay can make the transition feel less abrupt.
       await new Promise(resolve => setTimeout(resolve, 300));
       setIsImporting(false);
       setShowContentPanel(false);

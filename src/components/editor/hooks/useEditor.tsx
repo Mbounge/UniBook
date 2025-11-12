@@ -58,8 +58,8 @@ export const useEditor = (
   const reactRootsRef = useRef<Map<HTMLElement, Root>>(new Map());
 
   const saveToHistory = useCallback(
-    (force: boolean = false) => {
-      record(force ? "action" : "input");
+    (force: boolean = false, affectedElements?: HTMLElement[]) => {
+      record(force ? "action" : "input", affectedElements);
     },
     [record]
   );
@@ -171,17 +171,18 @@ export const useEditor = (
 
         const handleUpdate = (newTex: string) => {
           wrapper.dataset.tex = newTex;
-          saveToHistory(true);
+          saveToHistory(true, [wrapper]);
           scheduleReflow();
         };
         const handleRemove = () => {
+          const page = wrapper.closest('.page') as HTMLElement;
           const root = reactRootsRef.current.get(wrapper);
           if (root) {
             root.unmount();
             reactRootsRef.current.delete(wrapper);
           }
           wrapper.remove();
-          saveToHistory(true);
+          saveToHistory(true, page ? [page] : undefined);
           scheduleReflow();
         };
         mountReactComponent(
@@ -208,17 +209,18 @@ export const useEditor = (
         const initialGraphData = JSON.parse(wrapper.dataset.graph);
         const handleUpdate = (newGraphData: GraphData) => {
           wrapper.dataset.graph = JSON.stringify(newGraphData);
-          saveToHistory(true);
+          saveToHistory(true, [wrapper]);
           scheduleReflow();
         };
         const handleRemove = () => {
+          const page = wrapper.closest('.page') as HTMLElement;
           const root = reactRootsRef.current.get(wrapper);
           if (root) {
             root.unmount();
             reactRootsRef.current.delete(wrapper);
           }
           wrapper.remove();
-          saveToHistory(true);
+          saveToHistory(true, page ? [page] : undefined);
           scheduleReflow();
         };
         mountReactComponent(
@@ -235,31 +237,47 @@ export const useEditor = (
   );
 
   const restoreStateFromHistory = useCallback(
-    (
-      state: { html: string; startOffset: number; endOffset: number } | null
-    ) => {
-      if (state && editorRef.current) {
-        unmountAllReactComponents();
-        editorRef.current.innerHTML = state.html;
-        rehydrateMathBlocks(editorRef.current);
-        rehydrateGraphBlocks(editorRef.current);
-        rehydratePageNumbers(editorRef.current);
+    (state: { patches: { pageIndex: number; html: string }[]; startOffset: number; endOffset: number } | null) => {
+      if (!state || !editorRef.current) return;
 
-        const elementToFocus = restoreSelection(
-          editorRef.current,
-          state.startOffset,
-          state.endOffset
-        );
+      unmountAllReactComponents();
 
-        if (elementToFocus) {
-          setTimeout(() => {
-            elementToFocus.scrollIntoView({
-              behavior: "smooth",
-              block: "center",
-              inline: "nearest",
-            });
-          }, 50);
+      const allPages = Array.from(editorRef.current.querySelectorAll('.page'));
+
+      state.patches.forEach(patch => {
+        const pageToUpdate = allPages[patch.pageIndex] as HTMLElement | undefined;
+        if (pageToUpdate) {
+          pageToUpdate.innerHTML = patch.html;
+        } else {
+          const newPage = document.createElement('div');
+          newPage.className = 'page';
+          newPage.innerHTML = patch.html;
+          if (patch.pageIndex >= allPages.length) {
+            editorRef.current?.appendChild(newPage);
+          } else {
+            editorRef.current?.insertBefore(newPage, allPages[patch.pageIndex]);
+          }
         }
+      });
+      
+      rehydrateMathBlocks(editorRef.current);
+      rehydrateGraphBlocks(editorRef.current);
+      rehydratePageNumbers(editorRef.current);
+
+      const elementToFocus = restoreSelection(
+        editorRef.current,
+        state.startOffset,
+        state.endOffset
+      );
+
+      if (elementToFocus) {
+        setTimeout(() => {
+          elementToFocus.scrollIntoView({
+            behavior: "smooth",
+            block: "center",
+            inline: "nearest",
+          });
+        }, 50);
       }
     },
     [
@@ -273,8 +291,8 @@ export const useEditor = (
   );
 
   const undo = useCallback(() => {
-    const prevState = historyUndo();
-    restoreStateFromHistory(prevState);
+    const previousState = historyUndo();
+    restoreStateFromHistory(previousState);
   }, [historyUndo, restoreStateFromHistory]);
 
   const redo = useCallback(() => {
@@ -291,18 +309,17 @@ export const useEditor = (
   useEffect(() => {
     const container = editorRef.current;
     if (!container) return;
+
     const handleKeyDown = (e: KeyboardEvent) => {
-      if (
-        ["Enter", "ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight"].includes(
-          e.key
-        )
-      ) {
+      if (["ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight"].includes(e.key)) {
         forceCommit();
       }
     };
+
     const handleMouseUp = () => {
       forceCommit();
     };
+
     container.addEventListener("keydown", handleKeyDown);
     container.addEventListener("mouseup", handleMouseUp);
     return () => {
@@ -374,13 +391,13 @@ export const useEditor = (
 
   const addNewPage = useCallback(() => {
     if (!editorRef.current) return;
-    saveToHistory(true);
-
     const allPages = editorRef.current.querySelectorAll(".page");
     const lastPageBeforeAdding =
       allPages.length > 0
         ? (allPages[allPages.length - 1] as HTMLElement)
         : null;
+
+    saveToHistory(true, lastPageBeforeAdding ? [lastPageBeforeAdding] : undefined);
 
     if (lastPageBeforeAdding) {
       const lastPageContent = lastPageBeforeAdding.querySelector('.page-content') as HTMLElement;
@@ -432,7 +449,7 @@ export const useEditor = (
     selection?.addRange(range);
 
     setTimeout(() => {
-      saveToHistory(true);
+      saveToHistory(true, [newPageDiv]);
     }, 100);
   }, [editorRef, saveToHistory, reflowPage, getContentHeight, getAvailableHeight, rehydratePageNumbers]);
 
@@ -480,13 +497,14 @@ export const useEditor = (
 
   const insertMath = useCallback(
     (isInline?: boolean) => {
-      saveToHistory(true);
       let target = findInsertionTarget();
       if (!target) {
         addNewPage();
         target = findInsertionTarget();
         if (!target) return;
       }
+      const page = (target.container.closest('.page') as HTMLElement);
+      saveToHistory(true, page ? [page] : undefined);
 
       const wrapper = document.createElement("div");
       wrapper.className = "math-wrapper";
@@ -497,17 +515,18 @@ export const useEditor = (
 
       const handleUpdate = (newTex: string) => {
         wrapper.dataset.tex = newTex;
-        saveToHistory(true);
+        saveToHistory(true, [wrapper]);
         scheduleReflow();
       };
       const handleRemove = () => {
+        const page = wrapper.closest('.page') as HTMLElement;
         const root = reactRootsRef.current.get(wrapper);
         if (root) {
           root.unmount();
           reactRootsRef.current.delete(wrapper);
         }
         wrapper.remove();
-        saveToHistory(true);
+        saveToHistory(true, page ? [page] : undefined);
         scheduleReflow();
       };
 
@@ -555,7 +574,8 @@ export const useEditor = (
 
       ensureCursorFriendlyBlocks(wrapper, selection);
       setTimeout(() => {
-        saveToHistory(true);
+        const page = wrapper.closest('.page') as HTMLElement;
+        saveToHistory(true, page ? [page] : undefined);
         scheduleReflow();
       }, 100);
     },
@@ -570,13 +590,15 @@ export const useEditor = (
 
   const insertGraph = useCallback(
     (graphData: GraphData) => {
-      saveToHistory(true);
       let target = findInsertionTarget();
       if (!target) {
         addNewPage();
         target = findInsertionTarget();
         if (!target) return;
       }
+      const page = (target.container.closest('.page') as HTMLElement);
+      saveToHistory(true, page ? [page] : undefined);
+
       const wrapper = document.createElement("div");
       wrapper.className = "graph-wrapper";
       wrapper.contentEditable = "false";
@@ -585,17 +607,18 @@ export const useEditor = (
       wrapper.style.width = `${graphData.width}px`;
       const handleUpdate = (newGraphData: GraphData) => {
         wrapper.dataset.graph = JSON.stringify(newGraphData);
-        saveToHistory(true);
+        saveToHistory(true, [wrapper]);
         scheduleReflow();
       };
       const handleRemove = () => {
+        const page = wrapper.closest('.page') as HTMLElement;
         const root = reactRootsRef.current.get(wrapper);
         if (root) {
           root.unmount();
           reactRootsRef.current.delete(wrapper);
         }
         wrapper.remove();
-        saveToHistory(true);
+        saveToHistory(true, page ? [page] : undefined);
         scheduleReflow();
       };
       mountReactComponent(
@@ -641,7 +664,8 @@ export const useEditor = (
 
       ensureCursorFriendlyBlocks(wrapper, selection);
       setTimeout(() => {
-        saveToHistory(true);
+        const page = wrapper.closest('.page') as HTMLElement;
+        saveToHistory(true, page ? [page] : undefined);
         scheduleReflow();
       }, 100);
     },
@@ -656,13 +680,15 @@ export const useEditor = (
 
   const insertImage = useCallback(
     (imageData: any) => {
-      saveToHistory(true);
       let target = findInsertionTarget();
       if (!target) {
         addNewPage();
         target = findInsertionTarget();
         if (!target) return;
       }
+      const page = (target.container.closest('.page') as HTMLElement);
+      saveToHistory(true, page ? [page] : undefined);
+
       const wrapper = document.createElement("div");
       wrapper.className = "image-wrapper";
       wrapper.dataset.float = "none";
@@ -710,7 +736,8 @@ export const useEditor = (
 
       ensureCursorFriendlyBlocks(wrapper, selection);
       setTimeout(() => {
-        saveToHistory(true);
+        const page = wrapper.closest('.page') as HTMLElement;
+        saveToHistory(true, page ? [page] : undefined);
         scheduleReflow();
       }, 100);
     },
@@ -725,7 +752,10 @@ export const useEditor = (
       setProgressMessage?: (message: string) => void
     ) => {
       if (!editorRef.current) return;
-      saveToHistory(true);
+      
+      const target = findInsertionTarget();
+      const initialPage = target?.container.closest('.page') as HTMLElement;
+      saveToHistory(true, initialPage ? [initialPage] : undefined);
 
       setProgressMessage?.("Sanitizing content...");
       await new Promise(resolve => setTimeout(resolve, 10)); // Yield
@@ -1026,18 +1056,15 @@ export const useEditor = (
         let messageIndex = 0;
         setProgressMessage?.(paginationMessages[0]);
         
-        
         const pages = Array.from(editorRef.current.querySelectorAll('.page'));
         for (let i = 0; i < pages.length; i++) {
           const page = pages[i] as HTMLElement;
           reflowPage(page);
           
-          
           if (i > 0 && i % 2 === 0) {
             messageIndex = (messageIndex + 1) % paginationMessages.length;
             setProgressMessage?.(paginationMessages[messageIndex]);
           }
-         
           
           await new Promise(resolve => setTimeout(resolve, 50));
         }
@@ -1053,7 +1080,7 @@ export const useEditor = (
         await new Promise(resolve => setTimeout(resolve, 100));
       }
       
-      saveToHistory(true);
+      saveToHistory(true, Array.from(editorRef.current.querySelectorAll('.page')) as HTMLElement[]);
     },
     [
       editorRef,
@@ -1070,13 +1097,15 @@ export const useEditor = (
   const insertTemplate = useCallback(
     (templateHtml: string) => {
       if (!editorRef.current) return;
-      saveToHistory(true);
       let target = findInsertionTarget();
       if (!target) {
         addNewPage();
         target = findInsertionTarget();
         if (!target) return;
       }
+      const page = target.container.closest('.page') as HTMLElement;
+      saveToHistory(true, page ? [page] : undefined);
+
       const { container: targetContainer, range } = target;
       if (targetContainer && range) {
         const templateWrapper = document.createElement("div");
@@ -1127,7 +1156,8 @@ export const useEditor = (
         ensureCursorFriendlyBlocks(templateWrapper, selection);
       }
       setTimeout(() => {
-        saveToHistory(true);
+        const page = target?.container.closest('.page') as HTMLElement;
+        saveToHistory(true, page ? [page] : undefined);
         scheduleReflow();
       }, 100);
     },
