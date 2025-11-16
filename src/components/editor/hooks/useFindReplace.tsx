@@ -3,45 +3,30 @@
 import { useState, useCallback, useRef, useEffect } from 'react';
 import { FindOptions } from '../FindReplacePanel';
 
-interface Match {
+export interface Match { 
   node: Text;
   startOffset: number;
   endOffset: number;
   pageIndex: number;
 }
 
-const getRectsForMatch = (match: Match): DOMRect[] => {
-  if (!document.body.contains(match.node)) return [];
-  const range = document.createRange();
-  try {
-    range.setStart(match.node, match.startOffset);
-    range.setEnd(match.node, match.endOffset);
-    return Array.from(range.getClientRects());
-  } catch (e) {
-    console.error("Error creating range for match:", e);
-    return [];
-  }
-};
-
 export const useFindReplace = (
   editorRef: React.RefObject<HTMLDivElement | null>,
-  saveToHistory: (force?: boolean) => void,
-  fullDocumentReflow: () => Promise<void> // --- MODIFICATION: Updated function signature to reflect it's a Promise
+  saveToHistory: (force?: boolean, affectedElements?: HTMLElement[]) => void,
+  fullDocumentReflow: () => Promise<void>
 ) => {
   const [matches, setMatches] = useState<Match[]>([]);
   const [currentIndex, setCurrentIndex] = useState(-1);
   const [isSearching, setIsSearching] = useState(false);
-  const [findHighlightRects, setFindHighlightRects] = useState<DOMRect[]>([]);
   const currentQuery = useRef<{ query: string; options: FindOptions } | null>(null);
 
   const clearFindHighlights = useCallback(() => {
     setMatches([]);
     setCurrentIndex(-1);
-    setFindHighlightRects([]);
     currentQuery.current = null;
   }, []);
 
-  const findAll = useCallback((query: string, options: FindOptions) => {
+  const findAll = useCallback(async (query: string, options: FindOptions) => {
     if (!editorRef.current || !query) {
       clearFindHighlights();
       return;
@@ -53,7 +38,9 @@ export const useFindReplace = (
       currentQuery.current?.options.wholeWord === options.wholeWord
     ) {
       if (matches.length > 0) {
-        setCurrentIndex(0);
+        const newIndex = 0;
+        setCurrentIndex(newIndex);
+        selectMatch(newIndex, matches);
       }
       return;
     }
@@ -61,43 +48,49 @@ export const useFindReplace = (
     setIsSearching(true);
     currentQuery.current = { query, options };
     
-    setTimeout(() => {
-      const newMatches: Match[] = [];
-      const pages = Array.from(editorRef.current!.querySelectorAll('.page'));
-      const flags = options.matchCase ? 'g' : 'gi';
-      const searchPattern = options.wholeWord ? `\\b${query}\\b` : query;
-      const regex = new RegExp(searchPattern, flags);
+    await new Promise(resolve => setTimeout(resolve, 50));
 
-      pages.forEach((page, pageIndex) => {
-        const contentAreas = page.querySelectorAll('.page-content, .page-header, .page-footer');
-        contentAreas.forEach(area => {
-          const walker = document.createTreeWalker(area, NodeFilter.SHOW_TEXT);
-          let node;
-          while ((node = walker.nextNode())) {
-            const textNode = node as Text;
-            const text = textNode.textContent || '';
-            let match;
-            while ((match = regex.exec(text)) !== null) {
-              newMatches.push({
-                node: textNode,
-                startOffset: match.index,
-                endOffset: match.index + match[0].length,
-                pageIndex,
-              });
-            }
+    const newMatches: Match[] = [];
+    const pages = Array.from(editorRef.current!.querySelectorAll('.page'));
+    const flags = options.matchCase ? 'g' : 'gi';
+    const searchPattern = options.wholeWord ? `\\b${query}\\b` : query;
+    const regex = new RegExp(searchPattern, flags);
+
+    for (let pageIndex = 0; pageIndex < pages.length; pageIndex++) {
+      const page = pages[pageIndex];
+      const contentAreas = page.querySelectorAll('.page-content, .page-header, .page-footer');
+      
+      contentAreas.forEach(area => {
+        const walker = document.createTreeWalker(area, NodeFilter.SHOW_TEXT);
+        let node;
+        while ((node = walker.nextNode())) {
+          const textNode = node as Text;
+          const text = textNode.textContent || '';
+          let match;
+          while ((match = regex.exec(text)) !== null) {
+            newMatches.push({
+              node: textNode,
+              startOffset: match.index,
+              endOffset: match.index + match[0].length,
+              pageIndex,
+            });
           }
-        });
+        }
       });
 
-      setMatches(newMatches);
-      setCurrentIndex(newMatches.length > 0 ? 0 : -1);
-      setIsSearching(false);
-    }, 50);
+      if (pageIndex > 0 && pageIndex % 5 === 0) {
+        await new Promise(resolve => setTimeout(resolve, 0));
+      }
+    }
+
+    setMatches(newMatches);
+    setCurrentIndex(newMatches.length > 0 ? 0 : -1);
+    setIsSearching(false);
   }, [editorRef, clearFindHighlights, matches.length]);
 
-  const selectMatch = useCallback((index: number) => {
-    if (index < 0 || index >= matches.length) return;
-    const match = matches[index];
+  const selectMatch = useCallback((index: number, currentMatches: Match[]) => {
+    if (index < 0 || index >= currentMatches.length) return;
+    const match = currentMatches[index];
     if (!document.body.contains(match.node)) {
       console.warn("Stale match detected, clearing results.");
       clearFindHighlights();
@@ -114,22 +107,16 @@ export const useFindReplace = (
 
     const elementToScroll = match.node.parentElement;
     elementToScroll?.scrollIntoView({ behavior: 'smooth', block: 'center' });
-  }, [matches, clearFindHighlights]);
+  }, [clearFindHighlights]);
 
   useEffect(() => {
     if (matches.length > 0 && currentIndex >= 0) {
       const activeEl = document.activeElement;
-
-      selectMatch(currentIndex);
+      selectMatch(currentIndex, matches);
 
       if (activeEl && (activeEl as HTMLElement).closest('.find-replace-panel')) {
         (activeEl as HTMLElement).focus();
       }
-
-      const allRects = matches.flatMap(getRectsForMatch);
-      setFindHighlightRects(allRects);
-    } else {
-      setFindHighlightRects([]);
     }
   }, [matches, currentIndex, selectMatch]);
 
@@ -167,14 +154,18 @@ export const useFindReplace = (
     }
   }, [matches, currentIndex, saveToHistory, findAll, clearFindHighlights]);
 
-  // --- MODIFICATION START ---
-  // Made this function async and replaced setTimeout with await.
   const replaceAll = useCallback(async (replaceText: string) => {
     if (matches.length === 0) return;
+
+    const affectedPages = new Set<HTMLElement>();
 
     for (let i = matches.length - 1; i >= 0; i--) {
       const match = matches[i];
       if (document.body.contains(match.node)) {
+        const page = match.node.parentElement?.closest('.page');
+        if (page instanceof HTMLElement) {
+          affectedPages.add(page);
+        }
         const range = document.createRange();
         range.setStart(match.node, match.startOffset);
         range.setEnd(match.node, match.endOffset);
@@ -184,10 +175,9 @@ export const useFindReplace = (
     }
 
     clearFindHighlights();
-    saveToHistory(true);
+    saveToHistory(true, Array.from(affectedPages));
     await fullDocumentReflow();
   }, [matches, saveToHistory, clearFindHighlights, fullDocumentReflow]);
-  // --- MODIFICATION END ---
 
   return {
     findAll,
@@ -199,6 +189,6 @@ export const useFindReplace = (
     findMatchIndex: currentIndex,
     findTotalMatches: matches.length,
     isSearching,
-    findHighlightRects,
+    matches, // --- MODIFICATION: Expose the raw matches array
   };
 };

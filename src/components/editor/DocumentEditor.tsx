@@ -24,7 +24,25 @@ import { ReflowDebugger } from "./ReflowDebugger";
 import { LinkPopover } from "./LinkPopover";
 import { TableToolbar, TableAction } from "./TableToolbar";
 import { HeaderFooterEditor } from "./HeaderFooterEditor";
-import { FindReplacePanel, FindOptions } from "./FindReplacePanel"; // --- NEW IMPORT ---
+import { FindReplacePanel, FindOptions } from "./FindReplacePanel";
+import { Match } from "./hooks/useFindReplace";
+
+const getRectsForMatch = (match: Match): DOMRect[] => {
+  if (!document.body.contains(match.node)) return [];
+  const range = document.createRange();
+  try {
+    const nodeLength = match.node.textContent?.length ?? 0;
+    if (match.startOffset > nodeLength || match.endOffset > nodeLength) {
+      return [];
+    }
+    range.setStart(match.node, match.startOffset);
+    range.setEnd(match.node, match.endOffset);
+    return Array.from(range.getClientRects());
+  } catch (e) {
+    console.error("Error creating range for match:", e);
+    return [];
+  }
+};
 
 interface DocumentEditorProps {
   pageContainerRef: React.RefObject<HTMLDivElement | null>;
@@ -38,7 +56,7 @@ interface DocumentEditorProps {
   redo: () => void;
   canUndo: boolean;
   canRedo: boolean;
-  saveToHistory: (force?: boolean) => void;
+  saveToHistory: (force?: boolean, affectedElements?: HTMLElement[]) => void;
   insertImage: (imageData: any) => void;
   insertContent: (
     htmlBlocks: string[],
@@ -74,7 +92,6 @@ interface DocumentEditorProps {
   forceRecalculateRects: () => void;
   startTextSelection: (e: MouseEvent) => void;
   addNewPage: () => void;
-  // --- NEW PROPS FOR FIND/REPLACE ---
   findAll: (query: string, options: FindOptions) => void;
   findNext: () => void;
   findPrev: () => void;
@@ -84,8 +101,7 @@ interface DocumentEditorProps {
   findMatchIndex: number;
   findTotalMatches: number;
   isSearching: boolean;
-  findHighlightRects: DOMRect[];
-  // --- END NEW PROPS ---
+  matches: Match[];
 }
 
 export interface DocumentEditorHandle {
@@ -139,7 +155,6 @@ export const DocumentEditor = forwardRef<
     forceRecalculateRects,
     startTextSelection,
     addNewPage,
-    // --- NEW PROPS DESTRUCTURED ---
     findAll,
     findNext,
     findPrev,
@@ -149,8 +164,7 @@ export const DocumentEditor = forwardRef<
     findMatchIndex,
     findTotalMatches,
     isSearching,
-    findHighlightRects,
-    // --- END NEW PROPS ---
+    matches,
   } = props;
 
   useImperativeHandle(
@@ -183,10 +197,11 @@ export const DocumentEditor = forwardRef<
   } | null>(null);
   
   const [showHfZones, setShowHfZones] = useState(false);
-
-  // --- NEW STATE FOR FIND/REPLACE PANEL ---
   const [showFindReplace, setShowFindReplace] = useState(false);
-  // --- END NEW STATE ---
+  
+  const [scrollVersion, setScrollVersion] = useState(0);
+  
+  const [findHighlightRects, setFindHighlightRects] = useState<DOMRect[]>([]);
 
   const {
     currentLineSpacing,
@@ -224,6 +239,46 @@ export const DocumentEditor = forwardRef<
     rect: DOMRect | null;
   }>({ visible: false, url: '', rect: null });
 
+  useEffect(() => {
+    if (matches.length > 0) {
+      const allRects = matches.flatMap(getRectsForMatch);
+      setFindHighlightRects(allRects);
+    } else {
+      setFindHighlightRects([]);
+    }
+  }, [matches, findMatchIndex, scrollVersion]);
+
+  // --- MODIFICATION START: Use requestAnimationFrame for smooth scrolling updates ---
+  useEffect(() => {
+    const scrollContainer = scrollContainerRef.current;
+    if (!scrollContainer) return;
+
+    let ticking = false;
+
+    const handleScroll = () => {
+      if (!ticking) {
+        window.requestAnimationFrame(() => {
+          forceRecalculateRects(); 
+          setScrollVersion(v => v + 1);
+          ticking = false;
+        });
+        ticking = true;
+      }
+    };
+
+    scrollContainer.addEventListener('scroll', handleScroll, { passive: true });
+    
+    // Also handle window resize
+    const resizeObserver = new ResizeObserver(handleScroll);
+    resizeObserver.observe(scrollContainer);
+
+    return () => {
+      scrollContainer.removeEventListener('scroll', handleScroll);
+      resizeObserver.disconnect();
+    };
+  }, [forceRecalculateRects]);
+  
+  
   const runParagraphAnalysis = useCallback(() => {
     setTimeout(() => {
       if (!pageContainerRef.current) return;
@@ -481,7 +536,7 @@ export const DocumentEditor = forwardRef<
       }
     }
 
-    saveToHistory(true);
+    saveToHistory(true, [table]);
     scheduleReflow();
   }, [selectedTableCell, saveToHistory, scheduleReflow]);
 
@@ -535,7 +590,7 @@ export const DocumentEditor = forwardRef<
 
     rehydratePageNumbers(pageContainerRef.current);
 
-    saveToHistory(true);
+    saveToHistory(true, Array.from(allAreaElements).map(el => el.closest('.page') as HTMLElement));
 
     setEditingHeaderFooter(null);
     setShowHfZones(false);
@@ -870,7 +925,7 @@ export const DocumentEditor = forwardRef<
           element.style.lineHeight = lineHeight;
           element.dataset.lineSpacing = spacing;
         });
-        saveToHistory(true);
+        saveToHistory(true, Array.from(elementsToUpdate));
         updateToolbarState();
         setTimeout(() => {
           forceRecalculateRects();
@@ -1091,14 +1146,15 @@ export const DocumentEditor = forwardRef<
 
       prevPageContent.focus();
 
-      saveToHistory(true);
+      saveToHistory(true, [previousPage, currentPage]);
       runParagraphAnalysis();
     },
     [reflowBackwardFromPage, saveToHistory, runParagraphAnalysis]
   );
 
   useEffect(() => {
-    if (!pageContainerRef.current) return;
+    const container = pageContainerRef.current;
+    if (!container) return;
 
     const observer = new MutationObserver((mutations) => {
       const relevantMutations = mutations.filter((m) => {
@@ -1119,10 +1175,19 @@ export const DocumentEditor = forwardRef<
       observer.disconnect();
 
       let hasStructuralChanges = false;
-      const pages =
-        pageContainerRef.current?.querySelectorAll(".page-content") || [];
+      
+      const affectedPages = new Set<HTMLElement>();
+      relevantMutations.forEach(m => {
+        const page = (m.target.nodeType === Node.ELEMENT_NODE ? m.target as HTMLElement : m.target.parentElement)?.closest('.page');
+        if (page instanceof HTMLElement) {
+          affectedPages.add(page);
+        }
+      });
 
-      pages.forEach((pageContent) => {
+      affectedPages.forEach(page => {
+        const pageContent = page.querySelector('.page-content');
+        if (!pageContent) return;
+
         pageContent.querySelectorAll("p > div").forEach((divInsideP) => {
           const p = divInsideP.parentElement;
           if (p) {
@@ -1338,7 +1403,7 @@ export const DocumentEditor = forwardRef<
       });
 
       if (hasStructuralChanges) {
-        saveToHistory(true);
+        saveToHistory(true, Array.from(affectedPages));
       }
 
       if (pageContainerRef.current) {
@@ -1352,7 +1417,7 @@ export const DocumentEditor = forwardRef<
       }
     });
 
-    observer.observe(pageContainerRef.current, {
+    observer.observe(container, {
       childList: true,
       subtree: true,
       characterData: true,
@@ -1462,7 +1527,6 @@ export const DocumentEditor = forwardRef<
           if (isGalleryDrop) {
             onGalleryTemplateDrop();
           }
-          saveToHistory(true);
           runParagraphAnalysis();
         }
         return;
@@ -1478,7 +1542,6 @@ export const DocumentEditor = forwardRef<
     };
   }, [
     pageContainerRef,
-    saveToHistory,
     onGalleryTemplateDrop,
     insertGraph,
     insertTemplate,
@@ -1653,7 +1716,7 @@ export const DocumentEditor = forwardRef<
       const selection = window.getSelection();
       if (!selection) return;
 
-      const { start, end, startPage } = customSelection;
+      const { start, end, startPage, endPage } = customSelection;
       const startNode = start.node;
       const startOffset = start.offset;
       const startParent = startNode.parentElement;
@@ -1665,6 +1728,7 @@ export const DocumentEditor = forwardRef<
       const ultimateAnchor = startElement?.closest('.page-content');
 
       const allPages = Array.from(pageContainerRef.current.querySelectorAll<HTMLElement>(".page"));
+      const affectedPages = allPages.slice(startPage, endPage + 1);
 
       let isBoundaryDeletion = false;
       const startPiece = startElement?.closest('p[data-split-point="start"]');
@@ -1737,7 +1801,7 @@ export const DocumentEditor = forwardRef<
       }
 
       if (save) {
-        saveToHistory(true);
+        saveToHistory(true, affectedPages);
       }
 
       if (!isBoundaryDeletion) {
@@ -2064,7 +2128,7 @@ export const DocumentEditor = forwardRef<
         setSelectedResizableElement(null);
         setSelectedGraphElement(null);
         setSelectedMathElement(null);
-        saveToHistory(true);
+        saveToHistory(true, page ? [page as HTMLElement] : undefined);
         if (page) {
           reflowBackwardFromPage(page as HTMLElement);
         } else {
@@ -2127,7 +2191,6 @@ export const DocumentEditor = forwardRef<
               }
             });
           }
-          saveToHistory(true);
           scheduleReflow();
         }, 100);
         return;
@@ -2136,7 +2199,7 @@ export const DocumentEditor = forwardRef<
       const pastedText = clipboardData.getData("text/plain");
       if (pastedText) {
         document.execCommand("insertText", false, pastedText);
-        saveToHistory(true);
+        saveToHistory();
         scheduleReflow();
       }
     };
@@ -2170,7 +2233,7 @@ export const DocumentEditor = forwardRef<
             setSelectedResizableElement(null);
             setSelectedGraphElement(null);
             setSelectedMathElement(null);
-            saveToHistory(true);
+            saveToHistory(true, page ? [page] : undefined);
             if (page) {
               reflowBackwardFromPage(page);
             } else {
@@ -2245,12 +2308,10 @@ export const DocumentEditor = forwardRef<
             redo();
             runParagraphAnalysis();
             return;
-          // --- NEW SHORTCUT FOR FIND/REPLACE ---
           case "f":
             event.preventDefault();
             setShowFindReplace(true);
             return;
-          // --- END NEW SHORTCUT ---
         }
         if (event.shiftKey && event.key.toLowerCase() === "z") {
           event.preventDefault();
@@ -2260,7 +2321,6 @@ export const DocumentEditor = forwardRef<
         }
       }
       
-      // --- NEW: Close find/replace with Escape key ---
       if (event.key === 'Escape') {
         if (showFindReplace) {
           event.preventDefault();
@@ -2268,7 +2328,6 @@ export const DocumentEditor = forwardRef<
           clearFindHighlights();
         }
       }
-      // --- END NEW LOGIC ---
 
       if (customSelection && selectedText) {
         if (event.key === "Backspace" || event.key === "Delete") {
@@ -2281,7 +2340,7 @@ export const DocumentEditor = forwardRef<
           event.preventDefault();
           deleteSelectionManually(false);
           document.execCommand("insertText", false, event.key);
-          saveToHistory(true);
+          saveToHistory();
           return;
         }
       }
@@ -2657,7 +2716,7 @@ export const DocumentEditor = forwardRef<
         return;
       }
     }
-    saveToHistory(true);
+    saveToHistory();
     return;
   }
 
@@ -2704,7 +2763,7 @@ export const DocumentEditor = forwardRef<
                   sel?.removeAllRanges();
                   sel?.addRange(newRange);
 
-                  saveToHistory(true);
+                  saveToHistory(true, currentPage ? [currentPage] : undefined);
 
                   if (currentPage) {
                     setTimeout(() => reflowBackwardFromPage(currentPage), 0);
@@ -2728,7 +2787,7 @@ export const DocumentEditor = forwardRef<
                   sel?.removeAllRanges();
                   sel?.addRange(newRange);
 
-                  saveToHistory(true);
+                  saveToHistory(true, currentPage ? [currentPage] : undefined);
 
                   if (currentPage) {
                     setTimeout(() => reflowBackwardFromPage(currentPage), 0);
@@ -2873,7 +2932,7 @@ export const DocumentEditor = forwardRef<
                   sel?.removeAllRanges();
                   sel?.addRange(newRange);
 
-                  saveToHistory(true);
+                  saveToHistory(true, currentPage ? [currentPage] : undefined);
 
                   if (currentPage) {
                     setTimeout(() => {
@@ -3046,7 +3105,6 @@ export const DocumentEditor = forwardRef<
         }
 
         saveToHistory();
-        console.log('wordddddd')
         return;
       }
 
@@ -3137,8 +3195,8 @@ export const DocumentEditor = forwardRef<
     selectedMathElement,
     insertImage,
     insertContent,
-    showFindReplace, // --- NEW DEPENDENCY ---
-    clearFindHighlights, // --- NEW DEPENDENCY ---
+    showFindReplace,
+    clearFindHighlights,
   ]);
   
   useEffect(() => {
@@ -3330,27 +3388,29 @@ export const DocumentEditor = forwardRef<
         ref={scrollContainerRef}
         className={`flex-1 overflow-y-auto pt-6 bg-gray-100 flex flex-col items-center relative ${showHfZones ? 'show-hf-zones' : ''}`}
       >
-        {/* --- NEW: RENDER FIND/REPLACE PANEL --- */}
-        {showFindReplace && (
-          <FindReplacePanel
-            onFindNext={findAll}
-            onFindPrev={findPrev}
-            onReplace={replace}
-            onReplaceAll={(q, r, o) => {
-              findAll(q, o);
-              replaceAll(r);
-            }}
-            onClose={() => {
-              setShowFindReplace(false);
-              clearFindHighlights();
-            }}
-            onClearHighlights={clearFindHighlights}
-            matchIndex={findMatchIndex}
-            totalMatches={findTotalMatches}
-            isSearching={isSearching}
-          />
-        )}
-        {/* --- END NEW PANEL --- */}
+        <div className="w-full max-w-[8.5in] sticky top-4 z-30 pointer-events-none flex justify-end px-[1in]">
+          {showFindReplace && (
+            <div className="pointer-events-auto">
+              <FindReplacePanel
+                onFindNext={findAll}
+                onFindPrev={findPrev}
+                onReplace={replace}
+                onReplaceAll={(q, r, o) => {
+                  findAll(q, o);
+                  replaceAll(r);
+                }}
+                onClose={() => {
+                  setShowFindReplace(false);
+                  clearFindHighlights();
+                }}
+                onClearHighlights={clearFindHighlights}
+                matchIndex={findMatchIndex}
+                totalMatches={findTotalMatches}
+                isSearching={isSearching}
+              />
+            </div>
+          )}
+        </div>
 
         {tableToolbarPosition && (
           <div
@@ -3373,8 +3433,7 @@ export const DocumentEditor = forwardRef<
           />
         )}
 
-        <div className="selection-overlay">
-          {/* --- NEW: RENDER FIND HIGHLIGHTS --- */}
+        <div className="selection-overlay" data-scroll-version={scrollVersion}>
           {findHighlightRects.map((rect, index) => {
             const containerRect = scrollContainerRef.current?.getBoundingClientRect();
             if (!containerRect) return null;
@@ -3393,7 +3452,6 @@ export const DocumentEditor = forwardRef<
               />
             );
           })}
-          {/* --- END NEW HIGHLIGHTS --- */}
 
           {highlightRects.map((rect, index) => {
             const containerRect =

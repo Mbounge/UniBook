@@ -109,6 +109,7 @@ export const useEditor = (
     startTextSelection,
   } = useMultiPageSelection(editorRef);
 
+  // --- MODIFICATION START: Remove findHighlightRects and recalculateFindRects from destructuring ---
   const {
     findAll,
     findNext,
@@ -119,8 +120,9 @@ export const useEditor = (
     findMatchIndex,
     findTotalMatches,
     isSearching,
-    findHighlightRects,
+    matches,
   } = useFindReplace(editorRef, saveToHistory, fullDocumentReflow);
+  // --- MODIFICATION END ---
 
   const unmountAllReactComponents = useCallback(() => {
     reactRootsRef.current.forEach((root) => {
@@ -1170,6 +1172,7 @@ export const useEditor = (
     };
   }, [unmountAllReactComponents]);
 
+  // --- MODIFICATION START: Correctly export all necessary values ---
   return {
     insertImage,
     insertContent,
@@ -1217,6 +1220,7 @@ export const useEditor = (
     findMatchIndex,
     findTotalMatches,
     isSearching,
-    findHighlightRects,
+    matches, // Export raw matches
   };
+  // --- MODIFICATION END ---
 };

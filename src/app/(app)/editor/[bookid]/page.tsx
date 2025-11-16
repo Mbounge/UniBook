@@ -105,6 +105,7 @@ const EditorComponent = () => {
   
   const pageContainerRef = useRef<HTMLDivElement | null>(null);
   
+  // --- MODIFICATION START: Destructure `matches` instead of `findHighlightRects` ---
   const { 
     undo, redo, canUndo, canRedo, saveToHistory, 
     insertImage, insertContent, insertTemplate, 
@@ -140,8 +141,9 @@ const EditorComponent = () => {
     findMatchIndex,
     findTotalMatches,
     isSearching,
-    findHighlightRects,
+    matches,
   } = useEditor(pageContainerRef);
+  // --- MODIFICATION END ---
 
   const { data: bookData, isLoading: isBookLoading, isError } = useQuery({
     queryKey: ['book', params.bookid],
@@ -159,7 +161,6 @@ const EditorComponent = () => {
     }
   });
 
-  // --- MODIFICATION START: The main fix for the initialization bug is here ---
   useEffect(() => {
     if (bookData && pageContainerRef.current && !isContentLoaded) {
       pageContainerRef.current.innerHTML = bookData.content;
@@ -205,8 +206,6 @@ const EditorComponent = () => {
         
         fullDocumentReflow();
         
-        // CRITICAL FIX: Reset the history to establish a clean baseline *after*
-        // the content is fully loaded and processed.
         resetHistory();
         
       }, 50);
@@ -214,7 +213,6 @@ const EditorComponent = () => {
       setIsContentLoaded(true);
     }
   }, [bookData, pageContainerRef, isContentLoaded, resetHistory, rehydrateMathBlocks, rehydrateGraphBlocks, rehydratePageNumbers, fullDocumentReflow]);
-  // --- MODIFICATION END ---
 
   useEffect(() => {
     if (showTocPanel || leftPanelContent) {
@@ -467,7 +465,7 @@ const EditorComponent = () => {
               findMatchIndex={findMatchIndex}
               findTotalMatches={findTotalMatches}
               isSearching={isSearching}
-              findHighlightRects={findHighlightRects}
+              matches={matches} // --- MODIFICATION: Pass raw matches to the editor
             />
           </div>
 
