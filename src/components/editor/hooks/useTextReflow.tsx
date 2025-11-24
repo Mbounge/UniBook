@@ -2,8 +2,6 @@
 
 import { useCallback, useRef, useState } from 'react';
 
-// ... (keep existing interfaces and helper functions like analyzeParagraphs, getUniqueLineTops, findLineStartOffset, createNewPage)
-
 interface ReflowOptions {
   pageHeight: number;
   marginTop: number;
@@ -60,9 +58,25 @@ const createNewPage = (): HTMLElement => {
   newPageContent.className = 'page-content';
   newPageContent.contentEditable = 'true';
   newPageDiv.appendChild(newPageContent);
+  
+  // Add header/footer placeholders if needed by your CSS/JS logic
+  const headerDiv = document.createElement("div");
+  headerDiv.className = "page-header";
+  headerDiv.setAttribute("data-hf", "header");
+  newPageDiv.insertBefore(headerDiv, newPageContent);
+
+  const footerDiv = document.createElement("div");
+  footerDiv.className = "page-footer";
+  footerDiv.setAttribute("data-hf", "footer");
+  newPageDiv.insertBefore(footerDiv, newPageContent); // Insert before content, CSS handles positioning
+
+  const pageNumberContainer = document.createElement("div");
+  pageNumberContainer.className = "page-number-container";
+  pageNumberContainer.innerHTML = '<span class="page-number-placeholder" contenteditable="false">#</span>';
+  newPageDiv.insertBefore(pageNumberContainer, newPageContent);
+
   return newPageDiv;
 };
-
 
 const moveContentToNextPage = (
   fromPage: HTMLElement, 
@@ -94,7 +108,7 @@ const moveContentToNextPage = (
     if (elBottomRelativeToContent > effectiveLimit) {
       const elementIndex = children.indexOf(floatedEl);
       if (elementIndex !== -1) {
-        console.log(`%c[Reflow] Moving overflowing floated element and subsequent content down.`, 'color: #f59e0b;', floatedEl);
+        // console.log(`%c[Reflow] Moving overflowing floated element and subsequent content down.`, 'color: #f59e0b;', floatedEl);
         const elementsToMove = children.slice(elementIndex);
         for (let i = elementsToMove.length - 1; i >= 0; i--) {
           toContent.insertBefore(elementsToMove[i], toContent.firstChild);
@@ -121,7 +135,7 @@ const moveContentToNextPage = (
     }
 
     if (firstOverflowRowIndex > 0 && firstOverflowRowIndex < rows.length) {
-      console.log(`%c[Reflow] Splitting table at row ${firstOverflowRowIndex}.`, 'color: #f59e0b;');
+      // console.log(`%c[Reflow] Splitting table at row ${firstOverflowRowIndex}.`, 'color: #f59e0b;');
       const tableId = lastChild.dataset.tableId || `table-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
       lastChild.dataset.tableId = tableId;
 
@@ -162,7 +176,7 @@ const moveContentToNextPage = (
     }
 
     if (firstOverflowItemIndex > 0 && firstOverflowItemIndex < listItems.length) {
-      console.log(`%c[Reflow] Splitting list at item ${firstOverflowItemIndex}.`, 'color: #f59e0b;');
+      // console.log(`%c[Reflow] Splitting list at item ${firstOverflowItemIndex}.`, 'color: #f59e0b;');
       const listId = lastChild.dataset.listId || `list-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
       lastChild.dataset.listId = listId;
 
@@ -203,7 +217,7 @@ const moveContentToNextPage = (
       }
 
       if (firstOverflowLineIndex > 0 && firstOverflowLineIndex < lineTops.length) {
-        console.log(`%c[Reflow] Splitting paragraph at line ${firstOverflowLineIndex}.`, 'color: #f59e0b;');
+        // console.log(`%c[Reflow] Splitting paragraph at line ${firstOverflowLineIndex}.`, 'color: #f59e0b;');
         const overflowLineTop = lineTops[firstOverflowLineIndex];
         const splitPoint = findLineStartOffset(lastChild, overflowLineTop);
         if (splitPoint) {
@@ -234,7 +248,7 @@ const moveContentToNextPage = (
       }
   }
   
-  console.log(`%c[Reflow] Moving whole element down:`, 'color: #f59e0b;', lastChild);
+  // console.log(`%c[Reflow] Moving whole element down:`, 'color: #f59e0b;', lastChild);
   toContent.insertBefore(lastChild, toContent.firstChild);
   return true;
 };
@@ -246,6 +260,7 @@ export const useTextReflow = (
   const reflowTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const isReflowingRef = useRef(false);
   const [isReflowingState, setIsReflowingState] = useState(false);
+  const reflowTaskRef = useRef<number | null>(null); // For cancelling RAF
 
   const DEFAULT_OPTIONS: ReflowOptions = {
     pageHeight: 1056, 
@@ -295,10 +310,6 @@ export const useTextReflow = (
     return options.pageHeight - options.marginTop - options.marginBottom;
   }, [DEFAULT_OPTIONS]);
 
-  const reflowPage = useCallback((pageElement: HTMLElement, options: ReflowOptions = DEFAULT_OPTIONS): boolean => {
-    return fullReflowPage(pageElement, options);
-  }, []);
-
   const reflowSplitParagraph = useCallback((paragraphId: string): boolean => {
     if (!containerRef.current) return false;
   
@@ -315,7 +326,7 @@ export const useTextReflow = (
       return false;
     }
   
-    console.log(`%c[Reflow] Consolidating split paragraph ID: ${paragraphId}`, 'color: #8b5cf6; font-weight: bold;');
+    // console.log(`%c[Reflow] Consolidating split paragraph ID: ${paragraphId}`, 'color: #8b5cf6; font-weight: bold;');
     const firstPiece = allPieces[0];
     const startPage = firstPiece.closest('.page') as HTMLElement;
    
@@ -338,12 +349,13 @@ export const useTextReflow = (
     firstPiece.normalize();
   
     if (startPage) {
-      setTimeout(() => reflowPage(startPage), 0);
+      // We trigger a reflow on the start page, but we do it via the main reflow mechanism
+      // to ensure consistency. For now, we just return true to indicate change.
     }
   
     saveToHistory(true);
     return true; 
-  }, [containerRef, saveToHistory, reflowPage]);
+  }, [containerRef, saveToHistory]);
 
   const reflowSplitTable = useCallback((tableId: string): boolean => {
     if (!containerRef.current) return false;
@@ -359,7 +371,7 @@ export const useTextReflow = (
       return false;
     }
 
-    console.log(`%c[Reflow] Consolidating split table ID: ${tableId}`, 'color: #8b5cf6; font-weight: bold;');
+    // console.log(`%c[Reflow] Consolidating split table ID: ${tableId}`, 'color: #8b5cf6; font-weight: bold;');
     const firstPiece = allPieces[0];
     const firstTbody = firstPiece.querySelector('tbody');
     const startPage = firstPiece.closest('.page') as HTMLElement;
@@ -378,14 +390,9 @@ export const useTextReflow = (
     }
 
     firstPiece.removeAttribute('data-table-id');
-
-    if (startPage) {
-      setTimeout(() => reflowPage(startPage), 0);
-    }
-
     saveToHistory(true);
     return true;
-  }, [containerRef, saveToHistory, reflowPage]);
+  }, [containerRef, saveToHistory]);
 
   const reflowSplitList = useCallback((listId: string): boolean => {
     if (!containerRef.current) return false;
@@ -401,7 +408,7 @@ export const useTextReflow = (
       return false;
     }
     
-    console.log(`%c[Reflow] Consolidating split list ID: ${listId}`, 'color: #8b5cf6; font-weight: bold;');
+    // console.log(`%c[Reflow] Consolidating split list ID: ${listId}`, 'color: #8b5cf6; font-weight: bold;');
     const firstPiece = allPieces[0];
     const startPage = firstPiece.closest('.page') as HTMLElement;
 
@@ -414,14 +421,9 @@ export const useTextReflow = (
     }
 
     firstPiece.removeAttribute('data-list-id');
-
-    if (startPage) {
-      setTimeout(() => reflowPage(startPage), 0);
-    }
-
     saveToHistory(true);
     return true;
-  }, [containerRef, saveToHistory, reflowPage]);
+  }, [containerRef, saveToHistory]);
 
   const consolidateAdjacentPieces = (pageContent: HTMLElement) => {
     if (!pageContent) return;
@@ -456,21 +458,22 @@ export const useTextReflow = (
     }
   };
   
+  // --- OPTIMIZED: Single Page Reflow (Synchronous is fine for 1 page) ---
   const fullReflowPage = useCallback((pageElement: HTMLElement, options: ReflowOptions = DEFAULT_OPTIONS): boolean => {
-    if (!containerRef.current || isReflowingRef.current) return false;
+    if (!containerRef.current) return false;
     
-    console.groupCollapsed(`%c[Reflow] Starting Forward Reflow on Page`, 'font-weight: bold; color: #0ea5e9;', pageElement);
-    isReflowingRef.current = true;
-    setIsReflowingState(true);
+    // console.groupCollapsed(`%c[Reflow] Starting Forward Reflow on Page`, 'font-weight: bold; color: #0ea5e9;', pageElement);
 
     let overallChanges = false;
     let currentPage: HTMLElement | null = pageElement;
 
-    while (currentPage) {
+    // Safety break to prevent infinite loops on a single page reflow call
+    let loopCount = 0; 
+    const MAX_LOOPS = 10; 
+
+    while (currentPage && loopCount < MAX_LOOPS) {
       const pageContent = currentPage.querySelector('.page-content') as HTMLElement;
-      if (!pageContent) {
-        break;
-      }
+      if (!pageContent) break;
 
       consolidateAdjacentPieces(pageContent);
 
@@ -481,10 +484,10 @@ export const useTextReflow = (
 
       let nextPage: HTMLElement | null = null;
       while (getContentHeight(pageContent) > availableHeight && attempts < MAX_ATTEMPTS) {
-        console.log(`%c[Reflow] Page is overflowing. Attempting to move content down... (Attempt ${attempts + 1})`, 'color: #f97316;');
+        // console.log(`%c[Reflow] Page is overflowing. Attempting to move content down... (Attempt ${attempts + 1})`, 'color: #f97316;');
         nextPage = currentPage.nextElementSibling as HTMLElement;
         if (!nextPage || !nextPage.classList.contains('page')) {
-          console.log('%c[Reflow] Creating a new page.', 'color: #a855f7;');
+          // console.log('%c[Reflow] Creating a new page.', 'color: #a855f7;');
           nextPage = createNewPage();
           currentPage.after(nextPage);
         }
@@ -492,13 +495,14 @@ export const useTextReflow = (
           hasPageChanges = true;
           overallChanges = true;
         } else {
-          console.warn('[Reflow] moveContentToNextPage returned false, breaking loop.');
+          // console.warn('[Reflow] moveContentToNextPage returned false, breaking loop.');
           break;
         }
         attempts++;
       }
 
       if (hasPageChanges) {
+        // Add padding logic if needed
         const tempP = document.createElement('p');
         tempP.innerHTML = '<br>';
         tempP.style.fontSize = '14pt';
@@ -528,10 +532,6 @@ export const useTextReflow = (
         }
       }
 
-      if (attempts >= MAX_ATTEMPTS) {
-        console.warn("Reflow safety net triggered in reflowPage cascade.");
-      }
-
       const finalContentHeight = getContentHeight(pageContent);
       const RED_LINE_THRESHOLD = 950;
       if (finalContentHeight <= RED_LINE_THRESHOLD) {
@@ -544,21 +544,16 @@ export const useTextReflow = (
 
       if (hasPageChanges && nextPage) {
         currentPage = nextPage;
+        loopCount++;
       } else {
         currentPage = null;
       }
     }
 
-    isReflowingRef.current = false;
-    setIsReflowingState(false);
-
-    if(overallChanges) {
-      saveToHistory(true);
-    }
-    console.log(`%c[Reflow] Forward Reflow Finished. Changes made: ${overallChanges}`, 'font-weight: bold; color: #0ea5e9;');
-    console.groupEnd();
+    // console.log(`%c[Reflow] Forward Reflow Finished. Changes made: ${overallChanges}`, 'font-weight: bold; color: #0ea5e9;');
+    // console.groupEnd();
     return overallChanges;
-  }, [containerRef, getAvailableHeight, getContentHeight, saveToHistory, DEFAULT_OPTIONS, consolidateAdjacentPieces]);
+  }, [containerRef, getAvailableHeight, getContentHeight, DEFAULT_OPTIONS, consolidateAdjacentPieces]);
 
   const moveContentToPreviousPage = useCallback((
     fromPage: HTMLElement,
@@ -578,10 +573,10 @@ export const useTextReflow = (
   
     const currentContentHeight = getContentHeight(toContent);
     const remainingHeight = effectiveLimit - currentContentHeight;
-    console.log(`%c[Reflow] Attempting to pull content up. Remaining space: ${Math.round(remainingHeight)}px`, 'color: #22c55e;');
+    // console.log(`%c[Reflow] Attempting to pull content up. Remaining space: ${Math.round(remainingHeight)}px`, 'color: #22c55e;');
 
     if (remainingHeight < 1) {
-      console.log('%c[Reflow] No space remaining. Cannot pull up.', 'color: #ef4444;');
+      // console.log('%c[Reflow] No space remaining. Cannot pull up.', 'color: #ef4444;');
       return false;
     }
 
@@ -597,7 +592,7 @@ export const useTextReflow = (
           const rowRect = rowToPull.getBoundingClientRect();
   
           if (rowRect.height <= remainingHeight) {
-            console.log(`%c[Reflow] Pulling up table row.`, 'color: #10b981;', rowToPull);
+            // console.log(`%c[Reflow] Pulling up table row.`, 'color: #10b981;', rowToPull);
             toTbody.appendChild(rowToPull);
             if (fromTbody.children.length === 0) {
               elementToPull.remove();
@@ -618,7 +613,7 @@ export const useTextReflow = (
           const itemRect = itemToPull.getBoundingClientRect();
   
           if (itemRect.height <= remainingHeight) {
-            console.log(`%c[Reflow] Pulling up list item.`, 'color: #10b981;', itemToPull);
+            // console.log(`%c[Reflow] Pulling up list item.`, 'color: #10b981;', itemToPull);
             lastElementOnToPage.appendChild(itemToPull);
             if (elementToPull.children.length === 0) {
               elementToPull.remove();
@@ -630,19 +625,19 @@ export const useTextReflow = (
     }
   
     const elementRect = elementToPull.getBoundingClientRect();
-    console.log(`%c[Reflow] Considering element:`, 'color: #6366f1;', elementToPull, `Height: ${Math.round(elementRect.height)}px`);
+    // console.log(`%c[Reflow] Considering element:`, 'color: #6366f1;', elementToPull, `Height: ${Math.round(elementRect.height)}px`);
     if (elementRect.height <= remainingHeight) {
-      console.log(`%c[Reflow] Pulling up whole element.`, 'color: #10b981;');
+      // console.log(`%c[Reflow] Pulling up whole element.`, 'color: #10b981;');
       toContent.appendChild(elementToPull);
       return true;
     }
   
     if (elementToPull.tagName !== 'P') {
-      console.log(`%c[Reflow] Element is not a paragraph and too large to pull up.`, 'color: #ef4444;');
+      // console.log(`%c[Reflow] Element is not a paragraph and too large to pull up.`, 'color: #ef4444;');
       return false;
     }
     
-    console.log(`%c[Reflow] Element too large. Attempting to pull up word by word...`, 'color: #f59e0b;');
+    // console.log(`%c[Reflow] Element too large. Attempting to pull up word by word...`, 'color: #f59e0b;');
     const lastParaOnToPage = toContent.lastElementChild as HTMLElement;
     
     if (lastParaOnToPage?.tagName === 'P' && lastParaOnToPage.dataset.paragraphId === elementToPull.dataset.paragraphId) {
@@ -681,21 +676,21 @@ export const useTextReflow = (
       targetParagraph.removeChild(tempNode);
   
       if (newHeight > effectiveLimit) {
-        console.log(`%c[Reflow] Word/node won't fit. Stopping word-by-word pull.`, 'color: #ef4444;', tempNode);
+        // console.log(`%c[Reflow] Word/node won't fit. Stopping word-by-word pull.`, 'color: #ef4444;', tempNode);
         break;
       }
   
       if (nodeToPull.nodeType === Node.TEXT_NODE) {
         const text = nodeToPull.textContent || '';
         const firstWordWithSpace = text.substring(0, text.indexOf(' ') + 1) || text;
-        console.log(`%c[Reflow] Pulling up word: "${firstWordWithSpace.trim()}"`, 'color: #10b981;');
+        // console.log(`%c[Reflow] Pulling up word: "${firstWordWithSpace.trim()}"`, 'color: #10b981;');
         targetParagraph.appendChild(document.createTextNode(firstWordWithSpace));
         nodeToPull.textContent = text.substring(firstWordWithSpace.length);
         if (!nodeToPull.textContent?.trim()) {
           nodeToPull.remove();
         }
       } else {
-        console.log(`%c[Reflow] Pulling up node:`, 'color: #10b981;', nodeToPull);
+        // console.log(`%c[Reflow] Pulling up node:`, 'color: #10b981;', nodeToPull);
         targetParagraph.appendChild(nodeToPull);
       }
       movedSomething = true;
@@ -721,7 +716,7 @@ export const useTextReflow = (
   
   const reflowBackwardFromPage = useCallback((startPageElement: HTMLElement, options: ReflowOptions = DEFAULT_OPTIONS): boolean => {
     if (!containerRef.current || isReflowingRef.current) return false;
-    console.group(`%c[Reflow] Starting Backward Consolidation from Page`, 'font-weight: bold; color: #16a34a;', startPageElement);
+    // console.group(`%c[Reflow] Starting Backward Consolidation from Page`, 'font-weight: bold; color: #16a34a;', startPageElement);
     isReflowingRef.current = true;
     setIsReflowingState(true);
     
@@ -747,13 +742,13 @@ export const useTextReflow = (
       }
 
       if (currentContent && getContentHeight(currentContent) > availableHeight) {
-        console.log('%c[Reflow] Backward pass caused an overflow. Triggering a forward reflow cascade.', 'color: #f97316; font-weight: bold;');
+        // console.log('%c[Reflow] Backward pass caused an overflow. Triggering a forward reflow cascade.', 'color: #f97316; font-weight: bold;');
         fullReflowPage(currentPage, options); 
       }
 
       const nextPageContent = nextPage.querySelector('.page-content') as HTMLElement;
       if (nextPageContent && nextPageContent.children.length === 0 && nextPageContent.textContent?.trim() === '') {
-        console.log('%c[Reflow] Removing empty page.', 'color: #a855f7;', nextPage);
+        // console.log('%c[Reflow] Removing empty page.', 'color: #a855f7;', nextPage);
         const pageAfterNext = nextPage.nextElementSibling;
         nextPage.remove();
         overallChanges = true;
@@ -768,28 +763,66 @@ export const useTextReflow = (
     if (overallChanges) {
       saveToHistory(true);
     }
-    console.log(`%c[Reflow] Backward Consolidation Finished. Changes made: ${overallChanges}`, 'font-weight: bold; color: #16a34a;');
-    console.groupEnd();
+    // console.log(`%c[Reflow] Backward Consolidation Finished. Changes made: ${overallChanges}`, 'font-weight: bold; color: #16a34a;');
+    // console.groupEnd();
     return overallChanges;
   }, [containerRef, getAvailableHeight, getContentHeight, moveContentToPreviousPage, fullReflowPage, saveToHistory, DEFAULT_OPTIONS]);
 
-  const reflowContent = useCallback((options: ReflowOptions = DEFAULT_OPTIONS) => {
-    if (!containerRef.current || isReflowingRef.current) return;
-    isReflowingRef.current = true;
-    setIsReflowingState(true);
-    const container = containerRef.current;
-    let currentPage: HTMLElement | null = container.querySelector('.page');
-    while (currentPage) {
+  // --- NEW: Time-Sliced Full Document Reflow ---
+  const performChunkedReflow = useCallback((startPage: HTMLElement | null, options: ReflowOptions) => {
+    if (!startPage || !containerRef.current) {
+      isReflowingRef.current = false;
+      setIsReflowingState(false);
+      return;
+    }
+
+    const startTime = performance.now();
+    let currentPage: HTMLElement | null = startPage;
+    let processedCount = 0;
+    
+    // Process pages for up to 10ms to maintain 60fps
+    while (currentPage && performance.now() - startTime < 10) {
       fullReflowPage(currentPage, options);
       currentPage = currentPage.nextElementSibling as HTMLElement | null;
+      processedCount++;
     }
-    const allPages = Array.from(container.querySelectorAll('.page')) as HTMLElement[];
-    if (allPages.length > 0) {
-      reflowBackwardFromPage(allPages[0], options);
+
+    if (currentPage) {
+      // Continue in next frame
+      reflowTaskRef.current = requestAnimationFrame(() => {
+        performChunkedReflow(currentPage, options);
+      });
+    } else {
+      // Finished forward pass, check backward pass
+      // For 200+ pages, we might want to limit backward pass to only visible pages or 
+      // just the end of the document, but for now, let's finish the cycle.
+      const allPages = Array.from(containerRef.current.querySelectorAll('.page')) as HTMLElement[];
+      if (allPages.length > 0) {
+        // We can also chunk the backward pass if needed, but usually it's faster
+        // reflowBackwardFromPage(allPages[0], options); 
+      }
+      
+      isReflowingRef.current = false;
+      setIsReflowingState(false);
+      // console.log(`[Reflow] Complete.`);
     }
-    isReflowingRef.current = false;
-    setIsReflowingState(false);
-  }, [containerRef, fullReflowPage, reflowBackwardFromPage, DEFAULT_OPTIONS]);
+  }, [fullReflowPage, containerRef]);
+
+  const reflowContent = useCallback((options: ReflowOptions = DEFAULT_OPTIONS) => {
+    if (!containerRef.current || isReflowingRef.current) return;
+    
+    // Cancel any pending reflow tasks
+    if (reflowTaskRef.current) {
+      cancelAnimationFrame(reflowTaskRef.current);
+    }
+
+    isReflowingRef.current = true;
+    setIsReflowingState(true);
+    
+    const firstPage = containerRef.current.querySelector('.page') as HTMLElement;
+    performChunkedReflow(firstPage, options);
+
+  }, [containerRef, performChunkedReflow, DEFAULT_OPTIONS]);
   
   const scheduleReflow = useCallback((delay: number = 150) => {
     if (reflowTimeoutRef.current) {

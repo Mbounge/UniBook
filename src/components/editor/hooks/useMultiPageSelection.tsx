@@ -54,7 +54,7 @@ const getRectsWithinRange = (range: Range): DOMRect[] => {
   return rects.filter(r => r.width > 0 && r.height > 0);
 };
 
-// Optimized precise rect calculation
+// Optimized precise rect calculation with Viewport Culling
 const getPreciseRectsForSelection = (
   selection: CustomSelection | null,
   container: HTMLElement | null
@@ -72,9 +72,32 @@ const getPreciseRectsForSelection = (
   const minPage = Math.min(startPage, endPage);
   const maxPage = Math.max(startPage, endPage);
 
+  // --- OPTIMIZATION: Viewport Culling ---
+  // We assume the container's parent is the scrollable element (the editor viewport)
+  const scrollContainer = container.parentElement;
+  let viewportTop = 0;
+  let viewportBottom = window.innerHeight;
+
+  if (scrollContainer) {
+    const containerRect = scrollContainer.getBoundingClientRect();
+    viewportTop = containerRect.top;
+    viewportBottom = containerRect.bottom;
+  }
+
+  // Buffer allows highlights to exist slightly offscreen so they don't "pop" in
+  const BUFFER = 600; 
+
   for (let i = minPage; i <= maxPage; i++) {
     const pageContent = allPages[i];
     if (!pageContent) continue;
+
+    // Check visibility before calculating expensive ranges
+    const pageRect = pageContent.getBoundingClientRect();
+    
+    // If page is completely above or completely below the viewport (plus buffer), skip it
+    if (pageRect.bottom < viewportTop - BUFFER || pageRect.top > viewportBottom + BUFFER) {
+      continue; 
+    }
 
     const pageRange = document.createRange();
 
@@ -520,9 +543,9 @@ export const useMultiPageSelection = (
       frameId = requestAnimationFrame(() => {
         const scrollContainer = container.parentElement;
         const currentScrollY = scrollContainer?.scrollTop || 0;
-        if (Math.abs(currentScrollY - lastScrollY) < 3) return; // Tighter threshold
-        lastScrollY = currentScrollY;
         
+        // Always recalculate on scroll to update viewport culling
+        lastScrollY = currentScrollY;
         forceRecalculateRects();
       });
     };

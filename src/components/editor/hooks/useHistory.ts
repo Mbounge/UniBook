@@ -13,9 +13,9 @@ interface HistoryState {
   endOffset: number;
 }
 
-// --- MODIFICATION START: Shorter, snappier debounce time ---
+// Optimized debounce time for responsiveness
 const INPUT_DEBOUNCE_MS = 200;
-// --- MODIFICATION END ---
+const MAX_HISTORY_STACK = 50; // Limit memory usage for large documents
 
 const getSelectionOffsets = (container: HTMLElement): { startOffset: number; endOffset: number } => {
   const selection = window.getSelection();
@@ -82,7 +82,11 @@ const restoreSelectionFromOffsets = (container: HTMLElement, startOffset: number
 };
 
 const getCleanPageSnapshot = (pageElement: HTMLElement): string => {
+  // Clone is expensive, but necessary for isolation. 
+  // For 200 pages, we only call this on specific pages that change, not the whole doc.
   const pageClone = pageElement.cloneNode(true) as HTMLElement;
+  
+  // Clean up interactive/temporary elements before saving state
   pageClone.querySelectorAll('.math-wrapper, .graph-wrapper').forEach(el => { el.innerHTML = ''; });
   pageClone.querySelectorAll('.image-resize-overlay, .template-resize-overlay, .image-toolbar, .template-toolbar, .graph-resize-overlay, .graph-toolbar, .math-resize-overlay, .math-toolbar').forEach(el => el.remove());
   pageClone.querySelectorAll('.template-selected, .graph-selected, .math-selected').forEach(el => { 
@@ -90,6 +94,7 @@ const getCleanPageSnapshot = (pageElement: HTMLElement): string => {
     el.classList.remove('graph-selected');
     el.classList.remove('math-selected');
   });
+  
   return pageClone.innerHTML;
 };
 
@@ -123,7 +128,9 @@ export const useHistory = (editorRef: React.RefObject<HTMLDivElement | null>) =>
     pendingPatches.current.clear();
 
     const newState: HistoryState = { patches: newPatches, startOffset, endOffset };
-    const newHistory = [...history.slice(0, currentIndex + 1), newState].slice(-100);
+    
+    // OPTIMIZATION: Slice history to prevent memory overflow
+    const newHistory = [...history.slice(0, currentIndex + 1), newState].slice(-MAX_HISTORY_STACK);
     
     setHistory(newHistory);
     setCurrentIndex(newHistory.length - 1);
@@ -136,6 +143,7 @@ export const useHistory = (editorRef: React.RefObject<HTMLDivElement | null>) =>
     const allPages = Array.from(editorRef.current.querySelectorAll('.page'));
     let elementsToPatch = affectedElements || [];
 
+    // If no specific elements provided, find the page where the cursor is
     if (elementsToPatch.length === 0) {
       const selection = window.getSelection();
       if (selection && selection.rangeCount > 0) {
@@ -149,6 +157,7 @@ export const useHistory = (editorRef: React.RefObject<HTMLDivElement | null>) =>
       }
     }
 
+    // Only snapshot the pages that are actually affected
     elementsToPatch.forEach(el => {
       const page = el.closest('.page') as HTMLElement;
       if (page) {
@@ -163,6 +172,7 @@ export const useHistory = (editorRef: React.RefObject<HTMLDivElement | null>) =>
       if (isTyping.current) {
         commit(); 
       }
+      // Small delay to ensure DOM updates settle before commit
       setTimeout(commit, 50); 
     } else {
       isTyping.current = true;
@@ -171,20 +181,15 @@ export const useHistory = (editorRef: React.RefObject<HTMLDivElement | null>) =>
   }, [commit]);
 
   const undo = useCallback((): HistoryState | null => {
-    // --- MODIFICATION START: Commit any pending typing before undoing ---
     if (isTyping.current) {
       commit();
-      // We need a small delay to allow the state update from commit() to process
-      // before we calculate the correct index for undo.
       setTimeout(() => {
         if (canUndo) {
           setCurrentIndex(prev => prev - 1);
         }
       }, 50);
-      // Return the state that is *currently* at the tip of the history stack
       return canUndo ? history[currentIndex -1] : null;
     }
-    // --- MODIFICATION END ---
     
     if (canUndo) {
       setCurrentIndex(prev => prev - 1);
@@ -203,6 +208,8 @@ export const useHistory = (editorRef: React.RefObject<HTMLDivElement | null>) =>
   
   const initialize = useCallback(() => {
      if (editorRef.current && history.length === 0) {
+        // Initial snapshot of the entire document
+        // This is the only time we snapshot everything at once
         const allPages = Array.from(editorRef.current.querySelectorAll('.page')) as HTMLElement[];
         const initialPatches = allPages.map((page, index) => ({
           pageIndex: index,

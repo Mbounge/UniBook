@@ -105,7 +105,6 @@ const EditorComponent = () => {
   
   const pageContainerRef = useRef<HTMLDivElement | null>(null);
   
-  // --- MODIFICATION START: Destructure `matches` instead of `findHighlightRects` ---
   const { 
     undo, redo, canUndo, canRedo, saveToHistory, 
     insertImage, insertContent, insertTemplate, 
@@ -143,7 +142,6 @@ const EditorComponent = () => {
     isSearching,
     matches,
   } = useEditor(pageContainerRef);
-  // --- MODIFICATION END ---
 
   const { data: bookData, isLoading: isBookLoading, isError } = useQuery({
     queryKey: ['book', params.bookid],
@@ -204,6 +202,7 @@ const EditorComponent = () => {
         rehydrateGraphBlocks(pageContainerRef.current);
         rehydratePageNumbers(pageContainerRef.current);
         
+        // Initial reflow
         fullDocumentReflow();
         
         resetHistory();
@@ -465,7 +464,7 @@ const EditorComponent = () => {
               findMatchIndex={findMatchIndex}
               findTotalMatches={findTotalMatches}
               isSearching={isSearching}
-              matches={matches} // --- MODIFICATION: Pass raw matches to the editor
+              matches={matches}
             />
           </div>
 

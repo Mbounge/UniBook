@@ -56,6 +56,10 @@ export const useEditor = (
   } = useHistory(editorRef);
 
   const reactRootsRef = useRef<Map<HTMLElement, Root>>(new Map());
+  
+  // --- OPTIMIZATION: Intersection Observer Refs ---
+  const observerRef = useRef<IntersectionObserver | null>(null);
+  const hydratedElements = useRef<Set<HTMLElement>>(new Set());
 
   const saveToHistory = useCallback(
     (force: boolean = false, affectedElements?: HTMLElement[]) => {
@@ -79,21 +83,21 @@ export const useEditor = (
 
   const fullDocumentReflow = useCallback(async () => {
     if (!editorRef.current) return;
-    console.log('[Reflow] Starting Full Document Reflow...');
+    // console.log('[Reflow] Starting Full Document Reflow...');
     let currentPage = editorRef.current.querySelector('.page') as HTMLElement | null;
     let pageIndex = 1;
     while (currentPage) {
-      console.log(`[Reflow] Processing Page ${pageIndex}...`);
+      // console.log(`[Reflow] Processing Page ${pageIndex}...`);
       reflowPage(currentPage);
       currentPage = currentPage.nextElementSibling as HTMLElement | null;
       pageIndex++;
     }
     const firstPage = editorRef.current.querySelector('.page') as HTMLElement | null;
     if (firstPage) {
-      console.log('[Reflow] Starting Backward Consolidation Pass...');
+      // console.log('[Reflow] Starting Backward Consolidation Pass...');
       reflowBackwardFromPage(firstPage);
     }
-    console.log('[Reflow] Full Document Reflow Finished.');
+    // console.log('[Reflow] Full Document Reflow Finished.');
   }, [editorRef, reflowPage, reflowBackwardFromPage]);
 
 
@@ -109,7 +113,6 @@ export const useEditor = (
     startTextSelection,
   } = useMultiPageSelection(editorRef);
 
-  // --- MODIFICATION START: Remove findHighlightRects and recalculateFindRects from destructuring ---
   const {
     findAll,
     findNext,
@@ -122,13 +125,13 @@ export const useEditor = (
     isSearching,
     matches,
   } = useFindReplace(editorRef, saveToHistory, fullDocumentReflow);
-  // --- MODIFICATION END ---
 
   const unmountAllReactComponents = useCallback(() => {
     reactRootsRef.current.forEach((root) => {
       root.unmount();
     });
     reactRootsRef.current.clear();
+    hydratedElements.current.clear();
   }, []);
 
   const mountReactComponent = useCallback(
@@ -145,6 +148,120 @@ export const useEditor = (
     []
   );
 
+  // --- OPTIMIZATION: Lazy Hydration Logic ---
+
+  const hydrateMathBlockSingle = useCallback((wrapper: HTMLElement) => {
+    if (reactRootsRef.current.has(wrapper)) return;
+    
+    const initialTex = wrapper.dataset.tex || "";
+    const initialFontSize = parseFloat(wrapper.dataset.fontSize || "16");
+
+    const handleUpdate = (newTex: string) => {
+      wrapper.dataset.tex = newTex;
+      saveToHistory(true, [wrapper]);
+      scheduleReflow();
+    };
+    const handleRemove = () => {
+      const page = wrapper.closest('.page') as HTMLElement;
+      const root = reactRootsRef.current.get(wrapper);
+      if (root) {
+        root.unmount();
+        reactRootsRef.current.delete(wrapper);
+      }
+      wrapper.remove();
+      saveToHistory(true, page ? [page] : undefined);
+      scheduleReflow();
+    };
+    
+    mountReactComponent(
+      <MathBlock
+        initialTex={initialTex}
+        fontSize={initialFontSize}
+        onUpdate={handleUpdate}
+        onRemove={handleRemove}
+      />,
+      wrapper
+    );
+  }, [mountReactComponent, saveToHistory, scheduleReflow]);
+
+  const hydrateGraphBlockSingle = useCallback((wrapper: HTMLElement) => {
+    if (reactRootsRef.current.has(wrapper) || !wrapper.dataset.graph) return;
+    
+    const initialGraphData = JSON.parse(wrapper.dataset.graph);
+    const handleUpdate = (newGraphData: GraphData) => {
+      wrapper.dataset.graph = JSON.stringify(newGraphData);
+      saveToHistory(true, [wrapper]);
+      scheduleReflow();
+    };
+    const handleRemove = () => {
+      const page = wrapper.closest('.page') as HTMLElement;
+      const root = reactRootsRef.current.get(wrapper);
+      if (root) {
+        root.unmount();
+        reactRootsRef.current.delete(wrapper);
+      }
+      wrapper.remove();
+      saveToHistory(true, page ? [page] : undefined);
+      scheduleReflow();
+    };
+
+    mountReactComponent(
+      <GraphBlock
+        initialGraphData={initialGraphData}
+        onUpdate={handleUpdate}
+        onRemove={handleRemove}
+      />,
+      wrapper
+    );
+  }, [mountReactComponent, saveToHistory, scheduleReflow]);
+
+  const handleIntersection = useCallback((entries: IntersectionObserverEntry[]) => {
+    entries.forEach(entry => {
+      const target = entry.target as HTMLElement;
+      
+      if (entry.isIntersecting) {
+        // Element is visible, hydrate it
+        if (!hydratedElements.current.has(target)) {
+          if (target.classList.contains('math-wrapper')) {
+             hydrateMathBlockSingle(target);
+          } else if (target.classList.contains('graph-wrapper')) {
+             hydrateGraphBlockSingle(target);
+          }
+          hydratedElements.current.add(target);
+        }
+      } else {
+        // Element is off-screen, dehydrate (unmount) to save memory
+        if (hydratedElements.current.has(target)) {
+           const root = reactRootsRef.current.get(target);
+           if (root) {
+             root.unmount();
+             reactRootsRef.current.delete(target);
+           }
+           hydratedElements.current.delete(target);
+        }
+      }
+    });
+  }, [hydrateMathBlockSingle, hydrateGraphBlockSingle]);
+
+  // Initialize Observer
+  useEffect(() => {
+    if (!editorRef.current) return;
+    
+    // We observe the scroll container (parent of editorRef)
+    const scrollContainer = editorRef.current.parentElement;
+
+    observerRef.current = new IntersectionObserver(handleIntersection, {
+      root: scrollContainer, 
+      rootMargin: '400px', // Pre-load 400px before viewport
+      threshold: 0.01
+    });
+
+    return () => {
+      observerRef.current?.disconnect();
+    };
+  }, [editorRef, handleIntersection]);
+
+
   const rehydratePageNumbers = useCallback(
     (container: HTMLElement) => {
       const pages = Array.from(container.querySelectorAll('.page'));
@@ -152,6 +269,7 @@ export const useEditor = (
         const pageNumberPlaceholders = page.querySelectorAll(".page-number-placeholder");
         pageNumberPlaceholders.forEach((el) => {
           const wrapper = el as HTMLElement;
+          // Page numbers are lightweight, we can keep them mounted or mount them directly
           mountReactComponent(
             <PageNumber pageNumber={index + 1} />,
             wrapper
@@ -166,76 +284,22 @@ export const useEditor = (
     (container: HTMLElement) => {
       const mathPlaceholders = container.querySelectorAll(".math-wrapper");
       mathPlaceholders.forEach((el) => {
-        const wrapper = el as HTMLElement;
-        if (reactRootsRef.current.has(wrapper)) return;
-        const initialTex = wrapper.dataset.tex || "";
-        const initialFontSize = parseFloat(wrapper.dataset.fontSize || "16");
-
-        const handleUpdate = (newTex: string) => {
-          wrapper.dataset.tex = newTex;
-          saveToHistory(true, [wrapper]);
-          scheduleReflow();
-        };
-        const handleRemove = () => {
-          const page = wrapper.closest('.page') as HTMLElement;
-          const root = reactRootsRef.current.get(wrapper);
-          if (root) {
-            root.unmount();
-            reactRootsRef.current.delete(wrapper);
-          }
-          wrapper.remove();
-          saveToHistory(true, page ? [page] : undefined);
-          scheduleReflow();
-        };
-        mountReactComponent(
-          <MathBlock
-            initialTex={initialTex}
-            fontSize={initialFontSize}
-            onUpdate={handleUpdate}
-            onRemove={handleRemove}
-          />,
-          wrapper
-        );
+        // Instead of mounting immediately, observe them
+        observerRef.current?.observe(el);
       });
     },
-    [mountReactComponent, saveToHistory, scheduleReflow]
+    []
   );
 
   const rehydrateGraphBlocks = useCallback(
     (container: HTMLElement) => {
       const graphPlaceholders = container.querySelectorAll(".graph-wrapper");
       graphPlaceholders.forEach((el) => {
-        const wrapper = el as HTMLElement;
-        if (reactRootsRef.current.has(wrapper) || !wrapper.dataset.graph)
-          return;
-        const initialGraphData = JSON.parse(wrapper.dataset.graph);
-        const handleUpdate = (newGraphData: GraphData) => {
-          wrapper.dataset.graph = JSON.stringify(newGraphData);
-          saveToHistory(true, [wrapper]);
-          scheduleReflow();
-        };
-        const handleRemove = () => {
-          const page = wrapper.closest('.page') as HTMLElement;
-          const root = reactRootsRef.current.get(wrapper);
-          if (root) {
-            root.unmount();
-            reactRootsRef.current.delete(wrapper);
-          }
-          wrapper.remove();
-          saveToHistory(true, page ? [page] : undefined);
-          scheduleReflow();
-        };
-        mountReactComponent(
-          <GraphBlock
-            initialGraphData={initialGraphData}
-            onUpdate={handleUpdate}
-            onRemove={handleRemove}
-          />,
-          wrapper
-        );
+        // Instead of mounting immediately, observe them
+        observerRef.current?.observe(el);
       });
     },
-    [mountReactComponent, saveToHistory, scheduleReflow]
+    []
   );
 
   const restoreStateFromHistory = useCallback(
@@ -515,32 +579,8 @@ export const useEditor = (
       wrapper.dataset.fontSize = "16";
       wrapper.style.margin = "1em 0";
 
-      const handleUpdate = (newTex: string) => {
-        wrapper.dataset.tex = newTex;
-        saveToHistory(true, [wrapper]);
-        scheduleReflow();
-      };
-      const handleRemove = () => {
-        const page = wrapper.closest('.page') as HTMLElement;
-        const root = reactRootsRef.current.get(wrapper);
-        if (root) {
-          root.unmount();
-          reactRootsRef.current.delete(wrapper);
-        }
-        wrapper.remove();
-        saveToHistory(true, page ? [page] : undefined);
-        scheduleReflow();
-      };
-
-      mountReactComponent(
-        <MathBlock
-          initialTex=""
-          fontSize={16}
-          onUpdate={handleUpdate}
-          onRemove={handleRemove}
-        />,
-        wrapper
-      );
+      // We don't mount immediately, we observe it
+      // But we need to insert it into DOM first
 
       const selection = window.getSelection();
       if (target.range) {
@@ -575,6 +615,10 @@ export const useEditor = (
       }
 
       ensureCursorFriendlyBlocks(wrapper, selection);
+      
+      // Observe the new wrapper
+      observerRef.current?.observe(wrapper);
+
       setTimeout(() => {
         const page = wrapper.closest('.page') as HTMLElement;
         saveToHistory(true, page ? [page] : undefined);
@@ -585,7 +629,6 @@ export const useEditor = (
       saveToHistory,
       findInsertionTarget,
       addNewPage,
-      mountReactComponent,
       scheduleReflow,
     ]
   );
@@ -607,31 +650,7 @@ export const useEditor = (
       wrapper.dataset.graph = JSON.stringify(graphData);
       wrapper.style.margin = "1em auto";
       wrapper.style.width = `${graphData.width}px`;
-      const handleUpdate = (newGraphData: GraphData) => {
-        wrapper.dataset.graph = JSON.stringify(newGraphData);
-        saveToHistory(true, [wrapper]);
-        scheduleReflow();
-      };
-      const handleRemove = () => {
-        const page = wrapper.closest('.page') as HTMLElement;
-        const root = reactRootsRef.current.get(wrapper);
-        if (root) {
-          root.unmount();
-          reactRootsRef.current.delete(wrapper);
-        }
-        wrapper.remove();
-        saveToHistory(true, page ? [page] : undefined);
-        scheduleReflow();
-      };
-      mountReactComponent(
-        <GraphBlock
-          initialGraphData={graphData}
-          onUpdate={handleUpdate}
-          onRemove={handleRemove}
-        />,
-        wrapper
-      );
-
+      
       const selection = window.getSelection();
       if (target.range) {
         let node = target.range.commonAncestorContainer;
@@ -665,6 +684,10 @@ export const useEditor = (
       }
 
       ensureCursorFriendlyBlocks(wrapper, selection);
+      
+      // Observe the new wrapper
+      observerRef.current?.observe(wrapper);
+
       setTimeout(() => {
         const page = wrapper.closest('.page') as HTMLElement;
         saveToHistory(true, page ? [page] : undefined);
@@ -675,7 +698,6 @@ export const useEditor = (
       saveToHistory,
       findInsertionTarget,
       addNewPage,
-      mountReactComponent,
       scheduleReflow,
     ]
   );
@@ -1172,7 +1194,6 @@ export const useEditor = (
     };
   }, [unmountAllReactComponents]);
 
-  // --- MODIFICATION START: Correctly export all necessary values ---
   return {
     insertImage,
     insertContent,
@@ -1220,7 +1241,6 @@ export const useEditor = (
     findMatchIndex,
     findTotalMatches,
     isSearching,
-    matches, // Export raw matches
+    matches,
   };
-  // --- MODIFICATION END ---
 };

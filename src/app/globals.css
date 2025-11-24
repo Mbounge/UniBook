@@ -59,6 +59,12 @@ body {
   position: relative;
   border-bottom: 1px solid #d1d5db;
   transition: min-height 0.2s ease-out;
+
+  /* --- PERFORMANCE OPTIMIZATION --- */
+  /* Strict containment allows the browser to skip layout calculations for off-screen pages */
+  contain: content; 
+  /* Tells the browser the size of the element before it renders content */
+  contain-intrinsic-size: 8.5in 11in; 
 }
 
 /* --- REVISED HEADER & FOOTER STYLES --- */

@@ -271,6 +271,7 @@ import {
     baseUrl: string
   ): Promise<{ toolData: any; toolResponse: Part }> {
     const { name, args } = functionCall;
+    console.log(name)
     switch (name) {
       case "search_content_hub":
         const query = (args as any)?.query;

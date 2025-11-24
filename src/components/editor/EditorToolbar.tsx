@@ -5,59 +5,86 @@ import {
   Bold, Italic, Underline, AlignLeft, AlignCenter, AlignRight, AlignJustify,
   Image, Undo, Redo, Highlighter, List, ListOrdered,
   MessageSquareQuote, Code, ChevronDown, ListTree, Table, Sigma, Link,
-  ArrowUpToLine, ArrowDownToLine, Search // --- NEW IMPORT ---
+  ArrowUpToLine, ArrowDownToLine, Search, Type
 } from 'lucide-react';
 import { TableCreationGrid } from './TableCreationGrid';
 import { ColorPicker } from './ColorPicker';
 import { LineSpacingDropdown } from './LineSpacingDropdown';
 import { LineSpacing } from '@/hooks/useLineSpacing';
 
-const ToolbarButton = React.forwardRef<HTMLButtonElement, { onClick: () => void; title: string; isActive?: boolean; disabled?: boolean; children: React.ReactNode; }>(
-  ({ onClick, title, isActive, disabled, children }, ref) => (
-    <button ref={ref} onMouseDown={(e) => e.preventDefault()} onClick={onClick} title={title} disabled={disabled} className={`p-2 rounded-lg transition-all duration-200 ${isActive ? "bg-gradient-to-br from-blue-50 to-blue-100 text-blue-700 border border-blue-200" : "hover:bg-gray-100 text-gray-700 hover:text-gray-900 border border-transparent"} disabled:opacity-40 disabled:cursor-not-allowed hover:scale-105 active:scale-95`}>
+const ToolbarButton = React.forwardRef<HTMLButtonElement, { onClick: () => void; title: string; isActive?: boolean; disabled?: boolean; children: React.ReactNode; className?: string }>(
+  ({ onClick, title, isActive, disabled, children, className }, ref) => (
+    <button 
+      ref={ref} 
+      onMouseDown={(e) => e.preventDefault()} 
+      onClick={onClick} 
+      title={title} 
+      disabled={disabled} 
+      className={`
+        p-2 rounded-md transition-all duration-200 flex items-center justify-center
+        ${isActive 
+          ? "bg-blue-50 text-blue-600 shadow-sm ring-1 ring-blue-100" 
+          : "text-gray-600 hover:bg-gray-100 hover:text-gray-900"
+        } 
+        disabled:opacity-30 disabled:cursor-not-allowed disabled:hover:bg-transparent
+        ${className || ''}
+      `}
+    >
       {children}
     </button>
   )
 );
 ToolbarButton.displayName = 'ToolbarButton';
 
-const LabeledToolbarButton: React.FC<{
-  onClick: () => void;
-  title: string;
-  children: React.ReactNode;
-}> = ({ onClick, title, children }) => (
-  <button
-    onMouseDown={(e) => e.preventDefault()}
-    onClick={onClick}
-    title={title}
-    className="flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-medium bg-gray-50 text-gray-600 hover:bg-gray-100 hover:text-gray-800 border border-gray-200 transition-all duration-200 hover:scale-105 active:scale-95"
-  >
-    {children}
-  </button>
+const ToolbarDivider = () => (
+  <div className="h-5 w-px bg-gray-200 mx-1.5 self-center" />
 );
 
-const Dropdown = ({ options, value, onChange, title, widthClass = "w-40" }: { options: { label: string, value: string }[], value: string, onChange: (value: string) => void, title: string, widthClass?: string }) => {
+const Dropdown = ({ options, value, onChange, title, widthClass = "w-32", icon: Icon }: { options: { label: string, value: string }[], value: string, onChange: (value: string) => void, title: string, widthClass?: string, icon?: React.ElementType }) => {
   const [isOpen, setIsOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
   const selectedLabel = options.find(opt => opt.value === value)?.label || value;
+  
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => { if (ref.current && !ref.current.contains(event.target as Node)) setIsOpen(false); };
     document.addEventListener("mousedown", handleClickOutside);
     return () => document.removeEventListener("mousedown", handleClickOutside);
   }, []);
+
   return (
     <div ref={ref} className="relative">
       <button 
         onMouseDown={(e) => e.preventDefault()} 
         onClick={() => setIsOpen(!isOpen)} 
-        className={`flex items-center justify-between px-3 py-2 border border-gray-200 bg-white rounded-lg text-sm hover:bg-gray-50 hover:border-gray-300 transition-all duration-200 ${widthClass} hover:scale-105 active:scale-95`}
+        className={`
+          flex items-center justify-between px-2 py-1.5 rounded-md text-sm 
+          text-gray-700 hover:bg-gray-100 transition-all duration-200 
+          ${widthClass}
+          ${isOpen ? 'bg-gray-100' : ''}
+        `}
+        title={title}
       >
-        <span className="truncate font-medium text-gray-700">{selectedLabel}</span>
-        <ChevronDown className={`w-4 h-4 ml-2 text-gray-500 transition-transform duration-200 ${isOpen ? 'rotate-180' : ''}`} />
+        <div className="flex items-center gap-2 overflow-hidden">
+          {Icon && <Icon className="w-3.5 h-3.5 text-gray-500" />}
+          <span className="truncate font-medium">{selectedLabel}</span>
+        </div>
+        <ChevronDown className={`w-3 h-3 text-gray-400 transition-transform duration-200 ${isOpen ? 'rotate-180' : ''}`} />
       </button>
       {isOpen && (
-        <div className={`absolute z-20 top-full mt-2 bg-white rounded-lg border border-gray-200 overflow-hidden max-h-60 overflow-y-auto ${widthClass}`}>
-          {options.map(option => (<button key={option.value} onMouseDown={(e) => e.preventDefault()} onClick={() => { onChange(option.value); setIsOpen(false); }} className="w-full text-left px-4 py-2 text-sm hover:bg-gray-100 transition-colors duration-150 font-medium text-gray-700 hover:text-gray-900">{option.label}</button>))}
+        <div className="absolute z-50 top-full left-0 mt-1 bg-white rounded-lg border border-gray-100 shadow-lg py-1 min-w-[140px] animate-in fade-in zoom-in-95 duration-100">
+          {options.map(option => (
+            <button 
+              key={option.value} 
+              onMouseDown={(e) => e.preventDefault()} 
+              onClick={() => { onChange(option.value); setIsOpen(false); }} 
+              className={`
+                w-full text-left px-3 py-1.5 text-sm transition-colors duration-150
+                ${option.value === value ? 'bg-blue-50 text-blue-600' : 'text-gray-700 hover:bg-gray-50'}
+              `}
+            >
+              {option.label}
+            </button>
+          ))}
         </div>
       )}
     </div>
@@ -93,7 +120,7 @@ interface EditorToolbarProps {
   onLink: () => void;
   onEditHeader: () => void;
   onEditFooter: () => void;
-  onFind: () => void; // --- NEW PROP ---
+  onFind: () => void;
   isTocOpen: boolean;
   isStyleStudioOpen: boolean;
   isAiPanelOpen: boolean;
@@ -120,7 +147,7 @@ export const EditorToolbar: React.FC<EditorToolbarProps> = (props) => {
     onUnderline, onHighlight, onAlign, onBulletedList, onNumberedList, onInsertImage,
     onBlockquote, onCodeBlock, onToggleOutline, onInsertTable, onTableMenuOpen, 
     onTextColorChange, onColorMenuOpen, onLineSpacingChange, onLineSpacingMenuOpen, 
-    onInsertMath, onLink, onEditHeader, onEditFooter, onFind, // --- NEW PROP DESTRUCTURED ---
+    onInsertMath, onLink, onEditHeader, onEditFooter, onFind,
     isTocOpen
   } = props;
 
@@ -147,87 +174,107 @@ export const EditorToolbar: React.FC<EditorToolbarProps> = (props) => {
   const handleTableButtonClick = () => {
     if (tableButtonRef.current) {
       const rect = tableButtonRef.current.getBoundingClientRect();
-      const gridWidth = 160;
-
-      if (rect.right + gridWidth > window.innerWidth) {
+      if (rect.right + 160 > window.innerWidth) {
         setGridPositionStyle({ right: 0 });
       } else {
         setGridPositionStyle({ left: 0 });
       }
     }
-    
     onTableMenuOpen();
     setTableMenuOpen(!isTableMenuOpen);
   };
 
-  const blockTypeOptions = [{ label: "Paragraph", value: "p" }, { label: "Heading 1", value: "h1" }, { label: "Heading 2", value: "h2" }, { label: "Heading 3", "value": "h3" }, { label: "Heading 4", value: "h4" }];
-  const fontOptions = [{ label: "Inter", value: "Inter" }, { label: "Arial", value: "Arial" }, { label: "Georgia", value: "Georgia" }, { label: "Times New Roman", value: "Times New Roman" }];
-  const fontSizeOptions = [{ label: "12pt", value: "12pt" }, { label: "14pt", value: "14pt" }, { label: "16pt", value: "16pt" }, { label: "18pt", value: "18pt" }, { label: "24pt", value: "24pt" }];
+  const blockTypeOptions = [{ label: "Paragraph", value: "p" }, { label: "Heading 1", value: "h1" }, { label: "Heading 2", value: "h2" }, { label: "Heading 3", "value": "h3" }];
+  const fontOptions = [{ label: "Inter", value: "Inter" }, { label: "Serif", value: "Georgia" }, { label: "Mono", value: "Courier New" }];
+  const fontSizeOptions = [{ label: "12", value: "12pt" }, { label: "14", value: "14pt" }, { label: "16", value: "16pt" }, { label: "18", value: "18pt" }, { label: "24", value: "24pt" }];
 
   return (
-    <div className="bg-white/90 backdrop-blur-sm border border-gray-200/50 rounded-lg p-3 flex items-center flex-wrap gap-1">
-      <ToolbarButton onClick={onToggleOutline} title="Outline" isActive={isTocOpen}><ListTree className="w-4 h-4" /></ToolbarButton>
-      {/* --- NEW FIND BUTTON --- */}
-      <ToolbarButton onClick={onFind} title="Find & Replace (Ctrl+F)">
-        <Search className="w-4 h-4" />
-      </ToolbarButton>
-      {/* --- END NEW BUTTON --- */}
-      <div className="h-6 w-px bg-gray-200 mx-2"></div>
-      <ToolbarButton onClick={onUndo} title="Undo" disabled={!canUndo}><Undo className="w-4 h-4" /></ToolbarButton>
-      <ToolbarButton onClick={onRedo} title="Redo" disabled={!canRedo}><Redo className="w-4 h-4" /></ToolbarButton>
-      <div className="h-6 w-px bg-gray-200 mx-2"></div>
-      <Dropdown options={blockTypeOptions} value={currentBlockType} onChange={onBlockTypeChange} title="Block Type" widthClass="w-36" />
-      <div className="h-6 w-px bg-gray-200 mx-2"></div>
-      <Dropdown options={fontOptions} value={currentFont} onChange={onFontChange} title="Font Family" />
-      <Dropdown options={fontSizeOptions} value={currentSize} onChange={onSizeChange} title="Font Size" widthClass="w-24" />
-      <div className="h-6 w-px bg-gray-200 mx-2"></div>
-      <ToolbarButton onClick={onBold} title="Bold" isActive={isBold}><Bold className="w-4 h-4" /></ToolbarButton>
-      <ToolbarButton onClick={onItalic} title="Italic" isActive={isItalic}><Italic className="w-4 h-4" /></ToolbarButton>
-      <ToolbarButton onClick={onUnderline} title="Underline" isActive={isUnderline}><Underline className="w-4 h-4" /></ToolbarButton>
-      <ToolbarButton onClick={onLink} title="Link" isActive={isLink}><Link className="w-4 h-4" /></ToolbarButton>
-      <ToolbarButton onClick={onHighlight} title="Highlight" isActive={isHighlighted}><Highlighter className="w-4 h-4" /></ToolbarButton>
-      <ColorPicker 
-        currentColor={currentTextColor} 
-        onColorChange={onTextColorChange} 
-        onMenuOpen={onColorMenuOpen}
-      />
-      <div className="h-6 w-px bg-gray-200 mx-2"></div>
-      <ToolbarButton onClick={() => onAlign('left')} title="Align Left" isActive={textAlign === 'left'}><AlignLeft className="w-4 h-4" /></ToolbarButton>
-      <ToolbarButton onClick={() => onAlign('center')} title="Align Center" isActive={textAlign === 'center'}><AlignCenter className="w-4 h-4" /></ToolbarButton>
-      <ToolbarButton onClick={() => onAlign('right')} title="Align Right" isActive={textAlign === 'right'}><AlignRight className="w-4 h-4" /></ToolbarButton>
-      <ToolbarButton onClick={() => onAlign('justify')} title="Align Justify" isActive={textAlign === 'justify'}><AlignJustify className="w-4 h-4" /></ToolbarButton>
-      <LineSpacingDropdown
-        currentSpacing={currentLineSpacing}
-        onSpacingChange={onLineSpacingChange}
-        onMenuOpen={onLineSpacingMenuOpen}
-      />
-      <div className="h-6 w-px bg-gray-200 mx-2"></div>
-      <ToolbarButton onClick={onBulletedList} title="Bulleted List"><List className="w-4 h-4" /></ToolbarButton>
-      <ToolbarButton onClick={onNumberedList} title="Numbered List"><ListOrdered className="w-4 h-4" /></ToolbarButton>
-      <div className="h-6 w-px bg-gray-200 mx-2"></div>
-      <ToolbarButton onClick={onInsertImage} title="Add Image"><Image className="w-4 h-4" /></ToolbarButton>
-      <ToolbarButton onClick={onInsertMath} title="Insert Formula"><Sigma className="w-4 h-4" /></ToolbarButton>
-      <ToolbarButton onClick={onBlockquote} title="Blockquote"><MessageSquareQuote className="w-4 h-4" /></ToolbarButton>
-      <ToolbarButton onClick={onCodeBlock} title="Code Block"><Code className="w-4 h-4" /></ToolbarButton>
-      <div ref={tableMenuRef} className="relative">
-        <ToolbarButton ref={tableButtonRef} onClick={handleTableButtonClick} title="Insert Table">
-          <Table className="w-4 h-4" />
+    <div className="bg-white/80 backdrop-blur-md border border-gray-200/60 shadow-sm rounded-xl p-1.5 flex items-center flex-wrap gap-0.5 transition-all duration-200 hover:shadow-md hover:bg-white/95">
+      
+      {/* Left Group: Navigation & History */}
+      <div className="flex items-center gap-0.5 pr-1">
+        <ToolbarButton onClick={onToggleOutline} title="Outline" isActive={isTocOpen}>
+          <ListTree className="w-4 h-4" />
         </ToolbarButton>
-        {isTableMenuOpen && (
-          <div style={gridPositionStyle} className="absolute z-50 mt-2">
-            <TableCreationGrid onSelect={handleTableSelect} />
-          </div>
-        )}
+        <ToolbarButton onClick={onFind} title="Find & Replace">
+          <Search className="w-4 h-4" />
+        </ToolbarButton>
       </div>
-      <div className="h-6 w-px bg-gray-200 mx-2"></div>
-      <LabeledToolbarButton onClick={onEditHeader} title="Edit Header">
-        <ArrowUpToLine className="w-4 h-4" />
-        <span>Header</span>
-      </LabeledToolbarButton>
-      <LabeledToolbarButton onClick={onEditFooter} title="Edit Footer">
-        <ArrowDownToLine className="w-4 h-4" />
-        <span>Footer</span>
-      </LabeledToolbarButton>
+
+      <ToolbarDivider />
+
+      <div className="flex items-center gap-0.5">
+        <ToolbarButton onClick={onUndo} title="Undo" disabled={!canUndo}>
+          <Undo className="w-4 h-4" />
+        </ToolbarButton>
+        <ToolbarButton onClick={onRedo} title="Redo" disabled={!canRedo}>
+          <Redo className="w-4 h-4" />
+        </ToolbarButton>
+      </div>
+
+      <ToolbarDivider />
+
+      {/* Typography Group */}
+      <div className="flex items-center gap-1">
+        <Dropdown options={blockTypeOptions} value={currentBlockType} onChange={onBlockTypeChange} title="Block Type" widthClass="w-28" />
+        <Dropdown options={fontOptions} value={currentFont} onChange={onFontChange} title="Font Family" widthClass="w-20" icon={Type} />
+        <Dropdown options={fontSizeOptions} value={currentSize.replace('pt', '')} onChange={onSizeChange} title="Size" widthClass="w-16" />
+      </div>
+
+      <ToolbarDivider />
+
+      {/* Formatting Group */}
+      <div className="flex items-center gap-0.5">
+        <ToolbarButton onClick={onBold} title="Bold" isActive={isBold}><Bold className="w-4 h-4" /></ToolbarButton>
+        <ToolbarButton onClick={onItalic} title="Italic" isActive={isItalic}><Italic className="w-4 h-4" /></ToolbarButton>
+        <ToolbarButton onClick={onUnderline} title="Underline" isActive={isUnderline}><Underline className="w-4 h-4" /></ToolbarButton>
+        <ToolbarButton onClick={onHighlight} title="Highlight" isActive={isHighlighted}><Highlighter className="w-4 h-4" /></ToolbarButton>
+        <ColorPicker currentColor={currentTextColor} onColorChange={onTextColorChange} onMenuOpen={onColorMenuOpen} />
+      </div>
+
+      <ToolbarDivider />
+
+      {/* Alignment & Lists */}
+      <div className="flex items-center gap-0.5">
+        <ToolbarButton onClick={() => onAlign('left')} title="Left" isActive={textAlign === 'left'}><AlignLeft className="w-4 h-4" /></ToolbarButton>
+        <ToolbarButton onClick={() => onAlign('center')} title="Center" isActive={textAlign === 'center'}><AlignCenter className="w-4 h-4" /></ToolbarButton>
+        <ToolbarButton onClick={() => onAlign('right')} title="Right" isActive={textAlign === 'right'}><AlignRight className="w-4 h-4" /></ToolbarButton>
+        <LineSpacingDropdown currentSpacing={currentLineSpacing} onSpacingChange={onLineSpacingChange} onMenuOpen={onLineSpacingMenuOpen} />
+      </div>
+
+      <ToolbarDivider />
+
+      {/* Insert Group */}
+      <div className="flex items-center gap-0.5">
+        <ToolbarButton onClick={onBulletedList} title="Bullet List"><List className="w-4 h-4" /></ToolbarButton>
+        <ToolbarButton onClick={onNumberedList} title="Numbered List"><ListOrdered className="w-4 h-4" /></ToolbarButton>
+        <ToolbarButton onClick={onInsertImage} title="Image"><Image className="w-4 h-4" /></ToolbarButton>
+        <ToolbarButton onClick={onInsertMath} title="Formula"><Sigma className="w-4 h-4" /></ToolbarButton>
+        <div ref={tableMenuRef} className="relative">
+          <ToolbarButton ref={tableButtonRef} onClick={handleTableButtonClick} title="Table">
+            <Table className="w-4 h-4" />
+          </ToolbarButton>
+          {isTableMenuOpen && (
+            <div style={gridPositionStyle} className="absolute z-50 mt-2 bg-white rounded-lg shadow-xl border border-gray-200 p-2 animate-in fade-in zoom-in-95 duration-100">
+              <TableCreationGrid onSelect={handleTableSelect} />
+            </div>
+          )}
+        </div>
+        <ToolbarButton onClick={onLink} title="Link" isActive={isLink}><Link className="w-4 h-4" /></ToolbarButton>
+      </div>
+
+      <div className="flex-1" /> {/* Spacer */}
+
+      {/* Page Layout Group */}
+      <div className="flex items-center gap-0.5 bg-gray-50/50 rounded-lg p-0.5 border border-gray-100">
+        <ToolbarButton onClick={onEditHeader} title="Header" className="text-gray-400 hover:text-gray-700">
+          <ArrowUpToLine className="w-3.5 h-3.5" />
+        </ToolbarButton>
+        <ToolbarButton onClick={onEditFooter} title="Footer" className="text-gray-400 hover:text-gray-700">
+          <ArrowDownToLine className="w-3.5 h-3.5" />
+        </ToolbarButton>
+      </div>
+
     </div>
   );
 };
