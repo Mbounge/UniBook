@@ -12,6 +12,7 @@ import { EditorToolbar } from "./EditorToolbar";
 import { ImageResizer } from "./ImageResizer";
 import { GraphResizer } from "./GraphResizer";
 import { MathResizer } from "./MathResizer";
+import { ExcalidrawResizer } from "./ExcalidrawResizer";
 import { StatusBar } from "./StatusBar";
 import { useLineSpacing, LineSpacing } from "@/hooks/useLineSpacing";
 import { Plus } from "lucide-react";
@@ -66,8 +67,10 @@ interface DocumentEditorProps {
   insertMath: (isInline?: boolean) => void;
   insertGraph: (graphData: GraphData) => void;
   insertTemplate: (html: string) => void;
+  insertExcalidraw: (data?: any) => void;
   rehydrateMathBlocks: (container: HTMLElement) => void;
   rehydrateGraphBlocks: (container: HTMLElement) => void;
+  rehydrateExcalidrawBlocks: (container: HTMLElement) => void;
   rehydratePageNumbers: (container: HTMLElement) => void;
   isContentHubOpen: boolean;
   isHubExpanded: boolean;
@@ -130,8 +133,10 @@ export const DocumentEditor = forwardRef<
     insertMath,
     insertGraph,
     insertTemplate,
+    insertExcalidraw,
     rehydrateMathBlocks,
     rehydrateGraphBlocks,
+    rehydrateExcalidrawBlocks,
     rehydratePageNumbers,
     isContentHubOpen,
     isHubExpanded,
@@ -185,6 +190,8 @@ export const DocumentEditor = forwardRef<
   const [selectedGraphElement, setSelectedGraphElement] =
     useState<HTMLElement | null>(null);
   const [selectedMathElement, setSelectedMathElement] =
+    useState<HTMLElement | null>(null);
+  const [selectedExcalidrawElement, setSelectedExcalidrawElement] = 
     useState<HTMLElement | null>(null);
   const [selectedTableCell, setSelectedTableCell] = useState<HTMLElement | null>(null);
   const [tableToolbarPosition, setTableToolbarPosition] = useState<{ top: number; left: number } | null>(null);
@@ -544,17 +551,17 @@ export const DocumentEditor = forwardRef<
     setShowHfZones(true);
 
     setTimeout(() => {
-      const firstPage = pageContainerRef.current?.querySelector('.page');
-      if (!firstPage) return;
+      // Find the page that corresponds to the current view
+      const pages = Array.from(pageContainerRef.current!.querySelectorAll('.page'));
+      const activePage = pages[currentPage - 1] || pages[0];
+      
+      if (!activePage) return;
 
-      const areaElement = firstPage.querySelector(`.page-${area}`) as HTMLElement;
+      const areaElement = activePage.querySelector(`.page-${area}`) as HTMLElement;
       if (!areaElement) return;
 
-      if (area === 'header') {
-        scrollContainerRef.current?.scrollTo({ top: 0, behavior: 'smooth' });
-      } else {
-        scrollContainerRef.current?.scrollTo({ top: scrollContainerRef.current.scrollHeight, behavior: 'smooth' });
-      }
+      // Scroll to the specific element on the current page
+      areaElement.scrollIntoView({ behavior: 'smooth', block: 'center' });
 
       const areaRect = areaElement.getBoundingClientRect();
       const containerRect = scrollContainerRef.current!.getBoundingClientRect();
@@ -615,16 +622,34 @@ export const DocumentEditor = forwardRef<
       if (
         !customSelection ||
         !isMultiPageSelection ||
-        !pageContainerRef.current
+        !pageContainerRef.current ||
+        !scrollContainerRef.current
       )
         return;
 
       const { start, end, startPage, endPage } = customSelection;
+      const selection = window.getSelection();
+      if (!selection) return;
+
+      // Save scroll position to prevent jumping
+      const scrollTop = scrollContainerRef.current.scrollTop;
+
+      // Use Markers to preserve selection across mutations
+      const startMarker = document.createElement('span');
+      startMarker.id = 'selection-start-marker';
+      const startRange = document.createRange();
+      startRange.setStart(start.node, start.offset);
+      startRange.insertNode(startMarker);
+
+      const endMarker = document.createElement('span');
+      endMarker.id = 'selection-end-marker';
+      const endRange = document.createRange();
+      endRange.setStart(end.node, end.offset);
+      endRange.insertNode(endMarker);
+
       const allPages = Array.from(
         pageContainerRef.current.querySelectorAll<HTMLElement>(".page-content")
       );
-      const selection = window.getSelection();
-      if (!selection) return;
 
       for (let i = startPage; i <= endPage; i++) {
         const pageContent = allPages[i];
@@ -633,13 +658,13 @@ export const DocumentEditor = forwardRef<
         const range = document.createRange();
 
         if (i === startPage) {
-          range.setStart(start.node, start.offset);
+          range.setStartAfter(startMarker);
         } else {
           range.setStart(pageContent, 0);
         }
 
         if (i === endPage) {
-          range.setEnd(end.node, end.offset);
+          range.setEndBefore(endMarker);
         } else {
           range.setEnd(pageContent, pageContent.childNodes.length);
         }
@@ -649,14 +674,36 @@ export const DocumentEditor = forwardRef<
         document.execCommand(command, false, value);
       }
 
+      // Restore Selection using Markers
       const finalRange = document.createRange();
-      finalRange.setStart(start.node, start.offset);
-      finalRange.setEnd(end.node, end.offset);
+      finalRange.setStartAfter(startMarker);
+      finalRange.setEndBefore(endMarker);
       selection.removeAllRanges();
       selection.addRange(finalRange);
+
+      // Cleanup Markers
+      startMarker.remove();
+      endMarker.remove();
+
+      // Restore Scroll Position
+      scrollContainerRef.current.scrollTop = scrollTop;
+
+      forceRecalculateRects();
     },
-    [customSelection, isMultiPageSelection, pageContainerRef]
+    [customSelection, isMultiPageSelection, pageContainerRef, forceRecalculateRects]
   );
+
+  // Helper: Check if ranges match to avoid redundant updates
+  const isSelectionMatching = (selection: Selection, startNode: Node, startOffset: number, endNode: Node, endOffset: number) => {
+    if (selection.rangeCount === 0) return false;
+    const range = selection.getRangeAt(0);
+    return (
+      range.startContainer === startNode &&
+      range.startOffset === startOffset &&
+      range.endContainer === endNode &&
+      range.endOffset === endOffset
+    );
+  };
 
   const applyCommand = useCallback(
     (command: string, value?: string) => {
@@ -698,17 +745,22 @@ export const DocumentEditor = forwardRef<
           if (isMultiPageSelection) {
             applyStyleAcrossPages(command, value);
           } else {
-            const range = document.createRange();
-            range.setStart(start.node, start.offset);
-            range.setEnd(end.node, end.offset);
-            selection.removeAllRanges();
-            selection.addRange(range);
+            // Only update range if it doesn't match, preventing flicker
+            if (!isSelectionMatching(selection, start.node, start.offset, end.node, end.offset)) {
+                const range = document.createRange();
+                range.setStart(start.node, start.offset);
+                range.setEnd(end.node, end.offset);
+                selection.removeAllRanges();
+                selection.addRange(range);
+            }
             document.execCommand(command, false, value);
           }
         } else if (selection.isCollapsed) {
           document.execCommand(command, false, value);
         }
       }
+
+      forceRecalculateRects(); 
 
       saveToHistory(true);
       setTimeout(() => {
@@ -739,6 +791,7 @@ export const DocumentEditor = forwardRef<
       updateToolbarState,
       runParagraphAnalysis,
       reflowBackwardFromPage,
+      forceRecalculateRects,
     ]
   );
 
@@ -768,11 +821,14 @@ export const DocumentEditor = forwardRef<
         if (isMultiPageSelection) {
           applyStyleAcrossPages(command, value);
         } else {
-          const range = document.createRange();
-          range.setStart(start.node, start.offset);
-          range.setEnd(end.node, end.offset);
-          selection.removeAllRanges();
-          selection.addRange(range);
+          // Only update range if it doesn't match, preventing flicker
+          if (!isSelectionMatching(selection, start.node, start.offset, end.node, end.offset)) {
+              const range = document.createRange();
+              range.setStart(start.node, start.offset);
+              range.setEnd(end.node, end.offset);
+              selection.removeAllRanges();
+              selection.addRange(range);
+          }
           document.execCommand(command, false, value);
         }
       } else if (selection.rangeCount > 0 && selection.isCollapsed) {
@@ -816,6 +872,8 @@ export const DocumentEditor = forwardRef<
         selection.addRange(range);
       }
 
+      forceRecalculateRects();
+
       saveToHistory(true);
       setTimeout(() => {
         updateToolbarState();
@@ -845,6 +903,7 @@ export const DocumentEditor = forwardRef<
       updateToolbarState,
       runParagraphAnalysis,
       reflowBackwardFromPage,
+      forceRecalculateRects,
     ]
   );
 
@@ -1172,7 +1231,6 @@ export const DocumentEditor = forwardRef<
 
       if (relevantMutations.length === 0) return;
 
-      // --- OPTIMIZATION: Debounce Structural Cleanup ---
       clearTimeout(mutationTimeout);
       mutationTimeout = setTimeout(() => {
         observer.disconnect();
@@ -1205,7 +1263,7 @@ export const DocumentEditor = forwardRef<
 
           pageContent
             .querySelectorAll(
-              ":scope > div:not(.image-wrapper):not(.graph-wrapper):not(.template-wrapper):not(.math-wrapper)"
+              ":scope > div:not(.image-wrapper):not(.graph-wrapper):not(.template-wrapper):not(.math-wrapper):not(.excalidraw-wrapper)"
             )
             .forEach((div) => {
               const newParagraph = document.createElement("p");
@@ -1418,7 +1476,7 @@ export const DocumentEditor = forwardRef<
             attributeOldValue: true,
           });
         }
-      }, 200); // Debounce delay
+      }, 200);
     });
 
     observer.observe(container, {
@@ -1446,9 +1504,10 @@ export const DocumentEditor = forwardRef<
     if (container && container.innerHTML && !isInitialized.current) {
       rehydrateMathBlocks(container);
       rehydrateGraphBlocks(container);
+      rehydrateExcalidrawBlocks(container);
       rehydratePageNumbers(container);
     }
-  }, [pageContainerRef, rehydrateMathBlocks, rehydrateGraphBlocks, rehydratePageNumbers]);
+  }, [pageContainerRef, rehydrateMathBlocks, rehydrateGraphBlocks, rehydrateExcalidrawBlocks, rehydratePageNumbers]);
 
   useEffect(() => {
     const container = pageContainerRef.current;
@@ -1523,18 +1582,39 @@ export const DocumentEditor = forwardRef<
         return;
       }
 
-      const templateHtml = e.dataTransfer.getData("text/html");
-      if (templateHtml && (isGalleryDrop || isAiTemplateDrop)) {
-        const range = document.caretRangeFromPoint(e.clientX, e.clientY);
-        if (range) {
-          const selection = window.getSelection();
-          selection?.removeAllRanges();
-          selection?.addRange(range);
-          insertTemplate(templateHtml);
-          if (isGalleryDrop) {
-            onGalleryTemplateDrop();
+      if (isGalleryDrop) {
+        // 1. Try to get Excalidraw JSON first
+        const excalidrawJson = e.dataTransfer.getData("application/excalidraw-json");
+        if (excalidrawJson) {
+          try {
+            const templateData = JSON.parse(excalidrawJson);
+            const range = document.caretRangeFromPoint(e.clientX, e.clientY);
+            if (range) {
+              const selection = window.getSelection();
+              selection?.removeAllRanges();
+              selection?.addRange(range);
+              insertExcalidraw(templateData);
+              onGalleryTemplateDrop();
+              runParagraphAnalysis();
+            }
+            return;
+          } catch (err) {
+            console.error("Failed to parse Excalidraw JSON", err);
           }
-          runParagraphAnalysis();
+        }
+
+        // 2. Fallback to HTML (Legacy)
+        const htmlData = e.dataTransfer.getData("text/html");
+        if (htmlData) {
+           const range = document.caretRangeFromPoint(e.clientX, e.clientY);
+           if (range) {
+             const selection = window.getSelection();
+             selection?.removeAllRanges();
+             selection?.addRange(range);
+             insertTemplate(htmlData);
+             onGalleryTemplateDrop();
+             runParagraphAnalysis();
+           }
         }
         return;
       }
@@ -1552,19 +1632,24 @@ export const DocumentEditor = forwardRef<
     onGalleryTemplateDrop,
     insertGraph,
     insertTemplate,
+    insertExcalidraw,
     runParagraphAnalysis,
   ]);
 
   useEffect(() => {
     const container = pageContainerRef.current;
     if (!container) return;
-    container
-      .querySelectorAll(".graph-selected")
-      .forEach((el) => el.classList.remove("graph-selected"));
+    
+    container.querySelectorAll(".graph-selected").forEach((el) => el.classList.remove("graph-selected"));
+    container.querySelectorAll(".excalidraw-selected").forEach((el) => el.classList.remove("excalidraw-selected"));
+
     if (selectedGraphElement) {
       selectedGraphElement.classList.add("graph-selected");
     }
-  }, [selectedGraphElement, pageContainerRef]);
+    if (selectedExcalidrawElement) {
+      selectedExcalidrawElement.classList.add("excalidraw-selected");
+    }
+  }, [selectedGraphElement, selectedExcalidrawElement, pageContainerRef]);
 
   useEffect(() => {
     const container = pageContainerRef.current;
@@ -1766,10 +1851,10 @@ export const DocumentEditor = forwardRef<
         reflowSplitParagraph((startPiece as HTMLElement).dataset.paragraphId!);
       }
 
-      const wrapperSelector = ".image-wrapper, .graph-wrapper, .math-wrapper, .template-wrapper";
+      const wrapperSelector = ".image-wrapper, .graph-wrapper, .math-wrapper, .template-wrapper, .excalidraw-wrapper";
       if (pageContainerRef.current) {
         pageContainerRef.current.querySelectorAll(wrapperSelector).forEach((el) => {
-            if (!el.querySelector("img, .template-block, .math-rendered, .math-editor, .graph-container")) {
+            if (!el.querySelector("img, .template-block, .math-rendered, .math-editor, .graph-container, svg")) {
               el.remove();
             }
         });
@@ -1777,6 +1862,7 @@ export const DocumentEditor = forwardRef<
       if (selectedResizableElement && !document.body.contains(selectedResizableElement)) setSelectedResizableElement(null);
       if (selectedGraphElement && !document.body.contains(selectedGraphElement)) setSelectedGraphElement(null);
       if (selectedMathElement && !document.body.contains(selectedMathElement)) setSelectedMathElement(null);
+      if (selectedExcalidrawElement && !document.body.contains(selectedExcalidrawElement)) setSelectedExcalidrawElement(null);
 
       clearSelection();
 
@@ -1832,6 +1918,7 @@ export const DocumentEditor = forwardRef<
       selectedResizableElement,
       selectedGraphElement,
       selectedMathElement,
+      selectedExcalidrawElement,
     ]
   );
 
@@ -1845,7 +1932,7 @@ export const DocumentEditor = forwardRef<
       if (
         toolbarRef.current?.contains(target) ||
         target.closest(
-          ".image-toolbar, .template-toolbar, .graph-toolbar, .math-toolbar, [data-resize-handle], .link-popover-container, .table-toolbar-container"
+          ".image-toolbar, .template-toolbar, .graph-toolbar, .math-toolbar, .excalidraw-toolbar, [data-resize-handle], .link-popover-container, .table-toolbar-container"
         )
       ) {
         return;
@@ -1858,18 +1945,16 @@ export const DocumentEditor = forwardRef<
       }
 
       const mathWrapper = target.closest(".math-wrapper") as HTMLElement | null;
-      const graphWrapper = target.closest(
-        ".graph-wrapper"
-      ) as HTMLElement | null;
-      const imageOrTemplateWrapper = target.closest(
-        ".image-wrapper, .template-wrapper"
-      ) as HTMLElement | null;
+      const graphWrapper = target.closest(".graph-wrapper") as HTMLElement | null;
+      const excalidrawWrapper = target.closest(".excalidraw-wrapper") as HTMLElement | null;
+      const imageOrTemplateWrapper = target.closest(".image-wrapper, .template-wrapper") as HTMLElement | null;
 
       if (mathWrapper) {
         if (selectedMathElement !== mathWrapper) {
           clearSelection();
           setSelectedResizableElement(null);
           setSelectedGraphElement(null);
+          setSelectedExcalidrawElement(null);
           setSelectedMathElement(mathWrapper);
         }
         return;
@@ -1880,7 +1965,19 @@ export const DocumentEditor = forwardRef<
           clearSelection();
           setSelectedResizableElement(null);
           setSelectedMathElement(null);
+          setSelectedExcalidrawElement(null);
           setSelectedGraphElement(graphWrapper);
+        }
+        return;
+      }
+
+      if (excalidrawWrapper) {
+        if (selectedExcalidrawElement !== excalidrawWrapper) {
+          clearSelection();
+          setSelectedResizableElement(null);
+          setSelectedMathElement(null);
+          setSelectedGraphElement(null);
+          setSelectedExcalidrawElement(excalidrawWrapper);
         }
         return;
       }
@@ -1892,6 +1989,7 @@ export const DocumentEditor = forwardRef<
           clearSelection();
           setSelectedGraphElement(null);
           setSelectedMathElement(null);
+          setSelectedExcalidrawElement(null);
           setSelectedResizableElement(elementToSelect);
         }
         return;
@@ -1901,11 +1999,13 @@ export const DocumentEditor = forwardRef<
         if (
           selectedGraphElement ||
           selectedResizableElement ||
-          selectedMathElement
+          selectedMathElement ||
+          selectedExcalidrawElement
         ) {
           setSelectedGraphElement(null);
           setSelectedResizableElement(null);
           setSelectedMathElement(null);
+          setSelectedExcalidrawElement(null);
         }
         if (editingHeaderFooter) {
           // This case is handled by the HeaderFooterEditor's own click-outside logic
@@ -1916,6 +2016,7 @@ export const DocumentEditor = forwardRef<
         setSelectedGraphElement(null);
         setSelectedResizableElement(null);
         setSelectedMathElement(null);
+        setSelectedExcalidrawElement(null);
         clearSelection();
       }
     };
@@ -1931,6 +2032,7 @@ export const DocumentEditor = forwardRef<
     selectedGraphElement,
     selectedResizableElement,
     selectedMathElement,
+    selectedExcalidrawElement,
     editingHeaderFooter,
     showHfZones,
   ]);
@@ -1986,7 +2088,8 @@ export const DocumentEditor = forwardRef<
         (activeEl && container.contains(activeEl)) ||
         selectedResizableElement ||
         selectedGraphElement ||
-        selectedMathElement
+        selectedMathElement ||
+        selectedExcalidrawElement
       );
     };
 
@@ -2004,7 +2107,7 @@ export const DocumentEditor = forwardRef<
       const masterFragment = document.createDocumentFragment();
       const intersectingWrappers: Element[] = [];
       const wrapperSelector =
-        ".image-wrapper, .graph-wrapper, .math-wrapper, .template-wrapper";
+        ".image-wrapper, .graph-wrapper, .math-wrapper, .template-wrapper, .excalidraw-wrapper";
 
       try {
         const originalRange = document.createRange();
@@ -2072,18 +2175,19 @@ export const DocumentEditor = forwardRef<
 
         tempDiv
           .querySelectorAll(
-            ".image-resize-overlay, .image-toolbar, .graph-resize-overlay, .graph-toolbar, .math-resize-overlay, .math-toolbar, .template-resize-overlay, .template-toolbar"
+            ".image-resize-overlay, .image-toolbar, .graph-resize-overlay, .graph-toolbar, .math-resize-overlay, .math-toolbar, .template-resize-overlay, .template-toolbar, .excalidraw-resize-overlay, .excalidraw-toolbar"
           )
           .forEach((uiEl) => uiEl.remove());
         tempDiv
           .querySelectorAll(
-            ".graph-selected, .math-selected, .template-selected"
+            ".graph-selected, .math-selected, .template-selected, .excalidraw-selected"
           )
           .forEach((el) =>
             el.classList.remove(
               "graph-selected",
               "math-selected",
-              "template-selected"
+              "template-selected",
+              "excalidraw-selected"
             )
           );
         tempDiv.querySelectorAll(wrapperSelector).forEach((el) => {
@@ -2122,19 +2226,22 @@ export const DocumentEditor = forwardRef<
       } else if (
         selectedResizableElement ||
         selectedGraphElement ||
-        selectedMathElement
+        selectedMathElement ||
+        selectedExcalidrawElement
       ) {
         const selectedWrapper =
           selectedResizableElement?.closest(
             ".image-wrapper, .template-wrapper"
           ) ||
           selectedGraphElement ||
-          selectedMathElement;
+          selectedMathElement ||
+          selectedExcalidrawElement;
         const page = selectedWrapper?.closest(".page");
         selectedWrapper?.remove();
         setSelectedResizableElement(null);
         setSelectedGraphElement(null);
         setSelectedMathElement(null);
+        setSelectedExcalidrawElement(null);
         saveToHistory(true, page ? [page as HTMLElement] : undefined);
         if (page) {
           reflowBackwardFromPage(page as HTMLElement);
@@ -2223,7 +2330,8 @@ export const DocumentEditor = forwardRef<
         if (
           (selectedResizableElement ||
             selectedGraphElement ||
-            selectedMathElement) &&
+            selectedMathElement ||
+            selectedExcalidrawElement) &&
           !isEditingTemplate &&
           !isEditingMath
         ) {
@@ -2233,13 +2341,15 @@ export const DocumentEditor = forwardRef<
               ".image-wrapper, .template-wrapper"
             ) ||
             selectedGraphElement ||
-            selectedMathElement;
+            selectedMathElement ||
+            selectedExcalidrawElement;
           if (selectedWrapper) {
             const page = selectedWrapper.closest(".page") as HTMLElement | null;
             selectedWrapper.remove();
             setSelectedResizableElement(null);
             setSelectedGraphElement(null);
             setSelectedMathElement(null);
+            setSelectedExcalidrawElement(null);
             saveToHistory(true, page ? [page] : undefined);
             if (page) {
               reflowBackwardFromPage(page);
@@ -2759,7 +2869,8 @@ export const DocumentEditor = forwardRef<
                   previousElement.classList.contains("image-wrapper") ||
                   previousElement.classList.contains("graph-wrapper") ||
                   previousElement.classList.contains("math-wrapper") ||
-                  previousElement.classList.contains("template-wrapper")
+                  previousElement.classList.contains("template-wrapper") ||
+                  previousElement.classList.contains("excalidraw-wrapper")
                 ) {
                   previousElement.remove();
 
@@ -2844,7 +2955,7 @@ export const DocumentEditor = forwardRef<
 
                         const hasBold =
                           style.fontWeight &&
-                          !["normal", "400", ""].includes(style.fontWeight);
+                          !["normal", "400", "500", ""].includes(style.fontWeight);
                         const hasItalic =
                           style.fontStyle &&
                           !["normal", ""].includes(style.fontStyle);
@@ -3200,6 +3311,7 @@ export const DocumentEditor = forwardRef<
     selectedResizableElement,
     selectedGraphElement,
     selectedMathElement,
+    selectedExcalidrawElement,
     insertImage,
     insertContent,
     showFindReplace,
@@ -3519,6 +3631,14 @@ export const DocumentEditor = forwardRef<
           saveToHistory={saveToHistory}
           selectedMathElement={selectedMathElement}
           onMathSelect={setSelectedMathElement}
+          reflowBackwardFromPage={reflowBackwardFromPage}
+          fullDocumentReflow={fullDocumentReflow}
+        />
+        <ExcalidrawResizer
+          pageContainerRef={scrollContainerRef}
+          saveToHistory={saveToHistory}
+          selectedElement={selectedExcalidrawElement}
+          onElementSelect={setSelectedExcalidrawElement}
           reflowBackwardFromPage={reflowBackwardFromPage}
           fullDocumentReflow={fullDocumentReflow}
         />

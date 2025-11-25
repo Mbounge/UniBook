@@ -369,10 +369,15 @@ export const ImageResizer: React.FC<ImageResizerProps> = ({
           setTimeout(() => applyButtonStates(currentSelection, true), 10);
           propsRef.current.saveToHistory(true);
         } else if (actionButton.hasAttribute('data-delete-button')) {
+          // --- FIX: Capture page before removal and trigger reflow ---
+          const page = currentSelection.closest('.page') as HTMLElement;
           currentSelection.remove();
           setSelection(null);
           propsRef.current.onElementSelect?.(null);
           propsRef.current.saveToHistory(true);
+          if (page) {
+            propsRef.current.reflowBackwardFromPage(page);
+          }
         } else if (actionButton.hasAttribute('data-float-type')) {
           const floatType = actionButton.getAttribute('data-float-type') as ImageFloat;
           setFloat(currentSelection, floatType);

@@ -133,10 +133,15 @@ export const MathResizer: React.FC<MathResizerProps> = ({
       if (deleteButton) {
         e.preventDefault();
         e.stopPropagation();
+        // --- FIX: Capture page before removal and trigger reflow ---
+        const page = currentSelection.closest('.page') as HTMLElement;
         currentSelection.remove();
         setSelection(null);
         propsRef.current.onMathSelect?.(null);
         propsRef.current.saveToHistory(true);
+        if (page) {
+          propsRef.current.reflowBackwardFromPage(page);
+        }
         return;
       }
 

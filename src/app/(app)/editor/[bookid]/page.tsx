@@ -110,6 +110,7 @@ const EditorComponent = () => {
     insertImage, insertContent, insertTemplate, 
     insertMath, rehydrateMathBlocks,
     insertGraph, rehydrateGraphBlocks,
+    insertExcalidraw, rehydrateExcalidrawBlocks, // --- FIX: Destructure these
     rehydratePageNumbers,
     addNewPage,
     resetHistory,
@@ -200,6 +201,7 @@ const EditorComponent = () => {
 
         rehydrateMathBlocks(pageContainerRef.current);
         rehydrateGraphBlocks(pageContainerRef.current);
+        rehydrateExcalidrawBlocks(pageContainerRef.current); // --- FIX: Call this
         rehydratePageNumbers(pageContainerRef.current);
         
         // Initial reflow
@@ -211,7 +213,7 @@ const EditorComponent = () => {
 
       setIsContentLoaded(true);
     }
-  }, [bookData, pageContainerRef, isContentLoaded, resetHistory, rehydrateMathBlocks, rehydrateGraphBlocks, rehydratePageNumbers, fullDocumentReflow]);
+  }, [bookData, pageContainerRef, isContentLoaded, resetHistory, rehydrateMathBlocks, rehydrateGraphBlocks, rehydrateExcalidrawBlocks, rehydratePageNumbers, fullDocumentReflow]);
 
   useEffect(() => {
     if (showTocPanel || leftPanelContent) {
@@ -430,8 +432,10 @@ const EditorComponent = () => {
               onGalleryTemplateDrop={() => setLeftPanelContent(null)}
               insertMath={insertMath}
               insertGraph={insertGraph}
+              insertExcalidraw={insertExcalidraw} // --- FIX: Pass prop
               rehydrateMathBlocks={rehydrateMathBlocks}
               rehydrateGraphBlocks={rehydrateGraphBlocks}
+              rehydrateExcalidrawBlocks={rehydrateExcalidrawBlocks} // --- FIX: Pass prop
               rehydratePageNumbers={rehydratePageNumbers}
               insertTemplate={insertTemplate}
               resetHistory={resetHistory}

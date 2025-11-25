@@ -21,7 +21,7 @@ const ToolbarButton = React.forwardRef<HTMLButtonElement, { onClick: () => void;
       title={title} 
       disabled={disabled} 
       className={`
-        p-2 rounded-md transition-all duration-200 flex items-center justify-center
+        p-1.5 rounded-md transition-all duration-200 flex items-center justify-center
         ${isActive 
           ? "bg-blue-50 text-blue-600 shadow-sm ring-1 ring-blue-100" 
           : "text-gray-600 hover:bg-gray-100 hover:text-gray-900"
@@ -37,7 +37,7 @@ const ToolbarButton = React.forwardRef<HTMLButtonElement, { onClick: () => void;
 ToolbarButton.displayName = 'ToolbarButton';
 
 const ToolbarDivider = () => (
-  <div className="h-5 w-px bg-gray-200 mx-1.5 self-center" />
+  <div className="h-5 w-px bg-gray-200 mx-1 self-center flex-shrink-0" />
 );
 
 const Dropdown = ({ options, value, onChange, title, widthClass = "w-32", icon: Icon }: { options: { label: string, value: string }[], value: string, onChange: (value: string) => void, title: string, widthClass?: string, icon?: React.ElementType }) => {
@@ -52,7 +52,7 @@ const Dropdown = ({ options, value, onChange, title, widthClass = "w-32", icon: 
   }, []);
 
   return (
-    <div ref={ref} className="relative">
+    <div ref={ref} className="relative flex-shrink-0">
       <button 
         onMouseDown={(e) => e.preventDefault()} 
         onClick={() => setIsOpen(!isOpen)} 
@@ -189,10 +189,10 @@ export const EditorToolbar: React.FC<EditorToolbarProps> = (props) => {
   const fontSizeOptions = [{ label: "12", value: "12pt" }, { label: "14", value: "14pt" }, { label: "16", value: "16pt" }, { label: "18", value: "18pt" }, { label: "24", value: "24pt" }];
 
   return (
-    <div className="bg-white/80 backdrop-blur-md border border-gray-200/60 shadow-sm rounded-xl p-1.5 flex items-center flex-wrap gap-0.5 transition-all duration-200 hover:shadow-md hover:bg-white/95">
+    <div className="bg-white/80 backdrop-blur-md border border-gray-200/60 shadow-sm rounded-xl p-1.5 flex items-center gap-0.5 transition-all duration-200 hover:shadow-md hover:bg-white/95">
       
       {/* Left Group: Navigation & History */}
-      <div className="flex items-center gap-0.5 pr-1">
+      <div className="flex items-center gap-0.5 pr-1 flex-shrink-0">
         <ToolbarButton onClick={onToggleOutline} title="Outline" isActive={isTocOpen}>
           <ListTree className="w-4 h-4" />
         </ToolbarButton>
@@ -203,7 +203,7 @@ export const EditorToolbar: React.FC<EditorToolbarProps> = (props) => {
 
       <ToolbarDivider />
 
-      <div className="flex items-center gap-0.5">
+      <div className="flex items-center gap-0.5 flex-shrink-0">
         <ToolbarButton onClick={onUndo} title="Undo" disabled={!canUndo}>
           <Undo className="w-4 h-4" />
         </ToolbarButton>
@@ -215,7 +215,7 @@ export const EditorToolbar: React.FC<EditorToolbarProps> = (props) => {
       <ToolbarDivider />
 
       {/* Typography Group */}
-      <div className="flex items-center gap-1">
+      <div className="flex items-center gap-1 flex-shrink-0">
         <Dropdown options={blockTypeOptions} value={currentBlockType} onChange={onBlockTypeChange} title="Block Type" widthClass="w-28" />
         <Dropdown options={fontOptions} value={currentFont} onChange={onFontChange} title="Font Family" widthClass="w-20" icon={Type} />
         <Dropdown options={fontSizeOptions} value={currentSize.replace('pt', '')} onChange={onSizeChange} title="Size" widthClass="w-16" />
@@ -224,7 +224,7 @@ export const EditorToolbar: React.FC<EditorToolbarProps> = (props) => {
       <ToolbarDivider />
 
       {/* Formatting Group */}
-      <div className="flex items-center gap-0.5">
+      <div className="flex items-center gap-0.5 flex-shrink-0">
         <ToolbarButton onClick={onBold} title="Bold" isActive={isBold}><Bold className="w-4 h-4" /></ToolbarButton>
         <ToolbarButton onClick={onItalic} title="Italic" isActive={isItalic}><Italic className="w-4 h-4" /></ToolbarButton>
         <ToolbarButton onClick={onUnderline} title="Underline" isActive={isUnderline}><Underline className="w-4 h-4" /></ToolbarButton>
@@ -235,7 +235,7 @@ export const EditorToolbar: React.FC<EditorToolbarProps> = (props) => {
       <ToolbarDivider />
 
       {/* Alignment & Lists */}
-      <div className="flex items-center gap-0.5">
+      <div className="flex items-center gap-0.5 flex-shrink-0">
         <ToolbarButton onClick={() => onAlign('left')} title="Left" isActive={textAlign === 'left'}><AlignLeft className="w-4 h-4" /></ToolbarButton>
         <ToolbarButton onClick={() => onAlign('center')} title="Center" isActive={textAlign === 'center'}><AlignCenter className="w-4 h-4" /></ToolbarButton>
         <ToolbarButton onClick={() => onAlign('right')} title="Right" isActive={textAlign === 'right'}><AlignRight className="w-4 h-4" /></ToolbarButton>
@@ -245,7 +245,7 @@ export const EditorToolbar: React.FC<EditorToolbarProps> = (props) => {
       <ToolbarDivider />
 
       {/* Insert Group */}
-      <div className="flex items-center gap-0.5">
+      <div className="flex items-center gap-0.5 flex-shrink-0">
         <ToolbarButton onClick={onBulletedList} title="Bullet List"><List className="w-4 h-4" /></ToolbarButton>
         <ToolbarButton onClick={onNumberedList} title="Numbered List"><ListOrdered className="w-4 h-4" /></ToolbarButton>
         <ToolbarButton onClick={onInsertImage} title="Image"><Image className="w-4 h-4" /></ToolbarButton>
@@ -263,15 +263,25 @@ export const EditorToolbar: React.FC<EditorToolbarProps> = (props) => {
         <ToolbarButton onClick={onLink} title="Link" isActive={isLink}><Link className="w-4 h-4" /></ToolbarButton>
       </div>
 
-      <div className="flex-1" /> {/* Spacer */}
+      <ToolbarDivider />
 
       {/* Page Layout Group */}
-      <div className="flex items-center gap-0.5 bg-gray-50/50 rounded-lg p-0.5 border border-gray-100">
-        <ToolbarButton onClick={onEditHeader} title="Header" className="text-gray-400 hover:text-gray-700">
-          <ArrowUpToLine className="w-3.5 h-3.5" />
+      <div className="flex items-center gap-1 flex-shrink-0">
+        <ToolbarButton 
+          onClick={onEditHeader} 
+          title="Edit Header" 
+          className="w-auto px-2 gap-1.5 text-gray-600 hover:text-gray-900"
+        >
+          <ArrowUpToLine className="w-4 h-4" />
+          <span className="text-xs font-medium">Header</span>
         </ToolbarButton>
-        <ToolbarButton onClick={onEditFooter} title="Footer" className="text-gray-400 hover:text-gray-700">
-          <ArrowDownToLine className="w-3.5 h-3.5" />
+        <ToolbarButton 
+          onClick={onEditFooter} 
+          title="Edit Footer" 
+          className="w-auto px-2 gap-1.5 text-gray-600 hover:text-gray-900"
+        >
+          <ArrowDownToLine className="w-4 h-4" />
+          <span className="text-xs font-medium">Footer</span>
         </ToolbarButton>
       </div>
 

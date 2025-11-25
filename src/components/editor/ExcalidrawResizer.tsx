@@ -1,7 +1,6 @@
 'use client';
 
 import React, { useEffect, useRef, useState, useCallback } from 'react';
-import { GraphData } from './GraphBlock';
 
 const getFloatIcon = (type: string) => {
   const icons = {
@@ -13,26 +12,25 @@ const getFloatIcon = (type: string) => {
   return icons[type as keyof typeof icons] || icons.none;
 };
 
-const getCaptionIcon = () => `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M13 4H4a2 2 0 0 0-2 2v10a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V6a2 2 0 0 0-2-2h-3.5"/><path d="M16 2v4"/><path d="M21 14H8"/><path d="M21 18H8"/><path d="M10 10h.01"/><path d="M10 6h.01"/></svg>`;
-
+const getEditIcon = () => `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path></svg>`;
 const getDeleteIcon = () => `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3,6 5,6 21,6"></polyline><path d="m19,6v14a2,2 0 0,1 -2,2H7a2,2 0 0,1 -2,-2V6m3,0V4a2,2 0 0,1 2,-2h4a2,2 0 0,1 2,2v2"></path><line x1="10" y1="11" x2="10" y2="17"></line><line x1="14" y1="11" x2="14" y2="17"></line></svg>`;
 
-interface GraphResizerProps {
+interface ExcalidrawResizerProps {
   pageContainerRef: React.RefObject<HTMLDivElement | null>;
   saveToHistory: (force?: boolean) => void;
-  selectedGraphElement?: HTMLElement | null;
-  onGraphSelect?: (element: HTMLElement | null) => void;
+  selectedElement?: HTMLElement | null;
+  onElementSelect?: (element: HTMLElement | null) => void;
   reflowBackwardFromPage: (pageElement: HTMLElement) => void;
   fullDocumentReflow: () => void;
 }
 
-type GraphFloat = 'none' | 'left' | 'right' | 'center';
+type FloatType = 'none' | 'left' | 'right' | 'center';
 
-export const GraphResizer: React.FC<GraphResizerProps> = ({ 
+export const ExcalidrawResizer: React.FC<ExcalidrawResizerProps> = ({ 
   pageContainerRef,
   saveToHistory, 
-  selectedGraphElement,
-  onGraphSelect,
+  selectedElement,
+  onElementSelect,
   reflowBackwardFromPage,
   fullDocumentReflow
 }) => {
@@ -41,16 +39,15 @@ export const GraphResizer: React.FC<GraphResizerProps> = ({
   
   const selectionRef = useRef<HTMLElement | null>(null);
   const isResizingRef = useRef(false);
-  const propsRef = useRef({ saveToHistory, onGraphSelect, reflowBackwardFromPage, fullDocumentReflow });
+  const propsRef = useRef({ saveToHistory, onElementSelect, reflowBackwardFromPage, fullDocumentReflow });
 
   const resizeHandleRef = useRef<string | null>(null);
   const resizeStart = useRef({ width: 0, height: 0, x: 0, y: 0, aspectRatio: 1 });
   const previousSelection = useRef<HTMLElement | null>(null);
-  const captionBlurHandlerRef = useRef<(() => void) | null>(null);
 
   useEffect(() => {
-    propsRef.current = { saveToHistory, onGraphSelect, reflowBackwardFromPage, fullDocumentReflow };
-  }, [saveToHistory, onGraphSelect, reflowBackwardFromPage, fullDocumentReflow]);
+    propsRef.current = { saveToHistory, onElementSelect, reflowBackwardFromPage, fullDocumentReflow };
+  }, [saveToHistory, onElementSelect, reflowBackwardFromPage, fullDocumentReflow]);
 
   useEffect(() => {
     selectionRef.current = selection;
@@ -61,87 +58,38 @@ export const GraphResizer: React.FC<GraphResizerProps> = ({
   }, [isResizing]);
 
   useEffect(() => {
-    const newSelection = selectedGraphElement ? selectedGraphElement.closest('.graph-wrapper') as HTMLElement : null;
+    const newSelection = selectedElement ? selectedElement.closest('.excalidraw-wrapper') as HTMLElement : null;
     setSelection(newSelection);
-  }, [selectedGraphElement]);
+  }, [selectedElement]);
 
-  const setupCaptionListener = useCallback((captionElement: HTMLElement) => {
-    const handleBlur = () => {
-      if (captionElement.textContent?.trim() === '') {
-        captionElement.innerHTML = '';
-      }
-    };
-
-    captionElement.addEventListener('blur', handleBlur);
-    captionBlurHandlerRef.current = handleBlur;
-  }, []);
-
-  const disconnectCaptionListener = useCallback(() => {
-    const captionElement = selectionRef.current?.querySelector('figcaption');
-    if (captionElement && captionBlurHandlerRef.current) {
-      captionElement.removeEventListener('blur', captionBlurHandlerRef.current);
-      captionBlurHandlerRef.current = null;
-    }
-  }, []);
-
-  useEffect(() => {
-    const handleSelectionChange = () => {
-      const currentSelection = selectionRef.current;
-      if (!currentSelection) return;
-      const overlay = currentSelection.querySelector('.graph-resize-overlay');
-      const toolbar = currentSelection.querySelector('.graph-toolbar');
-      if (!overlay || !toolbar) return;
-      const activeSelection = window.getSelection();
-      if (!activeSelection || activeSelection.rangeCount === 0) return;
-      const anchorNode = activeSelection.anchorNode;
-      if (!anchorNode) return;
-      const parentNode = anchorNode.nodeType === Node.TEXT_NODE ? anchorNode.parentNode : anchorNode;
-      const isEditingCaption = parentNode && parentNode.nodeName === 'FIGCAPTION' && currentSelection.contains(parentNode);
-      if (isEditingCaption) {
-        (overlay as HTMLElement).style.visibility = 'hidden';
-        (toolbar as HTMLElement).style.visibility = 'hidden';
-      } else {
-        (overlay as HTMLElement).style.visibility = 'visible';
-        (toolbar as HTMLElement).style.visibility = 'visible';
-      }
-    };
-    document.addEventListener('selectionchange', handleSelectionChange);
-    return () => {
-      document.removeEventListener('selectionchange', handleSelectionChange);
-    };
+  const applyButtonStates = useCallback((element: HTMLElement) => {
+    const toolbar = element.querySelector('.excalidraw-toolbar');
+    if (!toolbar) return;
+    const borderColor = '#8b5cf6'; // Purple for Excalidraw
+    const currentFloat = (element.dataset.float || 'none') as FloatType;
+    
+    toolbar.querySelectorAll('button[data-float-type]').forEach(btn => {
+      const button = btn as HTMLElement;
+      const buttonType = button.dataset.floatType as FloatType;
+      const isActive = currentFloat === buttonType;
+      button.style.setProperty('background', isActive ? borderColor : 'transparent', 'important');
+      button.style.setProperty('color', isActive ? 'white' : '#6b7280', 'important');
+    });
   }, []);
 
   const cleanupControls = useCallback((element: HTMLElement | null) => {
     if (!element || !document.body.contains(element)) return;
-    disconnectCaptionListener();
-    const overlay = element.querySelector('.graph-resize-overlay');
-    const toolbar = element.querySelector('.graph-toolbar');
+    const overlay = element.querySelector('.excalidraw-resize-overlay');
+    const toolbar = element.querySelector('.excalidraw-toolbar');
     if (overlay) overlay.remove();
     if (toolbar) toolbar.remove();
-    element.classList.remove('graph-selected');
+    element.classList.remove('excalidraw-selected');
     element.style.opacity = '';
-  }, [disconnectCaptionListener]);
-
-  const updateToolbarButtonStates = useCallback((element: HTMLElement, float: GraphFloat, hasCaption: boolean) => {
-    const toolbar = element.querySelector('.graph-toolbar');
-    if (!toolbar) return;
-    toolbar.querySelectorAll('button[data-float-type]').forEach(btn => {
-      const button = btn as HTMLElement;
-      const buttonType = button.dataset.floatType;
-      const isActive = float === buttonType;
-      button.style.background = isActive ? '#8b5cf6' : 'transparent';
-      button.style.color = isActive ? 'white' : '#6b7280';
-    });
-    const captionButton = toolbar.querySelector('button[data-caption-button]') as HTMLButtonElement;
-    if (captionButton) {
-      captionButton.title = hasCaption ? 'Remove Caption' : 'Add Caption';
-      captionButton.style.background = hasCaption ? '#8b5cf6' : 'transparent';
-      captionButton.style.color = hasCaption ? 'white' : '#6b7280';
-    }
   }, []);
 
   const createControls = useCallback((element: HTMLElement) => {
-    if (element.querySelector('.graph-resize-overlay')) return;
+    if (element.querySelector('.excalidraw-resize-overlay')) return;
+
     element.draggable = true;
     element.ondragstart = (e) => {
       if ((e.target as HTMLElement).closest('[data-resize-handle]')) {
@@ -149,27 +97,30 @@ export const GraphResizer: React.FC<GraphResizerProps> = ({
         return;
       }
       if (e.dataTransfer) {
-        const id = `drag-graph-${Date.now()}`;
+        const id = `drag-excalidraw-${Date.now()}`;
         element.id = id;
         e.dataTransfer.effectAllowed = 'move';
-        e.dataTransfer.setData('application/custom-graph-id', id);
-        e.dataTransfer.setData('text/plain', id); 
+        e.dataTransfer.setData('application/custom-excalidraw-id', id);
+        e.dataTransfer.setData('text/plain', id);
         setTimeout(() => { element.style.display = 'none'; }, 0);
       }
     };
     element.ondragend = () => {
       element.style.display = 'block';
-      if (element.id.startsWith('drag-graph-')) {
+      if (element.id.startsWith('drag-excalidraw-')) {
         element.removeAttribute('id');
       }
     };
-    const config = { borderColor: '#8b5cf6' };
+
+    const config = { borderColor: '#8b5cf6' }; // Purple
     element.style.position = 'relative';
     element.style.opacity = '1';
-    element.classList.add('graph-selected');
+    element.classList.add('excalidraw-selected');
+
     const overlay = document.createElement('div');
-    overlay.className = 'graph-resize-overlay';
+    overlay.className = 'excalidraw-resize-overlay';
     overlay.style.cssText = `position: absolute !important; top: -2px !important; left: -2px !important; right: -2px !important; bottom: -2px !important; border: 2px solid ${config.borderColor} !important; border-radius: 8px !important; pointer-events: none !important; z-index: 10 !important; box-shadow: 0 0 0 1px ${config.borderColor}1A, 0 4px 12px ${config.borderColor}26 !important;`;
+
     const handles = [{ pos: 'n', cursor: 'ns-resize' }, { pos: 'ne', cursor: 'nesw-resize' }, { pos: 'e', cursor: 'ew-resize' }, { pos: 'se', cursor: 'nwse-resize' }, { pos: 's', cursor: 'ns-resize' }, { pos: 'sw', cursor: 'nesw-resize' }, { pos: 'w', cursor: 'ew-resize' }, { pos: 'nw', cursor: 'nwse-resize' }];
     handles.forEach(handle => {
       const handleEl = document.createElement('div');
@@ -177,37 +128,46 @@ export const GraphResizer: React.FC<GraphResizerProps> = ({
       handleEl.style.cssText = `position: absolute !important; width: 12px !important; height: 12px !important; background: ${config.borderColor} !important; border: 2px solid white !important; border-radius: 50% !important; pointer-events: all !important; z-index: 11 !important; cursor: ${handle.cursor} !important; box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1) !important; top: ${handle.pos.includes('n') ? '-6px' : handle.pos.includes('s') ? 'auto' : '50%'} !important; bottom: ${handle.pos.includes('s') ? '-6px' : 'auto'} !important; left: ${handle.pos.includes('w') ? '-6px' : handle.pos.includes('e') ? 'auto' : '50%'} !important; right: ${handle.pos.includes('e') ? '-6px' : 'auto'} !important; transform: translate(${handle.pos.includes('w') || handle.pos.includes('e') ? '0' : '-50%'}, ${handle.pos.includes('n') || handle.pos.includes('s') ? '0' : '-50%'}) !important;`;
       overlay.appendChild(handleEl);
     });
+
     const toolbar = document.createElement('div');
-    toolbar.className = 'graph-toolbar';
+    toolbar.className = 'excalidraw-toolbar';
     toolbar.style.cssText = `position: absolute !important; top: -50px !important; left: auto !important; right: 0 !important; transform: none !important; background: white !important; border-radius: 12px !important; padding: 8px !important; display: flex !important; gap: 4px !important; box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15), 0 0 0 1px rgba(0, 0, 0, 0.05) !important; pointer-events: all !important; z-index: 12 !important; backdrop-filter: blur(8px) !important; border: 1px solid rgba(255, 255, 255, 0.2) !important;`;
+
     const dragHandle = document.createElement('div');
-    dragHandle.className = 'graph-drag-handle';
+    dragHandle.className = 'excalidraw-drag-handle';
     dragHandle.contentEditable = 'false';
     dragHandle.style.cssText = `position: absolute !important; top: -6px !important; left: 50% !important; transform: translateX(-50%) !important; width: 24px !important; height: 12px !important; background: ${config.borderColor} !important; border: 2px solid white !important; border-radius: 6px !important; pointer-events: all !important; z-index: 11 !important; cursor: move !important; box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1) !important; display: flex !important; align-items: center !important; justify-content: center !important;`;
     dragHandle.innerHTML = `<svg width="12" height="8" viewBox="0 0 12 8" fill="white"><circle cx="2" cy="2" r="1"/><circle cx="6" cy="2" r="1"/><circle cx="10" cy="2" r="1"/><circle cx="2" cy="6" r="1"/><circle cx="6" cy="6" r="1"/><circle cx="10" cy="6" r="1"/></svg>`;
     overlay.appendChild(dragHandle);
+
+    // Edit Button
+    const editButton = document.createElement('button');
+    editButton.dataset.editButton = 'true';
+    editButton.title = 'Edit Design';
+    editButton.innerHTML = getEditIcon();
+    editButton.style.cssText = `width: 32px !important; height: 32px !important; border: none !important; background: transparent !important; color: #6b7280 !important; border-radius: 8px !important; cursor: pointer !important; display: flex !important; align-items: center !important; justify-content: center !important; transition: all 0.2s ease !important;`;
+    toolbar.appendChild(editButton);
+
+    const separator1 = document.createElement('div');
+    separator1.style.cssText = 'width: 1px; height: 20px; background: #e5e7eb; margin: 6px 4px;';
+    toolbar.appendChild(separator1);
+
+    // Alignment Buttons
     const alignmentButtons = [{ type: 'left', title: 'Align Left' }, { type: 'center', title: 'Center' }, { type: 'right', title: 'Align Right' }, { type: 'none', title: 'Default' }];
     alignmentButtons.forEach(btn => {
       const button = document.createElement('button');
-      const isActive = element.dataset.float === btn.type;
       button.dataset.floatType = btn.type;
       button.title = btn.title;
       button.innerHTML = getFloatIcon(btn.type);
-      button.style.cssText = `width: 32px !important; height: 32px !important; border: none !important; background: ${isActive ? config.borderColor : 'transparent'} !important; color: ${isActive ? 'white' : '#6b7280'} !important; border-radius: 8px !important; cursor: pointer !important; display: flex !important; align-items: center !important; justify-content: center !important;`;
+      button.style.cssText = `width: 32px !important; height: 32px !important; border: none !important; background: transparent !important; color: #6b7280 !important; border-radius: 8px !important; cursor: pointer !important; display: flex !important; align-items: center !important; justify-content: center !important; transition: all 0.2s ease !important;`;
       toolbar.appendChild(button);
     });
-    const captionButton = document.createElement('button');
-    captionButton.dataset.captionButton = 'true';
-    const hasCaption = !!element.querySelector('figcaption');
-    captionButton.title = hasCaption ? 'Remove Caption' : 'Add Caption';
-    captionButton.innerHTML = getCaptionIcon();
-    captionButton.style.cssText = `width: 32px !important; height: 32px !important; border: none !important; background: ${hasCaption ? config.borderColor : 'transparent'} !important; color: ${hasCaption ? 'white' : '#6b7280'} !important; border-radius: 8px !important; cursor: pointer !important; display: flex !important; align-items: center !important; justify-content: center !important;`;
-    toolbar.insertBefore(captionButton, toolbar.firstChild);
 
-    // --- FIX: Add Delete Button ---
-    const separator = document.createElement('div');
-    separator.style.cssText = 'width: 1px; height: 20px; background: #e5e7eb; margin: 6px 4px;';
-    toolbar.appendChild(separator);
+    const separator2 = document.createElement('div');
+    separator2.style.cssText = 'width: 1px; height: 20px; background: #e5e7eb; margin: 6px 4px;';
+    toolbar.appendChild(separator2);
+
+    // Delete Button
     const deleteButton = document.createElement('button');
     deleteButton.title = 'Delete';
     deleteButton.innerHTML = getDeleteIcon();
@@ -218,11 +178,8 @@ export const GraphResizer: React.FC<GraphResizerProps> = ({
     element.appendChild(overlay);
     element.appendChild(toolbar);
 
-    const existingCaption = element.querySelector('figcaption');
-    if (existingCaption) {
-      setupCaptionListener(existingCaption as HTMLElement);
-    }
-  }, [setupCaptionListener]);
+    setTimeout(() => applyButtonStates(element), 0);
+  }, [applyButtonStates]);
 
   useEffect(() => {
     const previous = previousSelection.current;
@@ -237,32 +194,34 @@ export const GraphResizer: React.FC<GraphResizerProps> = ({
   }, [selection, cleanupControls, createControls]);
 
   useEffect(() => {
-    const setFloat = (element: HTMLElement, float: GraphFloat) => {
+    const setFloat = (element: HTMLElement, float: FloatType) => {
       propsRef.current.saveToHistory(true);
       element.dataset.float = float;
       
       element.style.float = 'none';
+      element.style.clear = 'none';
       element.style.margin = '';
 
       switch (float) {
         case 'left':
           element.style.float = 'left';
-          element.style.margin = '8px 16px 8px 0';
+          element.style.margin = '8px 24px 8px 0';
           break;
         case 'right':
           element.style.float = 'right';
-          element.style.margin = '8px 0 8px 16px';
+          element.style.margin = '8px 0 8px 24px';
           break;
         case 'center':
           element.style.margin = '12px auto';
+          element.style.clear = 'both';
           break;
         default: // 'none'
           element.style.margin = '12px 0';
+          element.style.clear = 'both';
           break;
       }
 
-      const hasCaption = !!element.querySelector('figcaption');
-      updateToolbarButtonStates(element, float, hasCaption);
+      setTimeout(() => applyButtonStates(element), 50);
       setTimeout(() => propsRef.current.fullDocumentReflow(), 100);
     };
 
@@ -279,63 +238,40 @@ export const GraphResizer: React.FC<GraphResizerProps> = ({
       const target = e.target as HTMLElement;
       const currentSelection = selectionRef.current;
       if (!currentSelection) return;
-      const captionButton = target.closest('button[data-caption-button]');
-      if (captionButton) {
+
+      const editButton = target.closest('button[data-edit-button]');
+      if (editButton) {
         e.preventDefault();
         e.stopPropagation();
-        const existingCaption = currentSelection.querySelector('figcaption');
-        if (existingCaption) {
-          disconnectCaptionListener();
-          existingCaption.remove();
-          updateToolbarButtonStates(currentSelection, currentSelection.dataset.float as GraphFloat || 'none', false);
-        } else {
-          const figcaption = document.createElement('figcaption');
-          figcaption.contentEditable = 'true';
-          figcaption.style.cssText = 'margin-top: 8px; font-size: 14px; color: #6b7280; text-align: inherit; display: block; white-space: normal;';
-          currentSelection.appendChild(figcaption);
-          setupCaptionListener(figcaption);
-
-          const nextEl = currentSelection.nextElementSibling;
-          if (!nextEl || !['P', 'H1', 'H2', 'H3', 'H4'].includes(nextEl.tagName)) {
-              const newPara = document.createElement('p');
-              newPara.innerHTML = '<br>';
-              currentSelection.insertAdjacentElement('afterend', newPara);
-          }
-          
-          updateToolbarButtonStates(currentSelection, currentSelection.dataset.float as GraphFloat || 'none', true);
-          setTimeout(() => {
-            const range = document.createRange();
-            const selection = window.getSelection();
-            range.selectNodeContents(figcaption);
-            range.collapse(false);
-            selection?.removeAllRanges();
-            selection?.addRange(range);
-            figcaption.focus();
-          }, 10);
+        // Trigger the React component to open the modal
+        const reactComponent = currentSelection.querySelector('[data-excalidraw-component]');
+        if (reactComponent) {
+           // We dispatch a custom event that the hydration logic listens to
+           currentSelection.dispatchEvent(new CustomEvent('openExcalidrawEditor'));
         }
-        propsRef.current.saveToHistory(true);
         return;
       }
+
       const deleteButton = target.closest('button[data-delete-button]');
       if (deleteButton) {
         e.preventDefault();
         e.stopPropagation();
-        // --- FIX: Capture page before removal and trigger reflow ---
         const page = currentSelection.closest('.page') as HTMLElement;
         currentSelection.remove();
         setSelection(null);
-        propsRef.current.onGraphSelect?.(null);
+        propsRef.current.onElementSelect?.(null);
         propsRef.current.saveToHistory(true);
         if (page) {
           propsRef.current.reflowBackwardFromPage(page);
         }
         return;
       }
+
       const actionButton = target.closest('button[data-float-type]');
       if (actionButton) {
         e.preventDefault();
         e.stopPropagation();
-        const floatType = actionButton.getAttribute('data-float-type') as GraphFloat;
+        const floatType = actionButton.getAttribute('data-float-type') as FloatType;
         setFloat(currentSelection, floatType);
         return;
       }
@@ -349,68 +285,70 @@ export const GraphResizer: React.FC<GraphResizerProps> = ({
         e.preventDefault();
         setIsResizing(true);
         resizeHandleRef.current = resizeHandle.getAttribute('data-resize-handle');
-        const aspectRatio = currentSelection.offsetHeight / currentSelection.offsetWidth;
-        resizeStart.current = { width: currentSelection.offsetWidth, height: currentSelection.offsetHeight, x: e.clientX, y: e.clientY, aspectRatio };
+        resizeStart.current = { 
+          width: currentSelection.offsetWidth, 
+          height: currentSelection.offsetHeight, 
+          x: e.clientX, 
+          y: e.clientY, 
+          aspectRatio: currentSelection.offsetWidth / currentSelection.offsetHeight 
+        };
       }
     };
-
+    
     const handleMouseMove = (e: MouseEvent) => {
       if (!isResizingRef.current || !selectionRef.current) return;
       const { width, height, x, y, aspectRatio } = resizeStart.current;
       const handle = resizeHandleRef.current;
       const dx = e.clientX - x;
       const dy = e.clientY - y;
-      let newWidth = width;
-
-      if (handle?.includes('e')) {
-        newWidth = width + dx;
-      } else if (handle?.includes('w')) {
-        newWidth = width - dx;
-      } else if (handle?.includes('s')) {
-        const newHeight = height + dy;
-        newWidth = newHeight / aspectRatio;
-      } else if (handle?.includes('n')) {
-        const newHeight = height - dy;
-        newWidth = newHeight / aspectRatio;
-      } else { 
-        newWidth = width + dx;
-      }
-
+      
       const pageContent = selectionRef.current.closest('.page-content') as HTMLElement;
       const maxWidth = pageContent ? pageContent.clientWidth : 800;
 
-      newWidth = Math.max(50, Math.min(newWidth, maxWidth));
-      const newHeight = newWidth * aspectRatio;
+      let newWidth = width;
+      let newHeight = height;
 
-      try {
-        const graphData = JSON.parse(selectionRef.current.dataset.graph || '{}') as GraphData;
-        const newGraphData = { ...graphData, width: newWidth, height: newHeight };
-        selectionRef.current.dataset.graph = JSON.stringify(newGraphData);
-        selectionRef.current.style.width = `${newWidth}px`;
-        selectionRef.current.dispatchEvent(new CustomEvent('updateGraph', { detail: newGraphData }));
-      } catch (error) {
-        console.error("Failed to update graph data on resize:", error);
+      if (handle?.includes('e')) {
+        newWidth = width + dx;
+        newHeight = newWidth / aspectRatio;
+      } else if (handle?.includes('w')) {
+        newWidth = width - dx;
+        newHeight = newWidth / aspectRatio;
+      } else if (handle?.includes('s')) {
+        newHeight = height + dy;
+        newWidth = newHeight * aspectRatio;
+      } else if (handle?.includes('n')) {
+        newHeight = height - dy;
+        newWidth = newHeight * aspectRatio;
+      } else {
+        newWidth = width + dx;
+        newHeight = newWidth / aspectRatio;
       }
 
+      newWidth = Math.max(100, Math.min(newWidth, maxWidth));
+      newHeight = newWidth / aspectRatio;
+      
+      // FIX: Set BOTH width and height explicitly to maintain aspect ratio
+      selectionRef.current.style.width = `${newWidth}px`;
+      selectionRef.current.style.height = `${newHeight}px`;
+      
       const page = selectionRef.current.closest('.page') as HTMLElement;
       if (page) {
         propsRef.current.reflowBackwardFromPage(page);
       }
     };
-
+    
     document.addEventListener('mousedown', handleResizeStart);
     document.addEventListener('click', handleActionClick, true);
     document.addEventListener('mousemove', handleMouseMove);
     document.addEventListener('mouseup', handleMouseUp);
-
     return () => {
       document.removeEventListener('mousedown', handleResizeStart);
       document.removeEventListener('click', handleActionClick, true);
       document.removeEventListener('mousemove', handleMouseMove);
       document.removeEventListener('mouseup', handleMouseUp);
-      disconnectCaptionListener();
     };
-  }, [pageContainerRef, createControls, cleanupControls, updateToolbarButtonStates, disconnectCaptionListener, setupCaptionListener]);
+  }, [pageContainerRef, createControls, cleanupControls, applyButtonStates]);
 
   return null;
 };
