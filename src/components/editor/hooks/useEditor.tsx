@@ -4,7 +4,7 @@ import React, { useState, useCallback, useRef, useEffect } from "react";
 import { createRoot, Root } from "react-dom/client";
 import { MathBlock } from "../MathBlock";
 import { GraphBlock, GraphData } from "../GraphBlock";
-import { ExcalidrawBlock } from "../ExcalidrawBlock";
+import { CanvasBlock } from "@/components/editor/CanvasBlock";
 import { useHistory } from "./useHistory";
 import { useTextReflow } from "./useTextReflow";
 import { useMultiPageSelection } from "./useMultiPageSelection";
@@ -60,6 +60,7 @@ export const useEditor = (
   
   const observerRef = useRef<IntersectionObserver | null>(null);
   const hydratedElements = useRef<Set<HTMLElement>>(new Set());
+  const dropLock = useRef(false);
 
   const saveToHistory = useCallback(
     (force: boolean = false, affectedElements?: HTMLElement[]) => {
@@ -211,40 +212,28 @@ export const useEditor = (
     );
   }, [mountReactComponent, saveToHistory, scheduleReflow]);
 
-  const hydrateExcalidrawBlockSingle = useCallback((wrapper: HTMLElement) => {
+  const hydrateCanvasBlockSingle = useCallback((wrapper: HTMLElement) => {
     if (reactRootsRef.current.has(wrapper)) return;
 
-    const initialData = JSON.parse(wrapper.dataset.scene || '{"elements": [], "appState": {}}');
+    const initialData = JSON.parse(wrapper.dataset.canvas || '{}');
+    const width = parseInt(wrapper.dataset.width || '500');
+    const height = parseInt(wrapper.dataset.height || '300');
 
-    const ExcalidrawWrapper = () => {
-      const [isEditing, setIsEditing] = useState(false);
-
-      useEffect(() => {
-        const openHandler = () => setIsEditing(true);
-        wrapper.addEventListener('openExcalidrawEditor', openHandler);
-        return () => wrapper.removeEventListener('openExcalidrawEditor', openHandler);
-      }, []);
-
-      const handleUpdate = (newData: any, svgHtml: string) => {
-        wrapper.dataset.scene = JSON.stringify(newData);
-        saveToHistory(true, [wrapper]);
-        scheduleReflow();
-      };
-
-      return (
-        <div data-excalidraw-component="true" className="w-full h-full">
-          <ExcalidrawBlock 
-            initialData={initialData} 
-            onUpdate={handleUpdate}
-            isEditing={isEditing}
-            setEditing={setIsEditing}
-          />
-        </div>
-      );
+    const handleUpdate = (newData: any) => {
+      wrapper.dataset.canvas = JSON.stringify(newData);
     };
 
-    mountReactComponent(<ExcalidrawWrapper />, wrapper);
-  }, [mountReactComponent, saveToHistory, scheduleReflow]);
+    mountReactComponent(
+      <CanvasBlock 
+        initialData={initialData} 
+        width={width}
+        height={height}
+        onUpdate={handleUpdate}
+        isEditing={true} 
+      />, 
+      wrapper
+    );
+  }, [mountReactComponent]);
 
   const handleIntersection = useCallback((entries: IntersectionObserverEntry[]) => {
     entries.forEach(entry => {
@@ -256,14 +245,14 @@ export const useEditor = (
              hydrateMathBlockSingle(target);
           } else if (target.classList.contains('graph-wrapper')) {
              hydrateGraphBlockSingle(target);
-          } else if (target.classList.contains('excalidraw-wrapper')) {
-             hydrateExcalidrawBlockSingle(target);
+          } else if (target.classList.contains('canvas-wrapper')) {
+             hydrateCanvasBlockSingle(target);
           }
           hydratedElements.current.add(target);
         }
       }
     });
-  }, [hydrateMathBlockSingle, hydrateGraphBlockSingle, hydrateExcalidrawBlockSingle]);
+  }, [hydrateMathBlockSingle, hydrateGraphBlockSingle, hydrateCanvasBlockSingle]);
 
   // Initialize Observer
   useEffect(() => {
@@ -320,9 +309,9 @@ export const useEditor = (
     []
   );
 
-  const rehydrateExcalidrawBlocks = useCallback(
+  const rehydrateCanvasBlocks = useCallback(
     (container: HTMLElement) => {
-      const placeholders = container.querySelectorAll(".excalidraw-wrapper");
+      const placeholders = container.querySelectorAll(".canvas-wrapper");
       placeholders.forEach((el) => {
         observerRef.current?.observe(el);
       });
@@ -356,7 +345,7 @@ export const useEditor = (
       
       rehydrateMathBlocks(editorRef.current);
       rehydrateGraphBlocks(editorRef.current);
-      rehydrateExcalidrawBlocks(editorRef.current);
+      rehydrateCanvasBlocks(editorRef.current);
       rehydratePageNumbers(editorRef.current);
 
       const elementToFocus = restoreSelection(
@@ -380,7 +369,7 @@ export const useEditor = (
       unmountAllReactComponents,
       rehydrateMathBlocks,
       rehydrateGraphBlocks,
-      rehydrateExcalidrawBlocks,
+      rehydrateCanvasBlocks,
       rehydratePageNumbers,
       restoreSelection,
     ]
@@ -441,7 +430,7 @@ export const useEditor = (
           if (
             !wrapperElement &&
             (element.classList.contains("image-wrapper") ||
-              element.classList.contains("excalidraw-wrapper") ||
+              element.classList.contains("canvas-wrapper") ||
               element.classList.contains("math-wrapper") ||
               element.classList.contains("template-wrapper") ||
               element.classList.contains("graph-wrapper"))
@@ -562,7 +551,7 @@ export const useEditor = (
         "template-wrapper",
         "graph-wrapper",
         "math-wrapper",
-        "excalidraw-wrapper",
+        "canvas-wrapper",
       ].some((cls) => el.classList.contains(cls));
     };
 
@@ -628,7 +617,7 @@ export const useEditor = (
           blockElement &&
           (blockElement.textContent ?? "").trim() === "" &&
           blockElement.querySelectorAll(
-            "img, .graph-wrapper, .template-wrapper, .math-wrapper, .excalidraw-wrapper"
+            "img, .graph-wrapper, .template-wrapper, .math-wrapper, .canvas-wrapper"
           ).length === 0;
 
         if (
@@ -696,7 +685,7 @@ export const useEditor = (
           blockElement &&
           (blockElement.textContent ?? "").trim() === "" &&
           blockElement.querySelectorAll(
-            "img, .graph-wrapper, .template-wrapper, .math-wrapper, .excalidraw-wrapper"
+            "img, .graph-wrapper, .template-wrapper, .math-wrapper, .canvas-wrapper"
           ).length === 0;
 
         if (
@@ -729,30 +718,40 @@ export const useEditor = (
     ]
   );
 
-  // --- INSERT EXCALIDRAW ---
-  const insertExcalidraw = useCallback((initialSceneData?: any) => {
-    let target = findInsertionTarget();
-    if (!target) {
-      addNewPage();
-      target = findInsertionTarget();
-      if (!target) return;
+  // --- INSERT CANVAS ---
+  const insertCanvas = useCallback((initialShape?: string, dropX?: number, dropY?: number) => {
+    // Prevent insertion if we are already inside a canvas wrapper (nesting check)
+    const selection = window.getSelection();
+    if (selection && selection.rangeCount > 0) {
+      const range = selection.getRangeAt(0);
+      const container = range.commonAncestorContainer;
+      const element = container.nodeType === Node.ELEMENT_NODE ? container as HTMLElement : container.parentElement;
+      if (element?.closest('.canvas-wrapper')) {
+        return; // Already inside a canvas
+      }
     }
-    const page = (target.container.closest('.page') as HTMLElement);
+
+    let target = findInsertionTarget();
+    if (!target) { addNewPage(); target = findInsertionTarget(); if (!target) return; }
+    
+    // Double check target container
+    if (target.container.closest('.canvas-wrapper')) return;
+
+    const page = target.container.closest('.page') as HTMLElement;
     saveToHistory(true, page ? [page] : undefined);
 
-    const sceneData = initialSceneData || { elements: [], appState: {}, files: {} };
-
     const wrapper = document.createElement("div");
-    wrapper.className = "excalidraw-wrapper";
+    wrapper.className = "canvas-wrapper";
     wrapper.contentEditable = "false";
-    wrapper.dataset.scene = JSON.stringify(sceneData);
-    // FIX: Set explicit initial dimensions so it's visible
-    wrapper.style.width = "300px"; 
-    wrapper.style.height = "200px";
+    wrapper.dataset.canvas = "{}";
+    wrapper.dataset.width = "500";
+    wrapper.dataset.height = "300";
+    wrapper.style.width = "500px";
+    wrapper.style.height = "300px";
     wrapper.style.margin = "1em auto";
-    wrapper.style.textAlign = "center";
-    
-    const selection = window.getSelection();
+    wrapper.style.border = "1px dashed #ccc"; 
+    wrapper.style.position = "relative";
+
     if (target.range) {
       let node = target.range.commonAncestorContainer;
       let blockElement = (
@@ -769,7 +768,7 @@ export const useEditor = (
         blockElement &&
         (blockElement.textContent ?? "").trim() === "" &&
         blockElement.querySelectorAll(
-          "img, .graph-wrapper, .template-wrapper, .math-wrapper, .excalidraw-wrapper"
+          "img, .graph-wrapper, .template-wrapper, .math-wrapper, .canvas-wrapper"
         ).length === 0;
 
       if (
@@ -784,23 +783,24 @@ export const useEditor = (
       target.container.appendChild(wrapper);
     }
 
-    ensureCursorFriendlyBlocks(wrapper, selection);
-    
+    ensureCursorFriendlyBlocks(wrapper, window.getSelection());
     observerRef.current?.observe(wrapper);
-    hydrateExcalidrawBlockSingle(wrapper);
+    hydrateCanvasBlockSingle(wrapper);
+
+    if (initialShape) {
+      setTimeout(() => {
+        const event = new CustomEvent('canvas-add-shape', { 
+          detail: { shapeType: initialShape, clientX: dropX, clientY: dropY }
+        });
+        wrapper.dispatchEvent(event);
+      }, 150);
+    }
 
     setTimeout(() => {
-      const page = wrapper.closest('.page') as HTMLElement;
-      saveToHistory(true, page ? [page] : undefined);
+      saveToHistory(true);
       scheduleReflow();
-    }, 100);
-  }, [
-    saveToHistory,
-    findInsertionTarget,
-    addNewPage,
-    scheduleReflow,
-    hydrateExcalidrawBlockSingle
-  ]);
+    }, 200);
+  }, [saveToHistory, findInsertionTarget, addNewPage, scheduleReflow, hydrateCanvasBlockSingle]);
 
   const insertImage = useCallback(
     (imageData: any) => {
@@ -843,7 +843,7 @@ export const useEditor = (
           blockElement &&
           (blockElement.textContent ?? "").trim() === "" &&
           blockElement.querySelectorAll(
-            "img, .graph-wrapper, .template-wrapper, .math-wrapper, .excalidraw-wrapper"
+            "img, .graph-wrapper, .template-wrapper, .math-wrapper, .canvas-wrapper"
           ).length === 0;
 
         if (
@@ -890,7 +890,7 @@ export const useEditor = (
           tempDiv.innerHTML = html;
           tempDiv
             .querySelectorAll(
-              ".image-resize-overlay, .image-toolbar, .graph-resize-overlay, .graph-toolbar, .math-resize-overlay, .math-toolbar, .excalidraw-resize-overlay, .excalidraw-toolbar"
+              ".image-resize-overlay, .image-toolbar, .graph-resize-overlay, .graph-toolbar, .math-resize-overlay, .math-toolbar, .canvas-resize-overlay, .canvas-toolbar"
             )
             .forEach((uiEl) => uiEl.remove());
           return tempDiv.innerHTML;
@@ -1099,7 +1099,7 @@ export const useEditor = (
           targetBlock = targetBlock.parentElement;
         }
         if (targetBlock && targetBlock.parentElement?.classList.contains("page-content")) {
-          const isEffectivelyEmpty = (!targetBlock.textContent?.trim() && !targetBlock.querySelector("img, .image-wrapper, .graph-wrapper, .math-wrapper, .template-wrapper, .excalidraw-wrapper")) || targetBlock.innerHTML.toLowerCase().trim() === "<br>";
+          const isEffectivelyEmpty = (!targetBlock.textContent?.trim() && !targetBlock.querySelector("img, .image-wrapper, .graph-wrapper, .math-wrapper, .template-wrapper, .canvas-wrapper")) || targetBlock.innerHTML.toLowerCase().trim() === "<br>";
           if (isEffectivelyEmpty) {
             insertionPoint = targetBlock.parentElement;
             insertBeforeNode = targetBlock;
@@ -1168,7 +1168,7 @@ export const useEditor = (
         await new Promise(resolve => setTimeout(resolve, 50));
         rehydrateMathBlocks(editorRef.current);
         rehydrateGraphBlocks(editorRef.current);
-        rehydrateExcalidrawBlocks(editorRef.current);
+        rehydrateCanvasBlocks(editorRef.current);
         
         await new Promise(resolve => setTimeout(resolve, 100));
         
@@ -1216,7 +1216,7 @@ export const useEditor = (
       reflowBackwardFromPage,
       rehydrateGraphBlocks,
       rehydrateMathBlocks,
-      rehydrateExcalidrawBlocks,
+      rehydrateCanvasBlocks,
     ]
   );
 
@@ -1296,83 +1296,82 @@ export const useEditor = (
     };
   }, [unmountAllReactComponents]);
 
-  // --- FIX: Updated handleDrop to check for Excalidraw JSON first ---
+  // --- DRAG AND DROP ---
   useEffect(() => {
     const container = editorRef.current;
     if (!container) return;
+
     const handleDragOver = (e: DragEvent) => {
-      e.preventDefault();
-      if (!e.dataTransfer) return;
-      const isTemplate =
-        e.dataTransfer.types.includes("application/gallery-template-item") ||
-        e.dataTransfer.types.includes("application/ai-template-item");
-      const isNewGraph = e.dataTransfer.types.includes(
-        "application/ai-graph-item"
-      );
-      e.dataTransfer.dropEffect = isTemplate || isNewGraph ? "copy" : "move";
-      if (isTemplate || isNewGraph) {
-        const range = document.caretRangeFromPoint(e.clientX, e.clientY);
-        if (range) {
-          const rect = range.getClientRects()[0];
-          if (rect) {
-            const pageContent = container.querySelector(".page-content");
-            // ... (drop indicator logic)
-          }
-        }
+      if (e.dataTransfer?.types.includes("application/canvas-shape") || 
+          e.dataTransfer?.types.includes("application/gallery-template-item")) {
+        e.preventDefault();
+        e.dataTransfer.dropEffect = "copy";
       }
     };
 
     const handleDrop = (e: DragEvent) => {
-      e.preventDefault();
-      if (!e.dataTransfer) return;
-      const isGalleryDrop = e.dataTransfer.types.includes("application/gallery-template-item");
-      
-      // ... (Graph drop logic)
+      // Check lock
+      if (dropLock.current) {
+        e.preventDefault();
+        e.stopPropagation();
+        return;
+      }
 
-      if (isGalleryDrop) {
-        // 1. Try to get Excalidraw JSON first
-        const excalidrawJson = e.dataTransfer.getData("application/excalidraw-json");
-        if (excalidrawJson) {
-          try {
-            const templateData = JSON.parse(excalidrawJson);
-            const range = document.caretRangeFromPoint(e.clientX, e.clientY);
-            if (range) {
-              const selection = window.getSelection();
-              selection?.removeAllRanges();
-              selection?.addRange(range);
-              insertExcalidraw(templateData);
-              // onGalleryTemplateDrop(); // If this prop exists
-              // runParagraphAnalysis(); // If this exists
-            }
-            return;
-          } catch (err) {
-            console.error("Failed to parse Excalidraw JSON", err);
+      const shapeType = e.dataTransfer?.getData("application/canvas-shape");
+      if (shapeType) {
+        e.preventDefault();
+        e.stopPropagation();
+        
+        // Activate lock
+        dropLock.current = true;
+        setTimeout(() => { dropLock.current = false; }, 100);
+
+        // Check if dropping on existing canvas
+        const target = e.target as HTMLElement;
+        const existingCanvas = target.closest('.canvas-wrapper');
+
+        if (existingCanvas) {
+          const event = new CustomEvent('canvas-add-shape', { 
+            detail: { shapeType, clientX: e.clientX, clientY: e.clientY } 
+          });
+          existingCanvas.dispatchEvent(event);
+        } else {
+          const range = document.caretRangeFromPoint(e.clientX, e.clientY);
+          if (range) {
+            const selection = window.getSelection();
+            selection?.removeAllRanges();
+            selection?.addRange(range);
+            insertCanvas(shapeType, e.clientX, e.clientY);
           }
-        }
-
-        // 2. Fallback to HTML (Legacy)
-        const htmlData = e.dataTransfer.getData("text/html");
-        if (htmlData) {
-           const range = document.caretRangeFromPoint(e.clientX, e.clientY);
-           if (range) {
-             const selection = window.getSelection();
-             selection?.removeAllRanges();
-             selection?.addRange(range);
-             insertTemplate(htmlData);
-           }
         }
         return;
       }
+
+      const htmlData = e.dataTransfer?.getData("text/html");
+      if (htmlData && e.dataTransfer?.types.includes("application/gallery-template-item")) {
+         e.preventDefault();
+         e.stopPropagation();
+         
+         dropLock.current = true;
+         setTimeout(() => { dropLock.current = false; }, 100);
+
+         const range = document.caretRangeFromPoint(e.clientX, e.clientY);
+         if (range) {
+           const selection = window.getSelection();
+           selection?.removeAllRanges();
+           selection?.addRange(range);
+           insertTemplate(htmlData);
+         }
+      }
     };
-    
+
     container.addEventListener("dragover", handleDragOver);
     container.addEventListener("drop", handleDrop);
-    
     return () => {
       container.removeEventListener("dragover", handleDragOver);
       container.removeEventListener("drop", handleDrop);
     };
-  }, [editorRef, insertExcalidraw, insertTemplate]);
+  }, [insertCanvas, insertTemplate]);
 
   return {
     insertImage,
@@ -1380,7 +1379,7 @@ export const useEditor = (
     insertTemplate,
     insertMath,
     insertGraph,
-    insertExcalidraw,
+    insertCanvas,
     addNewPage,
     undo,
     redo,
@@ -1389,7 +1388,7 @@ export const useEditor = (
     saveToHistory,
     rehydrateMathBlocks,
     rehydrateGraphBlocks,
-    rehydrateExcalidrawBlocks,
+    rehydrateCanvasBlocks,
     rehydratePageNumbers,
     resetHistory,
     scheduleReflow,

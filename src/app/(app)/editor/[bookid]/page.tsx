@@ -99,7 +99,6 @@ const EditorComponent = () => {
   const [showContentPanel, setShowContentPanel] = useState(false);
   const [isHubExpanded, setIsHubExpanded] = useState(false);
   const [isContentLoaded, setIsContentLoaded] = useState(false);
-  const [isLeftPanelExpanded, setIsLeftPanelExpanded] = useState(false);
   const [isImporting, setIsImporting] = useState(false);
   const [importMessage, setImportMessage] = useState("Importing content...");
   
@@ -110,7 +109,7 @@ const EditorComponent = () => {
     insertImage, insertContent, insertTemplate, 
     insertMath, rehydrateMathBlocks,
     insertGraph, rehydrateGraphBlocks,
-    insertExcalidraw, rehydrateExcalidrawBlocks, // --- FIX: Destructure these
+    insertCanvas, rehydrateCanvasBlocks,
     rehydratePageNumbers,
     addNewPage,
     resetHistory,
@@ -201,7 +200,7 @@ const EditorComponent = () => {
 
         rehydrateMathBlocks(pageContainerRef.current);
         rehydrateGraphBlocks(pageContainerRef.current);
-        rehydrateExcalidrawBlocks(pageContainerRef.current); // --- FIX: Call this
+        rehydrateCanvasBlocks(pageContainerRef.current);
         rehydratePageNumbers(pageContainerRef.current);
         
         // Initial reflow
@@ -213,16 +212,13 @@ const EditorComponent = () => {
 
       setIsContentLoaded(true);
     }
-  }, [bookData, pageContainerRef, isContentLoaded, resetHistory, rehydrateMathBlocks, rehydrateGraphBlocks, rehydrateExcalidrawBlocks, rehydratePageNumbers, fullDocumentReflow]);
+  }, [bookData, pageContainerRef, isContentLoaded, resetHistory, rehydrateMathBlocks, rehydrateGraphBlocks, rehydrateCanvasBlocks, rehydratePageNumbers, fullDocumentReflow]);
 
   useEffect(() => {
     if (showTocPanel || leftPanelContent) {
       setSidebarVisible(false);
     } else {
       setSidebarVisible(true);
-    }
-    if (!leftPanelContent) {
-      setIsLeftPanelExpanded(false);
     }
     return () => setSidebarVisible(true);
   }, [showTocPanel, leftPanelContent, setSidebarVisible]);
@@ -253,10 +249,6 @@ const EditorComponent = () => {
   const handleToggleContentHub = () => {
     setShowContentPanel(!showContentPanel); 
     if (showContentPanel) setIsHubExpanded(false); 
-  };
-
-  const handleToggleLeftPanelExpand = () => {
-    setIsLeftPanelExpanded(!isLeftPanelExpanded);
   };
   
   const handleInsertTemplateAndClose = (html: string) => {
@@ -324,10 +316,7 @@ const EditorComponent = () => {
   }
 
   const getLeftPanelWidth = () => {
-    if (isLeftPanelExpanded) {
-      return 'w-full';
-    }
-    if (leftPanelContent === 'templates') return 'w-96';
+    if (leftPanelContent === 'templates') return 'w-auto'; // Let the component define width (w-72)
     if (leftPanelContent === 'ai') return 'w-[480px]';
     if (showTocPanel) return 'w-80';
     return 'w-0';
@@ -386,8 +375,6 @@ const EditorComponent = () => {
                 <TemplateGallery 
                   onClose={handleToggleTemplateGallery} 
                   onInsert={handleInsertTemplateAndClose}
-                  isExpanded={isLeftPanelExpanded}
-                  onToggleExpand={handleToggleLeftPanelExpand}
                 />
               )}
               {leftPanelContent === 'ai' && (
@@ -412,7 +399,7 @@ const EditorComponent = () => {
             </div>
           )}
           
-          <div className={`flex-1 flex flex-col min-w-0 ${isLeftPanelExpanded ? 'hidden' : ''}`}>
+          <div className={`flex-1 flex flex-col min-w-0`}>
             <DocumentEditor 
               pageContainerRef={pageContainerRef}
               onToggleOutline={handleToggleOutline}
@@ -432,10 +419,10 @@ const EditorComponent = () => {
               onGalleryTemplateDrop={() => setLeftPanelContent(null)}
               insertMath={insertMath}
               insertGraph={insertGraph}
-              insertExcalidraw={insertExcalidraw} // --- FIX: Pass prop
+              insertCanvas={insertCanvas}
               rehydrateMathBlocks={rehydrateMathBlocks}
               rehydrateGraphBlocks={rehydrateGraphBlocks}
-              rehydrateExcalidrawBlocks={rehydrateExcalidrawBlocks} // --- FIX: Pass prop
+              rehydrateCanvasBlocks={rehydrateCanvasBlocks}
               rehydratePageNumbers={rehydratePageNumbers}
               insertTemplate={insertTemplate}
               resetHistory={resetHistory}
@@ -472,27 +459,25 @@ const EditorComponent = () => {
             />
           </div>
 
-          {!isLeftPanelExpanded && (
-            <div
-              className="fixed top-0 bottom-0 right-0 z-30 transition-transform duration-300 ease-in-out"
-              style={{
-                transform: showContentPanel ? 'translateX(0%)' : 'translateX(100%)',
-              }}
-            >
-              <ContentHubToggle 
-                isOpen={showContentPanel} 
-                onClick={handleToggleContentHub} 
-              />
-              <ContentHubPanel 
-                onImport={handleImport} 
-                onClose={handleToggleContentHub} 
-                isExpanded={isHubExpanded} 
-                onToggleExpand={() => setIsHubExpanded(!isHubExpanded)}
-                hasLeftPanel={hasLeftPanel}
-                isSidebarCollapsed={isSidebarCollapsed}
-              />
-            </div>
-          )}
+          <div
+            className="fixed top-0 bottom-0 right-0 z-30 transition-transform duration-300 ease-in-out"
+            style={{
+              transform: showContentPanel ? 'translateX(0%)' : 'translateX(100%)',
+            }}
+          >
+            <ContentHubToggle 
+              isOpen={showContentPanel} 
+              onClick={handleToggleContentHub} 
+            />
+            <ContentHubPanel 
+              onImport={handleImport} 
+              onClose={handleToggleContentHub} 
+              isExpanded={isHubExpanded} 
+              onToggleExpand={() => setIsHubExpanded(!isHubExpanded)}
+              hasLeftPanel={hasLeftPanel}
+              isSidebarCollapsed={isSidebarCollapsed}
+            />
+          </div>
         </div>
         
         <ComposeBarRenderer />
