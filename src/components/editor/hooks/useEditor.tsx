@@ -719,7 +719,7 @@ export const useEditor = (
   );
 
   // --- INSERT CANVAS ---
-  const insertCanvas = useCallback((initialShape?: string, dropX?: number, dropY?: number) => {
+  const insertCanvas = useCallback((initialShape?: string, dropX?: number, dropY?: number, initialImageUrl?: string) => {
     // Prevent insertion if we are already inside a canvas wrapper (nesting check)
     const selection = window.getSelection();
     if (selection && selection.rangeCount > 0) {
@@ -746,24 +746,32 @@ export const useEditor = (
     wrapper.dataset.canvas = "{}";
     wrapper.dataset.width = "500";
     wrapper.dataset.height = "300";
+    // UPDATED: Set default float and display properties to match other blocks
+    wrapper.dataset.float = "center";
     wrapper.style.width = "500px";
     wrapper.style.height = "300px";
+    wrapper.style.display = "block";
     wrapper.style.margin = "1em auto";
-    wrapper.style.border = "1px dashed #ccc"; 
     wrapper.style.position = "relative";
 
     if (target.range) {
-      let node = target.range.commonAncestorContainer;
+      const range = target.range;
+      let node = range.commonAncestorContainer;
       let blockElement = (
         node.nodeType === Node.ELEMENT_NODE ? node : node.parentElement
       ) as HTMLElement;
+      
+      // Find the actual block container (p, h1, etc)
+      // We loop up until we find a block or hit the container
       while (
         blockElement &&
         blockElement.parentElement &&
-        blockElement.parentElement !== target.container
+        blockElement.parentElement !== target.container &&
+        !['P', 'H1', 'H2', 'H3', 'H4', 'LI', 'BLOCKQUOTE', 'PRE'].includes(blockElement.tagName)
       ) {
         blockElement = blockElement.parentElement;
       }
+
       const isEffectivelyEmpty =
         blockElement &&
         (blockElement.textContent ?? "").trim() === "" &&
@@ -775,8 +783,44 @@ export const useEditor = (
         isEffectivelyEmpty &&
         blockElement.parentElement === target.container
       ) {
+        // If the paragraph is empty, just replace it
         blockElement.parentElement.replaceChild(wrapper, blockElement);
+      } else if (blockElement && target.container.contains(blockElement)) {
+        // --- SPLIT LOGIC ---
+        // If we are inside a text block, we must split it to insert the div as a sibling
+        
+        const preRange = document.createRange();
+        preRange.selectNodeContents(blockElement);
+        preRange.setEnd(range.startContainer, range.startOffset);
+        
+        const postRange = document.createRange();
+        postRange.selectNodeContents(blockElement);
+        postRange.setStart(range.endContainer, range.endOffset);
+        
+        const preContent = preRange.cloneContents();
+        const postContent = postRange.cloneContents();
+        
+        // 1. Update the original block to contain only the first half
+        blockElement.innerHTML = '';
+        blockElement.appendChild(preContent);
+        // Ensure it has height if it became empty
+        if (!blockElement.textContent?.trim() && !blockElement.querySelector('img')) {
+            blockElement.innerHTML = '<br>';
+        }
+
+        // 2. Create a new block for the second half
+        const newBlock = blockElement.cloneNode(false) as HTMLElement;
+        newBlock.appendChild(postContent);
+        // Ensure it has height if it is empty
+        if (!newBlock.textContent?.trim() && !newBlock.querySelector('img')) {
+            newBlock.innerHTML = '<br>';
+        }
+        
+        // 3. Insert the wrapper and the new block after the original
+        blockElement.after(wrapper);
+        wrapper.after(newBlock);
       } else {
+        // Fallback for weird contexts
         target.range.insertNode(wrapper);
       }
     } else {
@@ -787,10 +831,16 @@ export const useEditor = (
     observerRef.current?.observe(wrapper);
     hydrateCanvasBlockSingle(wrapper);
 
-    if (initialShape) {
+    if (initialShape || initialImageUrl) {
       setTimeout(() => {
         const event = new CustomEvent('canvas-add-shape', { 
-          detail: { shapeType: initialShape, clientX: dropX, clientY: dropY }
+          detail: { 
+            shapeType: initialShape || 'image', 
+            imageUrl: initialImageUrl,
+            clientX: dropX, 
+            clientY: dropY 
+          },
+          bubbles: true 
         });
         wrapper.dispatchEvent(event);
       }, 150);
@@ -801,6 +851,56 @@ export const useEditor = (
       scheduleReflow();
     }, 200);
   }, [saveToHistory, findInsertionTarget, addNewPage, scheduleReflow, hydrateCanvasBlockSingle]);
+
+  // --- SMART INSERT IMAGE ON CANVAS ---
+  const insertImageOnCanvas = useCallback((imageUrl: string) => {
+    if (!editorRef.current) return;
+    
+    // Find all existing canvases
+    const canvases = Array.from(editorRef.current.querySelectorAll('.canvas-wrapper'));
+    
+    if (canvases.length === 0) {
+        // No canvas exists? Create a new one with the image
+        insertCanvas(undefined, undefined, undefined, imageUrl);
+        return;
+    }
+
+    // Find the canvas closest to the center of the viewport
+    const viewportCenter = window.innerHeight / 2;
+    let closestCanvas = canvases[0];
+    let minDistance = Infinity;
+
+    canvases.forEach(canvas => {
+        const rect = canvas.getBoundingClientRect();
+        // Calculate distance from canvas center to viewport center
+        const canvasCenter = rect.top + (rect.height / 2);
+        const distance = Math.abs(canvasCenter - viewportCenter);
+        
+        // Check if it's actually visible (or close to it)
+        if (distance < minDistance) {
+            minDistance = distance;
+            closestCanvas = canvas;
+        }
+    });
+
+    // Calculate center of that canvas to place image
+    const rect = closestCanvas.getBoundingClientRect();
+    const centerX = rect.left + (rect.width / 2) - 50; // Offset to center the 100px shape
+    const centerY = rect.top + (rect.height / 2) - 50;
+
+    // Dispatch event to the existing canvas
+    const event = new CustomEvent('canvas-add-shape', { 
+        detail: { 
+            shapeType: 'image', 
+            imageUrl: imageUrl, 
+            clientX: centerX, 
+            clientY: centerY 
+        },
+        bubbles: true 
+    });
+    closestCanvas.dispatchEvent(event);
+
+  }, [insertCanvas]);
 
   const insertImage = useCallback(
     (imageData: any) => {
@@ -1317,22 +1417,21 @@ export const useEditor = (
         return;
       }
 
+      const target = e.target as HTMLElement;
+      const existingCanvas = target.closest('.canvas-wrapper');
+
+      // 1. Handle Canvas Shape Drop
       const shapeType = e.dataTransfer?.getData("application/canvas-shape");
       if (shapeType) {
         e.preventDefault();
         e.stopPropagation();
-        
-        // Activate lock
         dropLock.current = true;
         setTimeout(() => { dropLock.current = false; }, 100);
 
-        // Check if dropping on existing canvas
-        const target = e.target as HTMLElement;
-        const existingCanvas = target.closest('.canvas-wrapper');
-
         if (existingCanvas) {
           const event = new CustomEvent('canvas-add-shape', { 
-            detail: { shapeType, clientX: e.clientX, clientY: e.clientY } 
+            detail: { shapeType, clientX: e.clientX, clientY: e.clientY },
+            bubbles: true 
           });
           existingCanvas.dispatchEvent(event);
         } else {
@@ -1345,6 +1444,33 @@ export const useEditor = (
           }
         }
         return;
+      }
+
+      // 2. Handle Image File Drop INTO Canvas
+      if (existingCanvas && e.dataTransfer?.files && e.dataTransfer.files.length > 0) {
+        const file = e.dataTransfer.files[0];
+        if (file.type.startsWith('image/')) {
+          e.preventDefault();
+          e.stopPropagation();
+          
+          const reader = new FileReader();
+          reader.onload = (event) => {
+            if (event.target?.result) {
+              const customEvent = new CustomEvent('canvas-add-shape', { 
+                detail: { 
+                  shapeType: 'image', 
+                  imageUrl: event.target.result, 
+                  clientX: e.clientX, 
+                  clientY: e.clientY 
+                },
+                bubbles: true 
+              });
+              existingCanvas.dispatchEvent(customEvent);
+            }
+          };
+          reader.readAsDataURL(file);
+          return;
+        }
       }
 
       const htmlData = e.dataTransfer?.getData("text/html");
@@ -1380,6 +1506,7 @@ export const useEditor = (
     insertMath,
     insertGraph,
     insertCanvas,
+    insertImageOnCanvas,
     addNewPage,
     undo,
     redo,

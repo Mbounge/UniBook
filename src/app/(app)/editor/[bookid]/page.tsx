@@ -141,6 +141,7 @@ const EditorComponent = () => {
     findTotalMatches,
     isSearching,
     matches,
+    insertImageOnCanvas
   } = useEditor(pageContainerRef);
 
   const { data: bookData, isLoading: isBookLoading, isError } = useQuery({
@@ -375,6 +376,7 @@ const EditorComponent = () => {
                 <TemplateGallery 
                   onClose={handleToggleTemplateGallery} 
                   onInsert={handleInsertTemplateAndClose}
+                  onImageUpload={insertImageOnCanvas}
                 />
               )}
               {leftPanelContent === 'ai' && (

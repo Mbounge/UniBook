@@ -1463,20 +1463,30 @@ export const DocumentEditor = forwardRef<
   useEffect(() => {
     const container = pageContainerRef.current;
     if (!container) return;
+
+    // --- REWRITTEN AND CORRECTED MOUSE HANDLER ---
     const handleGlobalMouseDown = (e: MouseEvent) => {
       const target = e.target as HTMLElement;
+
+      // Ignore clicks on any toolbar or resize handle
       if (toolbarRef.current?.contains(target) || target.closest(".image-toolbar, .template-toolbar, .graph-toolbar, .math-toolbar, .canvas-toolbar, [data-resize-handle], .link-popover-container, .table-toolbar-container")) {
         return;
       }
-      const hfZone = target.closest('[data-hf]') as HTMLElement;
-      if (hfZone && showHfZones) {
-        handleEditHeaderFooter(hfZone.dataset.hf as 'header' | 'footer');
-        return;
-      }
-      const mathWrapper = target.closest(".math-wrapper") as HTMLElement | null;
-      const graphWrapper = target.closest(".graph-wrapper") as HTMLElement | null;
+
+      // --- Step 1: Check for interactive block clicks FIRST ---
       const canvasWrapper = target.closest(".canvas-wrapper") as HTMLElement | null;
-      const imageOrTemplateWrapper = target.closest(".image-wrapper, .template-wrapper") as HTMLElement | null;
+      if (canvasWrapper) {
+        if (selectedCanvasElement !== canvasWrapper) {
+          clearSelection(); // Clear text selection
+          setSelectedResizableElement(null);
+          setSelectedMathElement(null);
+          setSelectedGraphElement(null);
+          setSelectedCanvasElement(canvasWrapper);
+        }
+        return; // IMPORTANT: Stop processing immediately
+      }
+
+      const mathWrapper = target.closest(".math-wrapper") as HTMLElement | null;
       if (mathWrapper) {
         if (selectedMathElement !== mathWrapper) {
           clearSelection();
@@ -1485,8 +1495,10 @@ export const DocumentEditor = forwardRef<
           setSelectedCanvasElement(null);
           setSelectedMathElement(mathWrapper);
         }
-        return;
+        return; // IMPORTANT: Stop processing immediately
       }
+
+      const graphWrapper = target.closest(".graph-wrapper") as HTMLElement | null;
       if (graphWrapper) {
         if (selectedGraphElement !== graphWrapper) {
           clearSelection();
@@ -1495,18 +1507,10 @@ export const DocumentEditor = forwardRef<
           setSelectedCanvasElement(null);
           setSelectedGraphElement(graphWrapper);
         }
-        return;
+        return; // IMPORTANT: Stop processing immediately
       }
-      if (canvasWrapper) {
-        if (selectedCanvasElement !== canvasWrapper) {
-          clearSelection();
-          setSelectedResizableElement(null);
-          setSelectedMathElement(null);
-          setSelectedGraphElement(null);
-          setSelectedCanvasElement(canvasWrapper);
-        }
-        return;
-      }
+      
+      const imageOrTemplateWrapper = target.closest(".image-wrapper, .template-wrapper") as HTMLElement | null;
       if (imageOrTemplateWrapper) {
         const elementToSelect = imageOrTemplateWrapper.querySelector("img") || imageOrTemplateWrapper;
         if (selectedResizableElement !== elementToSelect) {
@@ -1516,20 +1520,25 @@ export const DocumentEditor = forwardRef<
           setSelectedCanvasElement(null);
           setSelectedResizableElement(elementToSelect);
         }
-        return;
+        return; // IMPORTANT: Stop processing immediately
       }
+
+      // --- Step 2: If no block was clicked, handle text selection or deselection ---
       if (container.contains(target)) {
+        // A click occurred inside the editor but not on a known block.
+        // Deselect any currently selected block.
         if (selectedGraphElement || selectedResizableElement || selectedMathElement || selectedCanvasElement) {
           setSelectedGraphElement(null);
           setSelectedResizableElement(null);
           setSelectedMathElement(null);
           setSelectedCanvasElement(null);
         }
-        if (editingHeaderFooter) {
-        } else {
+        // Now, start the text selection process.
+        if (!editingHeaderFooter) {
            startTextSelection(e);
         }
       } else {
+        // A click occurred outside the editor entirely. Deselect everything.
         setSelectedGraphElement(null);
         setSelectedResizableElement(null);
         setSelectedMathElement(null);
@@ -1537,6 +1546,7 @@ export const DocumentEditor = forwardRef<
         clearSelection();
       }
     };
+
     document.addEventListener("mousedown", handleGlobalMouseDown);
     return () => {
       document.removeEventListener("mousedown", handleGlobalMouseDown);
@@ -1732,7 +1742,7 @@ export const DocumentEditor = forwardRef<
       if (document.activeElement?.closest('.canvas-wrapper')) {
         return;
       }
-      
+
       if (event.key === "Backspace" || event.key === "Delete") {
         const target = event.target as HTMLElement;
         const isEditingTemplate = target.closest('[contenteditable="true"]') && selectedResizableElement?.closest(".template-wrapper");
