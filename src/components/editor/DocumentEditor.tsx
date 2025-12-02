@@ -13,6 +13,7 @@ import { ImageResizer } from "./ImageResizer";
 import { GraphResizer } from "./GraphResizer";
 import { MathResizer } from "./MathResizer";
 import { CanvasResizer } from "./CanvasResizer";
+import { TikZResizer } from "./TikZResizer"; // NEW: Import TikZResizer
 import { StatusBar } from "./StatusBar";
 import { useLineSpacing, LineSpacing } from "@/hooks/useLineSpacing";
 import { Plus } from "lucide-react";
@@ -66,9 +67,11 @@ interface DocumentEditorProps {
   insertGraph: (graphData: GraphData) => void;
   insertTemplate: (html: string) => void;
   insertCanvas: (initialShape?: string, dropX?: number, dropY?: number) => void;
+  insertTikZ: () => void;
   rehydrateMathBlocks: (container: HTMLElement) => void;
   rehydrateGraphBlocks: (container: HTMLElement) => void;
   rehydrateCanvasBlocks: (container: HTMLElement) => void;
+  rehydrateTikZBlocks: (container: HTMLElement) => void;
   rehydratePageNumbers: (container: HTMLElement) => void;
   isContentHubOpen: boolean;
   isHubExpanded: boolean;
@@ -132,9 +135,11 @@ export const DocumentEditor = forwardRef<
     insertGraph,
     insertTemplate,
     insertCanvas,
+    insertTikZ,
     rehydrateMathBlocks,
     rehydrateGraphBlocks,
     rehydrateCanvasBlocks,
+    rehydrateTikZBlocks,
     rehydratePageNumbers,
     isContentHubOpen,
     isHubExpanded,
@@ -190,6 +195,8 @@ export const DocumentEditor = forwardRef<
   const [selectedMathElement, setSelectedMathElement] =
     useState<HTMLElement | null>(null);
   const [selectedCanvasElement, setSelectedCanvasElement] = 
+    useState<HTMLElement | null>(null);
+  const [selectedTikZElement, setSelectedTikZElement] = 
     useState<HTMLElement | null>(null);
   const [selectedTableCell, setSelectedTableCell] = useState<HTMLElement | null>(null);
   const [tableToolbarPosition, setTableToolbarPosition] = useState<{ top: number; left: number } | null>(null);
@@ -395,7 +402,6 @@ export const DocumentEditor = forwardRef<
     else setTextAlign("left");
   }, [pageContainerRef, detectCurrentLineSpacing, editingHeaderFooter]);
 
-  // ... (Keep saveSelection, restoreSelection, handleLink, applyLink, removeLink, handleTableAction same as before)
   const saveSelection = useCallback(() => {
     const selection = window.getSelection();
     if (selection && selection.rangeCount > 0) {
@@ -530,7 +536,6 @@ export const DocumentEditor = forwardRef<
     scheduleReflow();
   }, [selectedTableCell, saveToHistory, scheduleReflow]);
 
-  // ... (Keep header/footer logic same as before)
   const handleEditHeaderFooter = (area: 'header' | 'footer') => {
     if (!pageContainerRef.current || !scrollContainerRef.current) return;
     setShowHfZones(true);
@@ -585,7 +590,6 @@ export const DocumentEditor = forwardRef<
     });
   }, [headerHtml, footerHtml, pageContainerRef, rehydratePageNumbers, totalPages, editingHeaderFooter]);
 
-  // ... (Keep applyStyleAcrossPages, applyCommand, applyStyle, handleLineSpacingChange same as before)
   const applyStyleAcrossPages = useCallback(
     (command: string, value?: string) => {
       if (!customSelection || !isMultiPageSelection || !pageContainerRef.current || !scrollContainerRef.current) return;
@@ -830,7 +834,6 @@ export const DocumentEditor = forwardRef<
     [customSelection, getLineHeightValue, saveToHistory, updateToolbarState, forceRecalculateRects]
   );
 
-  // ... (Keep handleImmediateOverflow, checkAndReflowOnOverflow, updateOverflowWarning same as before)
   const handleImmediateOverflow = useCallback((pageContent: HTMLElement) => {
     const selection = window.getSelection();
     if (!selection || selection.rangeCount === 0) {
@@ -901,7 +904,6 @@ export const DocumentEditor = forwardRef<
     }
   }, [overflowWarningPage]);
 
-  // ... (Keep handleInput, handleBackspaceAtPageStart, MutationObserver, useEffects same as before)
   const handleInput = useCallback(
     (event: React.FormEvent<HTMLDivElement>) => {
       const target = event.target as HTMLElement;
@@ -947,7 +949,7 @@ export const DocumentEditor = forwardRef<
       const currentPageContent = currentPage.querySelector(".page-content") as HTMLElement;
       if (!prevPageContent || !currentPageContent) return;
       reflowBackwardFromPage(previousPage);
-      const isCurrentPageNowEmpty = !currentPageContent.textContent?.trim() && !currentPageContent.querySelector("img, .image-wrapper, .graph-wrapper, .math-wrapper, .template-wrapper, .canvas-wrapper");
+      const isCurrentPageNowEmpty = !currentPageContent.textContent?.trim() && !currentPageContent.querySelector("img, .image-wrapper, .graph-wrapper, .math-wrapper, .template-wrapper, .canvas-wrapper, .tikz-wrapper");
       if (isCurrentPageNowEmpty) {
         currentPage.remove();
       }
@@ -1008,7 +1010,7 @@ export const DocumentEditor = forwardRef<
               }
             }
           });
-          pageContent.querySelectorAll(":scope > div:not(.image-wrapper):not(.graph-wrapper):not(.template-wrapper):not(.math-wrapper):not(.canvas-wrapper)").forEach((div) => {
+          pageContent.querySelectorAll(":scope > div:not(.image-wrapper):not(.graph-wrapper):not(.template-wrapper):not(.math-wrapper):not(.canvas-wrapper):not(.tikz-wrapper)").forEach((div) => {
               const newParagraph = document.createElement("p");
               newParagraph.style.lineHeight = getLineHeightValue(currentLineSpacing);
               newParagraph.dataset.lineSpacing = currentLineSpacing;
@@ -1052,7 +1054,6 @@ export const DocumentEditor = forwardRef<
               }
             }
           });
-          // ... (Keep span cleanup logic)
           const children = Array.from(pageContent.childNodes);
           for (let i = 0; i < children.length; i++) {
             const node = children[i] as Node;
@@ -1092,7 +1093,7 @@ export const DocumentEditor = forwardRef<
             }
           });
           pageContent.querySelectorAll("p, h1, h2, h3, h4").forEach((block) => {
-            const isVisuallyEmpty = block.textContent?.trim() === "" && block.querySelector("img, video, canvas, .math-wrapper, .graph-wrapper, br") === null;
+            const isVisuallyEmpty = block.textContent?.trim() === "" && block.querySelector("img, video, canvas, .math-wrapper, .graph-wrapper, .tikz-wrapper, br") === null;
             if (isVisuallyEmpty) {
               const allBlocks = pageContent.querySelectorAll("p, h1, h2, h3, h4, ul, ol, blockquote, pre, table");
               if (allBlocks.length > 1) {
@@ -1141,11 +1142,11 @@ export const DocumentEditor = forwardRef<
       rehydrateMathBlocks(container);
       rehydrateGraphBlocks(container);
       rehydrateCanvasBlocks(container);
+      rehydrateTikZBlocks(container); // NEW
       rehydratePageNumbers(container);
     }
-  }, [pageContainerRef, rehydrateMathBlocks, rehydrateGraphBlocks, rehydrateCanvasBlocks, rehydratePageNumbers]);
+  }, [pageContainerRef, rehydrateMathBlocks, rehydrateGraphBlocks, rehydrateCanvasBlocks, rehydrateTikZBlocks, rehydratePageNumbers]);
 
-  // ... (Keep handleDragOver, handleDragLeave, handleDrop logic - updated for canvas)
   useEffect(() => {
     const container = pageContainerRef.current;
     if (!container) return;
@@ -1181,9 +1182,6 @@ export const DocumentEditor = forwardRef<
       setDropIndicatorPosition(null);
       if (!e.dataTransfer) return;
       
-      
-
-      // ... (Keep existing drop logic for graphs/templates)
       const isAiGraphDrop = e.dataTransfer.types.includes("application/ai-graph-item");
       if (isAiGraphDrop) {
         const graphDataString = e.dataTransfer.getData("application/ai-graph-item");
@@ -1241,7 +1239,6 @@ export const DocumentEditor = forwardRef<
     }
   }, [selectedGraphElement, selectedCanvasElement, pageContainerRef]);
 
-  // ... (Keep IntersectionObserver for page tracking, initialization, overflow check, auto list, math block logic same as before)
   useEffect(() => {
     const container = pageContainerRef.current;
     if (!container) return;
@@ -1369,7 +1366,6 @@ export const DocumentEditor = forwardRef<
     return false;
   }, [insertMath]);
 
-  // ... (Keep deleteSelectionManually same as before, but add canvas-wrapper to selector)
   const deleteSelectionManually = useCallback(
     (save: boolean = true) => {
       if (!customSelection || !pageContainerRef.current) return;
@@ -1406,10 +1402,10 @@ export const DocumentEditor = forwardRef<
       if (isBoundaryDeletion && (startPiece as HTMLElement)?.dataset.paragraphId) {
         reflowSplitParagraph((startPiece as HTMLElement).dataset.paragraphId!);
       }
-      const wrapperSelector = ".image-wrapper, .graph-wrapper, .math-wrapper, .template-wrapper, .canvas-wrapper";
+      const wrapperSelector = ".image-wrapper, .graph-wrapper, .math-wrapper, .template-wrapper, .canvas-wrapper, .tikz-wrapper";
       if (pageContainerRef.current) {
         pageContainerRef.current.querySelectorAll(wrapperSelector).forEach((el) => {
-            if (!el.querySelector("img, .template-block, .math-rendered, .math-editor, .graph-container, canvas")) {
+            if (!el.querySelector("img, .template-block, .math-rendered, .math-editor, .graph-container, canvas, .tikz-wrapper > div")) {
               el.remove();
             }
         });
@@ -1418,6 +1414,7 @@ export const DocumentEditor = forwardRef<
       if (selectedGraphElement && !document.body.contains(selectedGraphElement)) setSelectedGraphElement(null);
       if (selectedMathElement && !document.body.contains(selectedMathElement)) setSelectedMathElement(null);
       if (selectedCanvasElement && !document.body.contains(selectedCanvasElement)) setSelectedCanvasElement(null);
+      if (selectedTikZElement && !document.body.contains(selectedTikZElement)) setSelectedTikZElement(null);
       clearSelection();
       try {
         const newRange = document.createRange();
@@ -1457,33 +1454,31 @@ export const DocumentEditor = forwardRef<
         }
       }
     },
-    [customSelection, pageContainerRef, clearSelection, saveToHistory, reflowPage, reflowBackwardFromPage, runParagraphAnalysis, reflowSplitParagraph, selectedResizableElement, selectedGraphElement, selectedMathElement, selectedCanvasElement]
+    [customSelection, pageContainerRef, clearSelection, saveToHistory, reflowPage, reflowBackwardFromPage, runParagraphAnalysis, reflowSplitParagraph, selectedResizableElement, selectedGraphElement, selectedMathElement, selectedCanvasElement, selectedTikZElement]
   );
 
   useEffect(() => {
     const container = pageContainerRef.current;
     if (!container) return;
 
-    // --- REWRITTEN AND CORRECTED MOUSE HANDLER ---
     const handleGlobalMouseDown = (e: MouseEvent) => {
       const target = e.target as HTMLElement;
 
-      // Ignore clicks on any toolbar or resize handle
-      if (toolbarRef.current?.contains(target) || target.closest(".image-toolbar, .template-toolbar, .graph-toolbar, .math-toolbar, .canvas-toolbar, [data-resize-handle], .link-popover-container, .table-toolbar-container")) {
+      if (toolbarRef.current?.contains(target) || target.closest(".image-toolbar, .template-toolbar, .graph-toolbar, .math-toolbar, .canvas-toolbar, .tikz-toolbar, [data-resize-handle], .link-popover-container, .table-toolbar-container")) {
         return;
       }
 
-      // --- Step 1: Check for interactive block clicks FIRST ---
       const canvasWrapper = target.closest(".canvas-wrapper") as HTMLElement | null;
       if (canvasWrapper) {
         if (selectedCanvasElement !== canvasWrapper) {
-          clearSelection(); // Clear text selection
+          clearSelection();
           setSelectedResizableElement(null);
           setSelectedMathElement(null);
           setSelectedGraphElement(null);
+          setSelectedTikZElement(null);
           setSelectedCanvasElement(canvasWrapper);
         }
-        return; // IMPORTANT: Stop processing immediately
+        return;
       }
 
       const mathWrapper = target.closest(".math-wrapper") as HTMLElement | null;
@@ -1493,9 +1488,10 @@ export const DocumentEditor = forwardRef<
           setSelectedResizableElement(null);
           setSelectedGraphElement(null);
           setSelectedCanvasElement(null);
+          setSelectedTikZElement(null);
           setSelectedMathElement(mathWrapper);
         }
-        return; // IMPORTANT: Stop processing immediately
+        return;
       }
 
       const graphWrapper = target.closest(".graph-wrapper") as HTMLElement | null;
@@ -1505,9 +1501,24 @@ export const DocumentEditor = forwardRef<
           setSelectedResizableElement(null);
           setSelectedMathElement(null);
           setSelectedCanvasElement(null);
+          setSelectedTikZElement(null);
           setSelectedGraphElement(graphWrapper);
         }
-        return; // IMPORTANT: Stop processing immediately
+        return;
+      }
+
+      // NEW: TikZ Selection
+      const tikzWrapper = target.closest(".tikz-wrapper") as HTMLElement | null;
+      if (tikzWrapper) {
+        if (selectedTikZElement !== tikzWrapper) {
+          clearSelection();
+          setSelectedResizableElement(null);
+          setSelectedMathElement(null);
+          setSelectedGraphElement(null);
+          setSelectedCanvasElement(null);
+          setSelectedTikZElement(tikzWrapper);
+        }
+        return;
       }
       
       const imageOrTemplateWrapper = target.closest(".image-wrapper, .template-wrapper") as HTMLElement | null;
@@ -1518,31 +1529,29 @@ export const DocumentEditor = forwardRef<
           setSelectedGraphElement(null);
           setSelectedMathElement(null);
           setSelectedCanvasElement(null);
+          setSelectedTikZElement(null);
           setSelectedResizableElement(elementToSelect);
         }
-        return; // IMPORTANT: Stop processing immediately
+        return;
       }
 
-      // --- Step 2: If no block was clicked, handle text selection or deselection ---
       if (container.contains(target)) {
-        // A click occurred inside the editor but not on a known block.
-        // Deselect any currently selected block.
-        if (selectedGraphElement || selectedResizableElement || selectedMathElement || selectedCanvasElement) {
+        if (selectedGraphElement || selectedResizableElement || selectedMathElement || selectedCanvasElement || selectedTikZElement) {
           setSelectedGraphElement(null);
           setSelectedResizableElement(null);
           setSelectedMathElement(null);
           setSelectedCanvasElement(null);
+          setSelectedTikZElement(null);
         }
-        // Now, start the text selection process.
         if (!editingHeaderFooter) {
            startTextSelection(e);
         }
       } else {
-        // A click occurred outside the editor entirely. Deselect everything.
         setSelectedGraphElement(null);
         setSelectedResizableElement(null);
         setSelectedMathElement(null);
         setSelectedCanvasElement(null);
+        setSelectedTikZElement(null);
         clearSelection();
       }
     };
@@ -1551,9 +1560,8 @@ export const DocumentEditor = forwardRef<
     return () => {
       document.removeEventListener("mousedown", handleGlobalMouseDown);
     };
-  }, [clearSelection, startTextSelection, selectedGraphElement, selectedResizableElement, selectedMathElement, selectedCanvasElement, editingHeaderFooter, showHfZones]);
+  }, [clearSelection, startTextSelection, selectedGraphElement, selectedResizableElement, selectedMathElement, selectedCanvasElement, selectedTikZElement, editingHeaderFooter, showHfZones]);
 
-  // ... (Keep cleanupParagraphStructure, handleCopy, handleCut, handlePaste logic same as before)
   const cleanupParagraphStructure = useCallback((paragraph: HTMLElement) => {
     const walker = document.createTreeWalker(paragraph, NodeFilter.SHOW_ELEMENT | NodeFilter.SHOW_TEXT);
     const nodesToRemove: Node[] = [];
@@ -1586,7 +1594,7 @@ export const DocumentEditor = forwardRef<
     if (!container) return;
     const isEventRelevant = () => {
       const activeEl = document.activeElement;
-      return ((activeEl && container.contains(activeEl)) || selectedResizableElement || selectedGraphElement || selectedMathElement || selectedCanvasElement);
+      return ((activeEl && container.contains(activeEl)) || selectedResizableElement || selectedGraphElement || selectedMathElement || selectedCanvasElement || selectedTikZElement);
     };
     const handleCopy = (event: ClipboardEvent) => {
       if (!isEventRelevant() || !customSelection) return;
@@ -1596,7 +1604,7 @@ export const DocumentEditor = forwardRef<
       const allPages = Array.from(container.querySelectorAll<HTMLElement>(".page-content"));
       const masterFragment = document.createDocumentFragment();
       const intersectingWrappers: Element[] = [];
-      const wrapperSelector = ".image-wrapper, .graph-wrapper, .math-wrapper, .template-wrapper, .canvas-wrapper";
+      const wrapperSelector = ".image-wrapper, .graph-wrapper, .math-wrapper, .template-wrapper, .canvas-wrapper, .tikz-wrapper";
       try {
         const originalRange = document.createRange();
         originalRange.setStart(start.node, start.offset);
@@ -1640,8 +1648,8 @@ export const DocumentEditor = forwardRef<
           startPiece.removeAttribute("data-paragraph-id");
           startPiece.removeAttribute("data-split-point");
         });
-        tempDiv.querySelectorAll(".image-resize-overlay, .image-toolbar, .graph-resize-overlay, .graph-toolbar, .math-resize-overlay, .math-toolbar, .template-resize-overlay, .template-toolbar, .canvas-resize-overlay, .canvas-toolbar").forEach((uiEl) => uiEl.remove());
-        tempDiv.querySelectorAll(".graph-selected, .math-selected, .template-selected, .canvas-selected").forEach((el) => el.classList.remove("graph-selected", "math-selected", "template-selected", "canvas-selected"));
+        tempDiv.querySelectorAll(".image-resize-overlay, .image-toolbar, .graph-resize-overlay, .graph-toolbar, .math-resize-overlay, .math-toolbar, .template-resize-overlay, .template-toolbar, .canvas-resize-overlay, .canvas-toolbar, .tikz-resize-overlay, .tikz-toolbar").forEach((uiEl) => uiEl.remove());
+        tempDiv.querySelectorAll(".graph-selected, .math-selected, .template-selected, .canvas-selected, .tikz-selected").forEach((el) => el.classList.remove("graph-selected", "math-selected", "template-selected", "canvas-selected", "tikz-selected"));
         tempDiv.querySelectorAll(wrapperSelector).forEach((el) => {
           if (el instanceof HTMLElement) {
             el.style.position = "";
@@ -1670,14 +1678,15 @@ export const DocumentEditor = forwardRef<
       event.preventDefault();
       if (customSelection) {
         deleteSelectionManually(true);
-      } else if (selectedResizableElement || selectedGraphElement || selectedMathElement || selectedCanvasElement) {
-        const selectedWrapper = selectedResizableElement?.closest(".image-wrapper, .template-wrapper") || selectedGraphElement || selectedMathElement || selectedCanvasElement;
+      } else if (selectedResizableElement || selectedGraphElement || selectedMathElement || selectedCanvasElement || selectedTikZElement) {
+        const selectedWrapper = selectedResizableElement?.closest(".image-wrapper, .template-wrapper") || selectedGraphElement || selectedMathElement || selectedCanvasElement || selectedTikZElement;
         const page = selectedWrapper?.closest(".page");
         selectedWrapper?.remove();
         setSelectedResizableElement(null);
         setSelectedGraphElement(null);
         setSelectedMathElement(null);
         setSelectedCanvasElement(null);
+        setSelectedTikZElement(null);
         saveToHistory(true, page ? [page as HTMLElement] : undefined);
         if (page) {
           reflowBackwardFromPage(page as HTMLElement);
@@ -1747,9 +1756,9 @@ export const DocumentEditor = forwardRef<
         const target = event.target as HTMLElement;
         const isEditingTemplate = target.closest('[contenteditable="true"]') && selectedResizableElement?.closest(".template-wrapper");
         const isEditingMath = target.closest(".math-editor") && selectedMathElement;
-        if ((selectedResizableElement || selectedGraphElement || selectedMathElement || selectedCanvasElement) && !isEditingTemplate && !isEditingMath) {
+        if ((selectedResizableElement || selectedGraphElement || selectedMathElement || selectedCanvasElement || selectedTikZElement) && !isEditingTemplate && !isEditingMath) {
           event.preventDefault();
-          const selectedWrapper = selectedResizableElement?.closest(".image-wrapper, .template-wrapper") || selectedGraphElement || selectedMathElement || selectedCanvasElement;
+          const selectedWrapper = selectedResizableElement?.closest(".image-wrapper, .template-wrapper") || selectedGraphElement || selectedMathElement || selectedCanvasElement || selectedTikZElement;
           if (selectedWrapper) {
             const page = selectedWrapper.closest(".page") as HTMLElement | null;
             selectedWrapper.remove();
@@ -1757,6 +1766,7 @@ export const DocumentEditor = forwardRef<
             setSelectedGraphElement(null);
             setSelectedMathElement(null);
             setSelectedCanvasElement(null);
+            setSelectedTikZElement(null);
             saveToHistory(true, page ? [page] : undefined);
             if (page) {
               reflowBackwardFromPage(page);
@@ -2151,7 +2161,7 @@ export const DocumentEditor = forwardRef<
               const previousElement = currentParagraph.previousElementSibling as HTMLElement | null;
               const currentPage = currentParagraph.closest(".page") as HTMLElement | null;
               if (previousElement) {
-                if (previousElement.classList.contains("image-wrapper") || previousElement.classList.contains("graph-wrapper") || previousElement.classList.contains("math-wrapper") || previousElement.classList.contains("template-wrapper") || previousElement.classList.contains("canvas-wrapper")) {
+                if (previousElement.classList.contains("image-wrapper") || previousElement.classList.contains("graph-wrapper") || previousElement.classList.contains("math-wrapper") || previousElement.classList.contains("template-wrapper") || previousElement.classList.contains("canvas-wrapper") || previousElement.classList.contains("tikz-wrapper")) {
                   previousElement.remove();
                   const newRange = document.createRange();
                   const sel = window.getSelection();
@@ -2165,7 +2175,7 @@ export const DocumentEditor = forwardRef<
                   }
                   return;
                 }
-                if (previousElement.tagName === "P" && previousElement.textContent?.trim() === "" && !previousElement.querySelector("img, .math-wrapper, .graph-wrapper, br")) {
+                if (previousElement.tagName === "P" && previousElement.textContent?.trim() === "" && !previousElement.querySelector("img, .math-wrapper, .graph-wrapper, .tikz-wrapper, br")) {
                   previousElement.remove();
                   const newRange = document.createRange();
                   const sel = window.getSelection();
@@ -2437,7 +2447,7 @@ export const DocumentEditor = forwardRef<
       container.removeEventListener("mouseup", handleMouseUp);
       document.removeEventListener("selectionchange", handleSelectionChange);
     };
-  }, [pageContainerRef, saveToHistory, checkForAutoList, checkForMathBlock, updateToolbarState, undo, redo, scheduleReflow, immediateReflow, updateOverflowWarning, handleBackspaceAtPageStart, reflowBackwardFromPage, runParagraphAnalysis, selectedText, deleteSelectionManually, customSelection, applyCommand, applyStyle, checkAndReflowOnOverflow, reflowSplitParagraph, selectedResizableElement, selectedGraphElement, selectedMathElement, selectedCanvasElement, insertImage, insertContent, showFindReplace, clearFindHighlights]);
+  }, [pageContainerRef, saveToHistory, checkForAutoList, checkForMathBlock, updateToolbarState, undo, redo, scheduleReflow, immediateReflow, updateOverflowWarning, handleBackspaceAtPageStart, reflowBackwardFromPage, runParagraphAnalysis, selectedText, deleteSelectionManually, customSelection, applyCommand, applyStyle, checkAndReflowOnOverflow, reflowSplitParagraph, selectedResizableElement, selectedGraphElement, selectedMathElement, selectedCanvasElement, selectedTikZElement, insertImage, insertContent, showFindReplace, clearFindHighlights]);
   
   useEffect(() => {
     if (selectedTableCell && scrollContainerRef.current) {
@@ -2595,6 +2605,7 @@ export const DocumentEditor = forwardRef<
             onLineSpacingChange={handleLineSpacingChange}
             onLineSpacingMenuOpen={saveSelection}
             onInsertMath={() => insertMath()}
+            onInsertTikZ={insertTikZ} // NEW
             onLink={handleLink}
             onEditHeader={() => handleEditHeaderFooter('header')}
             onEditFooter={() => handleEditHeaderFooter('footer')}
@@ -2758,6 +2769,14 @@ export const DocumentEditor = forwardRef<
           saveToHistory={saveToHistory}
           selectedElement={selectedCanvasElement}
           onElementSelect={setSelectedCanvasElement}
+          reflowBackwardFromPage={reflowBackwardFromPage}
+          fullDocumentReflow={fullDocumentReflow}
+        />
+        <TikZResizer
+          pageContainerRef={scrollContainerRef}
+          saveToHistory={saveToHistory}
+          selectedElement={selectedTikZElement}
+          onElementSelect={setSelectedTikZElement}
           reflowBackwardFromPage={reflowBackwardFromPage}
           fullDocumentReflow={fullDocumentReflow}
         />

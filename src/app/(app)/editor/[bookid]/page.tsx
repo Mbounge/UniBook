@@ -110,6 +110,7 @@ const EditorComponent = () => {
     insertMath, rehydrateMathBlocks,
     insertGraph, rehydrateGraphBlocks,
     insertCanvas, rehydrateCanvasBlocks,
+    insertTikZ, rehydrateTikZBlocks, // NEW: Destructure TikZ functions
     rehydratePageNumbers,
     addNewPage,
     resetHistory,
@@ -202,6 +203,7 @@ const EditorComponent = () => {
         rehydrateMathBlocks(pageContainerRef.current);
         rehydrateGraphBlocks(pageContainerRef.current);
         rehydrateCanvasBlocks(pageContainerRef.current);
+        rehydrateTikZBlocks(pageContainerRef.current); // NEW: Rehydrate TikZ
         rehydratePageNumbers(pageContainerRef.current);
         
         // Initial reflow
@@ -213,7 +215,7 @@ const EditorComponent = () => {
 
       setIsContentLoaded(true);
     }
-  }, [bookData, pageContainerRef, isContentLoaded, resetHistory, rehydrateMathBlocks, rehydrateGraphBlocks, rehydrateCanvasBlocks, rehydratePageNumbers, fullDocumentReflow]);
+  }, [bookData, pageContainerRef, isContentLoaded, resetHistory, rehydrateMathBlocks, rehydrateGraphBlocks, rehydrateCanvasBlocks, rehydrateTikZBlocks, rehydratePageNumbers, fullDocumentReflow]);
 
   useEffect(() => {
     if (showTocPanel || leftPanelContent) {
@@ -396,6 +398,7 @@ const EditorComponent = () => {
                   onInsertGraph={(graphData: GraphData) => {
                     insertGraph(graphData);
                   }}
+                  // You can add onInsertTikZ here if you want AI to generate diagrams
                 />
               )}
             </div>
@@ -422,9 +425,11 @@ const EditorComponent = () => {
               insertMath={insertMath}
               insertGraph={insertGraph}
               insertCanvas={insertCanvas}
+              insertTikZ={insertTikZ} // NEW: Pass prop
               rehydrateMathBlocks={rehydrateMathBlocks}
               rehydrateGraphBlocks={rehydrateGraphBlocks}
               rehydrateCanvasBlocks={rehydrateCanvasBlocks}
+              rehydrateTikZBlocks={rehydrateTikZBlocks} // NEW: Pass prop
               rehydratePageNumbers={rehydratePageNumbers}
               insertTemplate={insertTemplate}
               resetHistory={resetHistory}

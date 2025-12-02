@@ -96,8 +96,8 @@ const moveContentToNextPage = (
   const SAFETY_BUFFER = 5;
   const effectiveLimit = availableContentHeight - SAFETY_BUFFER;
 
-  // UPDATED: Added .canvas-wrapper to the selector
-  const floatedElements = Array.from(fromContent.querySelectorAll<HTMLElement>('.image-wrapper, .graph-wrapper, .template-wrapper, .canvas-wrapper')).filter(
+  // UPDATED: Added .tikz-wrapper to the selector
+  const floatedElements = Array.from(fromContent.querySelectorAll<HTMLElement>('.image-wrapper, .graph-wrapper, .template-wrapper, .canvas-wrapper, .tikz-wrapper')).filter(
     el => el.style.float === 'left' || el.style.float === 'right'
   );
 

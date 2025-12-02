@@ -5,6 +5,7 @@ import { createRoot, Root } from "react-dom/client";
 import { MathBlock } from "../MathBlock";
 import { GraphBlock, GraphData } from "../GraphBlock";
 import { CanvasBlock } from "@/components/editor/CanvasBlock";
+import { TikZBlock } from "@/components/editor/TikZBlock"; // Import the new component
 import { useHistory } from "./useHistory";
 import { useTextReflow } from "./useTextReflow";
 import { useMultiPageSelection } from "./useMultiPageSelection";
@@ -235,6 +236,42 @@ export const useEditor = (
     );
   }, [mountReactComponent]);
 
+  // --- NEW: TikZ Hydration ---
+  const hydrateTikZBlockSingle = useCallback((wrapper: HTMLElement) => {
+    if (reactRootsRef.current.has(wrapper)) return;
+    
+    // Decode the stored code (it might be HTML encoded in the DOM)
+    const initialCode = decodeURIComponent(wrapper.dataset.tikzCode || "");
+
+    const handleUpdate = (newCode: string) => {
+      wrapper.dataset.tikzCode = encodeURIComponent(newCode);
+      saveToHistory(true, [wrapper]);
+      // Schedule reflow as the diagram size might change
+      scheduleReflow();
+    };
+
+    const handleRemove = () => {
+      const page = wrapper.closest('.page') as HTMLElement;
+      const root = reactRootsRef.current.get(wrapper);
+      if (root) {
+        root.unmount();
+        reactRootsRef.current.delete(wrapper);
+      }
+      wrapper.remove();
+      saveToHistory(true, page ? [page] : undefined);
+      scheduleReflow();
+    };
+
+    mountReactComponent(
+      <TikZBlock
+        initialCode={initialCode}
+        onUpdate={handleUpdate}
+        onRemove={handleRemove}
+      />,
+      wrapper
+    );
+  }, [mountReactComponent, saveToHistory, scheduleReflow]);
+
   const handleIntersection = useCallback((entries: IntersectionObserverEntry[]) => {
     entries.forEach(entry => {
       const target = entry.target as HTMLElement;
@@ -247,12 +284,14 @@ export const useEditor = (
              hydrateGraphBlockSingle(target);
           } else if (target.classList.contains('canvas-wrapper')) {
              hydrateCanvasBlockSingle(target);
+          } else if (target.classList.contains('tikz-wrapper')) {
+             hydrateTikZBlockSingle(target);
           }
           hydratedElements.current.add(target);
         }
       }
     });
-  }, [hydrateMathBlockSingle, hydrateGraphBlockSingle, hydrateCanvasBlockSingle]);
+  }, [hydrateMathBlockSingle, hydrateGraphBlockSingle, hydrateCanvasBlockSingle, hydrateTikZBlockSingle]);
 
   // Initialize Observer
   useEffect(() => {
@@ -319,6 +358,16 @@ export const useEditor = (
     []
   );
 
+  const rehydrateTikZBlocks = useCallback(
+    (container: HTMLElement) => {
+      const placeholders = container.querySelectorAll(".tikz-wrapper");
+      placeholders.forEach((el) => {
+        observerRef.current?.observe(el);
+      });
+    },
+    []
+  );
+
   const restoreStateFromHistory = useCallback(
     (state: { patches: { pageIndex: number; html: string }[]; startOffset: number; endOffset: number } | null) => {
       if (!state || !editorRef.current) return;
@@ -346,6 +395,7 @@ export const useEditor = (
       rehydrateMathBlocks(editorRef.current);
       rehydrateGraphBlocks(editorRef.current);
       rehydrateCanvasBlocks(editorRef.current);
+      rehydrateTikZBlocks(editorRef.current);
       rehydratePageNumbers(editorRef.current);
 
       const elementToFocus = restoreSelection(
@@ -370,6 +420,7 @@ export const useEditor = (
       rehydrateMathBlocks,
       rehydrateGraphBlocks,
       rehydrateCanvasBlocks,
+      rehydrateTikZBlocks,
       rehydratePageNumbers,
       restoreSelection,
     ]
@@ -433,7 +484,8 @@ export const useEditor = (
               element.classList.contains("canvas-wrapper") ||
               element.classList.contains("math-wrapper") ||
               element.classList.contains("template-wrapper") ||
-              element.classList.contains("graph-wrapper"))
+              element.classList.contains("graph-wrapper") ||
+              element.classList.contains("tikz-wrapper"))
           ) {
             wrapperElement = element;
           }
@@ -552,6 +604,7 @@ export const useEditor = (
         "graph-wrapper",
         "math-wrapper",
         "canvas-wrapper",
+        "tikz-wrapper",
       ].some((cls) => el.classList.contains(cls));
     };
 
@@ -617,7 +670,7 @@ export const useEditor = (
           blockElement &&
           (blockElement.textContent ?? "").trim() === "" &&
           blockElement.querySelectorAll(
-            "img, .graph-wrapper, .template-wrapper, .math-wrapper, .canvas-wrapper"
+            "img, .graph-wrapper, .template-wrapper, .math-wrapper, .canvas-wrapper, .tikz-wrapper"
           ).length === 0;
 
         if (
@@ -685,7 +738,7 @@ export const useEditor = (
           blockElement &&
           (blockElement.textContent ?? "").trim() === "" &&
           blockElement.querySelectorAll(
-            "img, .graph-wrapper, .template-wrapper, .math-wrapper, .canvas-wrapper"
+            "img, .graph-wrapper, .template-wrapper, .math-wrapper, .canvas-wrapper, .tikz-wrapper"
           ).length === 0;
 
         if (
@@ -746,7 +799,6 @@ export const useEditor = (
     wrapper.dataset.canvas = "{}";
     wrapper.dataset.width = "500";
     wrapper.dataset.height = "300";
-    // UPDATED: Set default float and display properties to match other blocks
     wrapper.dataset.float = "center";
     wrapper.style.width = "500px";
     wrapper.style.height = "300px";
@@ -776,7 +828,7 @@ export const useEditor = (
         blockElement &&
         (blockElement.textContent ?? "").trim() === "" &&
         blockElement.querySelectorAll(
-          "img, .graph-wrapper, .template-wrapper, .math-wrapper, .canvas-wrapper"
+          "img, .graph-wrapper, .template-wrapper, .math-wrapper, .canvas-wrapper, .tikz-wrapper"
         ).length === 0;
 
       if (
@@ -851,6 +903,63 @@ export const useEditor = (
       scheduleReflow();
     }, 200);
   }, [saveToHistory, findInsertionTarget, addNewPage, scheduleReflow, hydrateCanvasBlockSingle]);
+
+  // --- INSERT TIKZ ---
+  const insertTikZ = useCallback(() => {
+    let target = findInsertionTarget();
+    if (!target) { addNewPage(); target = findInsertionTarget(); if (!target) return; }
+    
+    const page = target.container.closest('.page') as HTMLElement;
+    saveToHistory(true, page ? [page] : undefined);
+
+    const wrapper = document.createElement("div");
+    wrapper.className = "tikz-wrapper";
+    wrapper.contentEditable = "false";
+    wrapper.dataset.tikzCode = ""; // Empty initially
+    wrapper.style.margin = "1em 0";
+    wrapper.style.display = "block";
+
+    const selection = window.getSelection();
+    if (target.range) {
+      let node = target.range.commonAncestorContainer;
+      let blockElement = (
+        node.nodeType === Node.ELEMENT_NODE ? node : node.parentElement
+      ) as HTMLElement;
+      while (
+        blockElement &&
+        blockElement.parentElement &&
+        blockElement.parentElement !== target.container
+      ) {
+        blockElement = blockElement.parentElement;
+      }
+      const isEffectivelyEmpty =
+        blockElement &&
+        (blockElement.textContent ?? "").trim() === "" &&
+        blockElement.querySelectorAll(
+          "img, .graph-wrapper, .template-wrapper, .math-wrapper, .canvas-wrapper, .tikz-wrapper"
+        ).length === 0;
+
+      if (
+        isEffectivelyEmpty &&
+        blockElement.parentElement === target.container
+      ) {
+        blockElement.parentElement.replaceChild(wrapper, blockElement);
+      } else {
+        target.range.insertNode(wrapper);
+      }
+    } else {
+      target.container.appendChild(wrapper);
+    }
+
+    ensureCursorFriendlyBlocks(wrapper, selection);
+    observerRef.current?.observe(wrapper);
+    hydrateTikZBlockSingle(wrapper); // Hydrate immediately to show editor
+
+    setTimeout(() => {
+      saveToHistory(true);
+      scheduleReflow();
+    }, 100);
+  }, [findInsertionTarget, addNewPage, saveToHistory, hydrateTikZBlockSingle, scheduleReflow]);
 
   // --- SMART INSERT IMAGE ON CANVAS ---
   const insertImageOnCanvas = useCallback((imageUrl: string) => {
@@ -943,7 +1052,7 @@ export const useEditor = (
           blockElement &&
           (blockElement.textContent ?? "").trim() === "" &&
           blockElement.querySelectorAll(
-            "img, .graph-wrapper, .template-wrapper, .math-wrapper, .canvas-wrapper"
+            "img, .graph-wrapper, .template-wrapper, .math-wrapper, .canvas-wrapper, .tikz-wrapper"
           ).length === 0;
 
         if (
@@ -1199,7 +1308,7 @@ export const useEditor = (
           targetBlock = targetBlock.parentElement;
         }
         if (targetBlock && targetBlock.parentElement?.classList.contains("page-content")) {
-          const isEffectivelyEmpty = (!targetBlock.textContent?.trim() && !targetBlock.querySelector("img, .image-wrapper, .graph-wrapper, .math-wrapper, .template-wrapper, .canvas-wrapper")) || targetBlock.innerHTML.toLowerCase().trim() === "<br>";
+          const isEffectivelyEmpty = (!targetBlock.textContent?.trim() && !targetBlock.querySelector("img, .image-wrapper, .graph-wrapper, .math-wrapper, .template-wrapper, .canvas-wrapper, .tikz-wrapper")) || targetBlock.innerHTML.toLowerCase().trim() === "<br>";
           if (isEffectivelyEmpty) {
             insertionPoint = targetBlock.parentElement;
             insertBeforeNode = targetBlock;
@@ -1269,6 +1378,7 @@ export const useEditor = (
         rehydrateMathBlocks(editorRef.current);
         rehydrateGraphBlocks(editorRef.current);
         rehydrateCanvasBlocks(editorRef.current);
+        rehydrateTikZBlocks(editorRef.current);
         
         await new Promise(resolve => setTimeout(resolve, 100));
         
@@ -1317,6 +1427,7 @@ export const useEditor = (
       rehydrateGraphBlocks,
       rehydrateMathBlocks,
       rehydrateCanvasBlocks,
+      rehydrateTikZBlocks,
     ]
   );
 
@@ -1507,6 +1618,7 @@ export const useEditor = (
     insertGraph,
     insertCanvas,
     insertImageOnCanvas,
+    insertTikZ, // Export the new function
     addNewPage,
     undo,
     redo,
@@ -1516,6 +1628,7 @@ export const useEditor = (
     rehydrateMathBlocks,
     rehydrateGraphBlocks,
     rehydrateCanvasBlocks,
+    rehydrateTikZBlocks, // Export the new function
     rehydratePageNumbers,
     resetHistory,
     scheduleReflow,

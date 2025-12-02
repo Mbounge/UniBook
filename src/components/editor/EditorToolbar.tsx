@@ -5,7 +5,7 @@ import {
   Bold, Italic, Underline, AlignLeft, AlignCenter, AlignRight, AlignJustify,
   Image, Undo, Redo, Highlighter, List, ListOrdered,
   MessageSquareQuote, Code, ChevronDown, ListTree, Table, Sigma, Link,
-  ArrowUpToLine, ArrowDownToLine, Search, Type
+  ArrowUpToLine, ArrowDownToLine, Search, Type, PenTool
 } from 'lucide-react';
 import { TableCreationGrid } from './TableCreationGrid';
 import { ColorPicker } from './ColorPicker';
@@ -117,6 +117,7 @@ interface EditorToolbarProps {
   onLineSpacingChange: (spacing: LineSpacing) => void;
   onLineSpacingMenuOpen: () => void;
   onInsertMath: () => void;
+  onInsertTikZ: () => void; // NEW
   onLink: () => void;
   onEditHeader: () => void;
   onEditFooter: () => void;
@@ -147,7 +148,7 @@ export const EditorToolbar: React.FC<EditorToolbarProps> = (props) => {
     onUnderline, onHighlight, onAlign, onBulletedList, onNumberedList, onInsertImage,
     onBlockquote, onCodeBlock, onToggleOutline, onInsertTable, onTableMenuOpen, 
     onTextColorChange, onColorMenuOpen, onLineSpacingChange, onLineSpacingMenuOpen, 
-    onInsertMath, onLink, onEditHeader, onEditFooter, onFind,
+    onInsertMath, onInsertTikZ, onLink, onEditHeader, onEditFooter, onFind,
     isTocOpen
   } = props;
 
@@ -250,6 +251,7 @@ export const EditorToolbar: React.FC<EditorToolbarProps> = (props) => {
         <ToolbarButton onClick={onNumberedList} title="Numbered List"><ListOrdered className="w-4 h-4" /></ToolbarButton>
         <ToolbarButton onClick={onInsertImage} title="Image"><Image className="w-4 h-4" /></ToolbarButton>
         <ToolbarButton onClick={onInsertMath} title="Formula"><Sigma className="w-4 h-4" /></ToolbarButton>
+        <ToolbarButton onClick={onInsertTikZ} title="Diagram (TikZ)"><PenTool className="w-4 h-4" /></ToolbarButton>
         <div ref={tableMenuRef} className="relative">
           <ToolbarButton ref={tableButtonRef} onClick={handleTableButtonClick} title="Table">
             <Table className="w-4 h-4" />
