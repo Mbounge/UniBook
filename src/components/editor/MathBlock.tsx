@@ -6,13 +6,13 @@ import katex from 'katex';
 import 'katex/dist/katex.min.css';
 import { 
   Calculator, FunctionSquare, Sigma, Binary, ArrowRightLeft, 
-  X, Check, Sun, Moon, 
+  X, Check, Trash2, Sun, Moon, 
   Circle, Square, ArrowRight, Grid, Share2, Network, Cpu, Activity, 
-  PenTool, Plus, Minus, Table,
+  RefreshCw, AlertCircle, PenTool, Plus, Minus, Table,
   CornerUpRight, Type, Crosshair, Palette, Repeat, 
   GitCommit, GitMerge, Clock, Combine, Layout, List, Share,
   Box, Aperture, Anchor, Eye, Triangle, BarChart, PieChart, Orbit,
-  AlertTriangle, Columns, Rows, AlertCircle
+  AlertTriangle, Loader2
 } from 'lucide-react';
 
 // --- TYPES ---
@@ -25,7 +25,6 @@ interface MathBlockProps {
 
 type EditorTheme = 'dark' | 'light';
 type BlockMode = 'math' | 'tikz';
-type BlockLayout = 'column' | 'row';
 type Category = 'basic' | 'algebra' | 'greek' | 'logic' | 'calculus' | 'essentials' | 'diagrams' | 'advanced';
 
 interface SymbolItem {
@@ -362,14 +361,12 @@ const RibbonButton = ({ item, onClick, theme, mode }: { item: SymbolItem; onClic
 };
 
 const MathEditorPopover = ({ 
-  code, setCode, onSave, onClose, initialMode, 
-  currentFontSize, onFontSizeChange, anchorRef, resizeVersion,
-  layout, onLayoutChange
+  code, setCode, onSave, onRemove, onClose, initialMode, 
+  currentFontSize, onFontSizeChange, anchorRef, resizeVersion 
 }: { 
-  code: string; setCode: (t: string) => void; onSave: () => void; onClose: () => void; initialMode: BlockMode;
+  code: string; setCode: (t: string) => void; onSave: () => void; onRemove: () => void; onClose: () => void; initialMode: BlockMode;
   currentFontSize: number; onFontSizeChange: (size: number) => void; anchorRef: React.RefObject<HTMLDivElement | null>;
   resizeVersion: number;
-  layout: BlockLayout; onLayoutChange: (l: BlockLayout) => void;
 }) => {
   const [mode, setMode] = useState<BlockMode>(initialMode);
   const [activeCategory, setActiveCategory] = useState<Category>(mode === 'math' ? 'basic' : 'essentials');
@@ -417,6 +414,8 @@ const MathEditorPopover = ({
     
     updatePosition();
     
+    // Only update on scroll/resize, but use requestAnimationFrame to throttle if needed
+    // For now, standard listeners are fine as long as logic is simple
     window.addEventListener('scroll', updatePosition, true);
     window.addEventListener('resize', updatePosition);
     
@@ -508,34 +507,28 @@ const MathEditorPopover = ({
         
         {/* Header */}
         <div className={`flex items-center justify-between px-4 pt-3 pb-2 border-b ${headerBgClass}`}>
-          <div className="flex items-center gap-3 overflow-x-auto no-scrollbar">
-            
-            {/* Mode Toggle */}
-            <div className="flex bg-gray-100/10 p-0.5 rounded-lg border border-gray-200/20 flex-shrink-0">
-              <button onClick={() => setMode('math')} title="Equation Mode" className={`flex items-center justify-center w-8 h-7 text-xs font-medium rounded-md transition-all ${mode === 'math' ? 'bg-blue-600 text-white shadow-sm' : `${subTextClass} hover:text-gray-300`}`}>
-                <Calculator size={14} />
+          <div className="flex items-center gap-3">
+            <div className="flex bg-gray-100/10 p-0.5 rounded-lg border border-gray-200/20">
+              <button onClick={() => setMode('math')} className={`flex items-center gap-1.5 px-3 py-1 text-xs font-medium rounded-md transition-all ${mode === 'math' ? 'bg-blue-600 text-white shadow-sm' : `${subTextClass} hover:text-gray-300`}`}>
+                <Calculator size={12} /> Equation
               </button>
-              <button onClick={() => setMode('tikz')} title="Diagram Mode" className={`flex items-center justify-center w-8 h-7 text-xs font-medium rounded-md transition-all ${mode === 'tikz' ? 'bg-blue-600 text-white shadow-sm' : `${subTextClass} hover:text-gray-300`}`}>
-                <PenTool size={14} />
+              <button onClick={() => setMode('tikz')} className={`flex items-center gap-1.5 px-3 py-1 text-xs font-medium rounded-md transition-all ${mode === 'tikz' ? 'bg-blue-600 text-white shadow-sm' : `${subTextClass} hover:text-gray-300`}`}>
+                <PenTool size={12} /> Diagram
               </button>
             </div>
-
-            <div className={`h-4 w-px flex-shrink-0 ${theme === 'dark' ? 'bg-[#444]' : 'bg-gray-200'}`}></div>
-            
-            {/* Categories */}
+            <div className={`h-4 w-px ${theme === 'dark' ? 'bg-[#444]' : 'bg-gray-200'}`}></div>
             <div className="flex gap-1 overflow-x-auto no-scrollbar">
               {categories.map((cat) => {
                 const Icon = cat.icon;
                 return (
-                  <button key={cat.id} onClick={() => setActiveCategory(cat.id)} className={`flex items-center gap-2 px-2 py-1 text-xs font-semibold rounded-lg transition-all flex-shrink-0 ${activeCategory === cat.id ? 'bg-blue-50 text-blue-600 ring-1 ring-blue-200' : `${subTextClass} ${buttonHoverClass}`}`}>
+                  <button key={cat.id} onClick={() => setActiveCategory(cat.id)} className={`flex items-center gap-2 px-2 py-1 text-xs font-semibold rounded-lg transition-all ${activeCategory === cat.id ? 'bg-blue-50 text-blue-600 ring-1 ring-blue-200' : `${subTextClass} ${buttonHoverClass}`}`}>
                     <Icon size={14} /> {cat.label}
                   </button>
                 );
               })}
             </div>
           </div>
-
-          <div className="flex items-center gap-2 pl-2 border-l border-gray-200/20 flex-shrink-0">
+          <div className="flex items-center gap-2 pl-2 border-l border-gray-200/20">
              {/* Font Size Controls */}
              {mode === 'math' && (
                <div className="flex items-center gap-1 mr-2">
@@ -549,17 +542,8 @@ const MathEditorPopover = ({
                </div>
              )}
              
-             {/* Layout Toggles */}
-             <div className="flex bg-gray-100/10 p-0.5 rounded-lg border border-gray-200/20">
-               <button onClick={() => onLayoutChange('column')} title="Vertical Stack" className={`p-1 rounded-md transition-all ${layout === 'column' ? 'bg-blue-600 text-white shadow-sm' : `${subTextClass} hover:text-gray-300`}`}>
-                 <Rows size={14} />
-               </button>
-               <button onClick={() => onLayoutChange('row')} title="Horizontal Flow" className={`p-1 rounded-md transition-all ${layout === 'row' ? 'bg-blue-600 text-white shadow-sm' : `${subTextClass} hover:text-gray-300`}`}>
-                 <Columns size={14} />
-               </button>
-             </div>
-
              <button onClick={() => setTheme(theme === 'dark' ? 'light' : 'dark')} className={`p-1.5 ${subTextClass} ${buttonHoverClass} rounded-lg transition-colors`}>{theme === 'dark' ? <Sun size={14} /> : <Moon size={14} />}</button>
+             <button onClick={onRemove} className={`p-1.5 ${subTextClass} hover:text-red-600 ${theme === 'dark' ? 'hover:bg-red-900/20' : 'hover:bg-red-50'} rounded-lg transition-colors`}><Trash2 size={14} /></button>
           </div>
         </div>
 
@@ -625,23 +609,27 @@ const TikZRenderer = ({ code, isLoaded, onSuccess }: { code: string, isLoaded: b
           clearTimeout(timeoutId);
           
           // --- CLONE AND REPLACE STRATEGY ---
+          // This isolates the SVG from TikZJax's internal state and allows us to style it freely.
+          // CRITICAL FIX: Ensure viewBox is present and width/height are 100% to scale with container
+          
           const width = svg.getAttribute('width');
           const height = svg.getAttribute('height');
           
           if (!svg.hasAttribute('viewBox') && width && height) {
+             // Convert pt to numbers (approximate) or just use the string if it's unitless
              const w = parseFloat(width);
              const h = parseFloat(height);
              svg.setAttribute('viewBox', `0 0 ${w} ${h}`);
           }
           
           svg.setAttribute('width', '100%');
-          svg.setAttribute('height', 'auto');
-          svg.style.maxWidth = '100%'; 
+          svg.setAttribute('height', '100%');
           svg.setAttribute('preserveAspectRatio', 'xMidYMid meet');
-          svg.style.display = 'block'; 
+          svg.style.display = 'block'; // Remove inline spacing
           
           const svgClone = svg.cloneNode(true) as SVGElement;
           
+          // Clear the container (removes original SVG and script)
           outputRef.current!.innerHTML = '';
           outputRef.current!.appendChild(svgClone);
 
@@ -654,6 +642,7 @@ const TikZRenderer = ({ code, isLoaded, onSuccess }: { code: string, isLoaded: b
       
       observer.observe(outputRef.current, { childList: true, subtree: true });
       
+      // Trigger TikZJax processing
       if (window.dispatchEvent) {
          window.dispatchEvent(new Event('load'));
       }
@@ -680,7 +669,7 @@ const TikZRenderer = ({ code, isLoaded, onSuccess }: { code: string, isLoaded: b
   }
 
   return (
-    <div className={`relative w-full ${isCompiling ? 'min-h-[200px]' : 'h-full'}`}>
+    <div className="relative w-full h-full"> {/* Removed min-h/min-w to allow full resizing */}
       {isCompiling && (
         <div className="absolute inset-0 flex flex-col items-center justify-center bg-gray-50/90 backdrop-blur-sm z-20 rounded-lg border border-gray-100">
           <div className="relative mb-3">
@@ -707,12 +696,13 @@ const KaTeXRenderer = ({ code, fontSize }: { code: string, fontSize: number }) =
     setError(null);
     try {
       katex.render(code, containerRef.current, {
-        throwOnError: true, 
+        throwOnError: true, // We catch it below
         displayMode: true,
         strict: false,
         trust: true
       });
     } catch (err: any) {
+      // Friendly error UI instead of crash
       setError(err.message || "Invalid LaTeX syntax");
       containerRef.current.innerHTML = ''; 
     }
@@ -744,9 +734,8 @@ export const MathBlock: React.FC<MathBlockProps> = ({ initialTex, fontSize, onUp
   const [code, setCode] = useState(initialTex);
   const [isTikZLoaded, setIsTikZLoaded] = useState(false);
   
-  // Local state for font size and layout
+  // Local state for font size
   const [currentFontSize, setCurrentFontSize] = useState(fontSize || 24); 
-  const [layout, setLayout] = useState<BlockLayout>('column');
   const [resizeVersion, setResizeVersion] = useState(0);
 
   const containerRef = useRef<HTMLDivElement>(null);
@@ -760,7 +749,8 @@ export const MathBlock: React.FC<MathBlockProps> = ({ initialTex, fontSize, onUp
   // Splits code into segments: Text/Math vs TikZ
   const segments = useMemo(() => {
     if (!code) return [];
-    // Regex to find TikZ environments using ES2018-safe syntax
+    // Regex to find TikZ environments
+    // FIX: Use [\s\S] instead of . with /s flag for compatibility
     const regex = /(\\begin\{tikzpicture\}[\s\S]*?\\end\{tikzpicture\})/g;
     const parts = code.split(regex);
     return parts.map(part => {
@@ -770,16 +760,11 @@ export const MathBlock: React.FC<MathBlockProps> = ({ initialTex, fontSize, onUp
     }).filter(Boolean) as { type: 'tikz' | 'math', content: string }[];
   }, [code]);
 
-  // Listen for external edit events & Sync Initial Layout
+  // Listen for external edit events
   useEffect(() => {
     const container = containerRef.current;
     if (!container) return;
     
-    // Initialize layout from dataset
-    if (container.dataset.layout) {
-      setLayout(container.dataset.layout as BlockLayout);
-    }
-
     const handleEdit = () => setIsEditing(true);
     const handleDelete = () => onRemove();
     const handleUpdateFontSize = (e: CustomEvent<{ fontSize: number }>) => {
@@ -801,15 +786,15 @@ export const MathBlock: React.FC<MathBlockProps> = ({ initialTex, fontSize, onUp
     };
   }, [onRemove]);
 
-  // Sync state to DOM
+  // Sync font size to DOM so resizer can read it
   useEffect(() => {
     if (containerRef.current) {
       containerRef.current.dataset.fontSize = String(currentFontSize);
-      containerRef.current.dataset.layout = layout;
     }
-  }, [currentFontSize, layout]);
+  }, [currentFontSize]);
 
   // --- AUTO-RESIZE WRAPPER ON CONTENT CHANGE ---
+  // This ensures the parent wrapper expands if the content (e.g., TikZ SVG) grows.
   useEffect(() => {
     if (!containerRef.current) return;
     
@@ -817,9 +802,11 @@ export const MathBlock: React.FC<MathBlockProps> = ({ initialTex, fontSize, onUp
       for (const entry of entries) {
         const wrapper = containerRef.current?.closest('.math-wrapper') as HTMLElement;
         if (wrapper) {
+          // If content is taller than wrapper, expand wrapper
           if (entry.contentRect.height > wrapper.clientHeight) {
              wrapper.style.height = 'auto';
           }
+          // If content is wider than wrapper, expand wrapper (up to max)
           if (entry.contentRect.width > wrapper.clientWidth) {
              wrapper.style.width = `${Math.min(entry.contentRect.width, 800)}px`;
           }
@@ -830,16 +817,6 @@ export const MathBlock: React.FC<MathBlockProps> = ({ initialTex, fontSize, onUp
     observer.observe(containerRef.current);
     return () => observer.disconnect();
   }, []);
-
-  // --- HANDLE LAYOUT SWITCHING ---
-  // When switching layouts, reset wrapper dimensions to allow natural reflow
-  useEffect(() => {
-    const wrapper = containerRef.current?.closest('.math-wrapper') as HTMLElement;
-    if (wrapper) {
-      wrapper.style.height = 'auto'; 
-      wrapper.style.width = 'auto';  
-    }
-  }, [layout]);
 
   const handleSave = () => {
     if (code.trim() === '') onRemove();
@@ -852,10 +829,9 @@ export const MathBlock: React.FC<MathBlockProps> = ({ initialTex, fontSize, onUp
   const handleFontSizeChange = (newSize: number) => {
     const size = Math.max(8, Math.min(72, newSize));
     setCurrentFontSize(size);
-  };
-
-  const handleLayoutChange = (newLayout: BlockLayout) => {
-    setLayout(newLayout);
+    if (containerRef.current) {
+      containerRef.current.dataset.fontSize = String(size);
+    }
   };
 
   // Determine initial mode for the editor popover
@@ -865,9 +841,11 @@ export const MathBlock: React.FC<MathBlockProps> = ({ initialTex, fontSize, onUp
 
   // --- WRAPPER RESIZING LOGIC ---
   const handleTikZSuccess = useCallback(() => {
+    // Only resize if it's a pure TikZ block (single segment)
     if (segments.length === 1 && segments[0].type === 'tikz') {
       const wrapper = containerRef.current?.closest('.math-wrapper') as HTMLElement;
       if (wrapper) {
+        // Check if it already has a custom size, if not, apply default
         if (!wrapper.style.width || wrapper.style.width === 'auto') {
            wrapper.style.width = '300px';
            wrapper.style.height = '200px';
@@ -883,13 +861,17 @@ export const MathBlock: React.FC<MathBlockProps> = ({ initialTex, fontSize, onUp
   useEffect(() => {
     const wrapper = containerRef.current?.closest('.math-wrapper') as HTMLElement;
     if (wrapper) {
+      // 1. Enforce Center Alignment Default
+      // We check if float is missing OR if it is set to center, then force the CSS
       if (!wrapper.dataset.float || wrapper.dataset.float === 'center') {
         wrapper.dataset.float = 'center';
-        wrapper.style.float = 'none';       
-        wrapper.style.margin = '12px auto'; 
-        wrapper.style.display = 'block';    
+        wrapper.style.float = 'none';       // Critical: Explicitly remove float
+        wrapper.style.margin = '12px auto'; // Critical: Force auto margins
+        wrapper.style.display = 'block';    // Critical: Ensure block display
       }
 
+      // 2. Enforce Default Dimensions for TikZ (only if it has no size yet)
+      // This applies specifically when it's a pure drawing to give it a good starting size
       if (segments.length === 1 && segments[0].type === 'tikz') {
         if (!wrapper.style.width || wrapper.style.width === 'auto') {
           wrapper.style.width = '300px';
@@ -904,7 +886,7 @@ export const MathBlock: React.FC<MathBlockProps> = ({ initialTex, fontSize, onUp
       
       {/* RENDER VIEW */}
       <div
-        className={`math-rendered transition-all rounded-lg cursor-pointer w-full h-full ${isEditing ? '' : 'hover:bg-blue-50/50 hover:ring-2 hover:ring-blue-100'} flex ${layout === 'row' ? 'flex-row flex-wrap items-stretch justify-center gap-6' : 'flex-col items-center justify-center gap-2'}`}
+        className={`math-rendered transition-all rounded-lg cursor-pointer flex flex-col items-center justify-center w-full h-full ${isEditing ? '' : 'hover:bg-blue-50/50 hover:ring-2 hover:ring-blue-100'}`}
         title="Click to edit"
         onClick={(e) => { e.stopPropagation(); setIsEditing(true); }}
         style={{ minHeight: '3rem' }}
@@ -916,19 +898,18 @@ export const MathBlock: React.FC<MathBlockProps> = ({ initialTex, fontSize, onUp
              <React.Fragment key={idx}>
                {seg.type === 'tikz' ? (
                  <div 
-                   className={layout === 'row' ? 'min-w-[150px] max-w-full' : 'w-full flex-1'}
+                   className="w-full flex-1" 
                    style={{ 
-                     flex: layout === 'row' ? '1 1 auto' : (segments.length > 1 ? '1 1 200px' : '1 1 auto'),
-                     minHeight: '0',
-                     position: 'relative'
+                     // Use flex-basis to set a default height for mixed content,
+                     // but allow it to shrink if the container is resized smaller.
+                     flex: segments.length > 1 ? '1 1 200px' : '1 1 0%',
+                     minHeight: '0' 
                    }}
                  >
                    <TikZRenderer code={seg.content} isLoaded={isTikZLoaded} onSuccess={handleTikZSuccess} />
                  </div>
                ) : (
-                 <div className={layout === 'row' ? 'flex-shrink-0 flex items-center' : 'w-full'}>
-                    <KaTeXRenderer code={seg.content} fontSize={currentFontSize} />
-                 </div>
+                 <KaTeXRenderer code={seg.content} fontSize={currentFontSize} />
                )}
              </React.Fragment>
            ))
@@ -941,14 +922,13 @@ export const MathBlock: React.FC<MathBlockProps> = ({ initialTex, fontSize, onUp
           code={code}
           setCode={setCode}
           onSave={handleSave}
+          onRemove={onRemove}
           onClose={() => setIsEditing(false)}
           initialMode={initialMode}
           currentFontSize={currentFontSize}
           onFontSizeChange={handleFontSizeChange}
           anchorRef={containerRef}
           resizeVersion={resizeVersion}
-          layout={layout}
-          onLayoutChange={handleLayoutChange}
         />
       )}
     </div>

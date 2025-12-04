@@ -460,4 +460,4 @@ export const MathResizer: React.FC<MathResizerProps> = ({
   }, [pageContainerRef, createControls, cleanupControls, updateToolbarState]);
 
   return null;
-};
+}; 
