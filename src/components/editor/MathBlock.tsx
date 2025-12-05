@@ -362,11 +362,13 @@ const RibbonButton = ({ item, onClick, theme, mode }: { item: SymbolItem; onClic
 
 const MathEditorPopover = ({ 
   code, setCode, onSave, onRemove, onClose, initialMode, 
-  currentFontSize, onFontSizeChange, anchorRef, resizeVersion 
+  currentFontSize, onFontSizeChange, anchorRef, resizeVersion,
+  currentTikZWidth, onTikZSizeChange
 }: { 
   code: string; setCode: (t: string) => void; onSave: () => void; onRemove: () => void; onClose: () => void; initialMode: BlockMode;
   currentFontSize: number; onFontSizeChange: (size: number) => void; anchorRef: React.RefObject<HTMLDivElement | null>;
   resizeVersion: number;
+  currentTikZWidth?: number; onTikZSizeChange?: (delta: number) => void;
 }) => {
   const [mode, setMode] = useState<BlockMode>(initialMode);
   const [activeCategory, setActiveCategory] = useState<Category>(mode === 'math' ? 'basic' : 'essentials');
@@ -541,6 +543,19 @@ const MathEditorPopover = ({
                  </button>
                </div>
              )}
+
+             {/* TikZ Size Controls */}
+             {mode === 'tikz' && onTikZSizeChange && currentTikZWidth !== undefined && (
+               <div className="flex items-center gap-1 mr-2">
+                 <button onClick={() => onTikZSizeChange(-20)} className={`p-1.5 ${subTextClass} ${buttonHoverClass} rounded-lg transition-colors`} title="Decrease Size">
+                   <Minus size={14} />
+                 </button>
+                 <span className={`text-[10px] font-mono w-10 text-center ${theme === 'dark' ? 'text-gray-300' : 'text-gray-600'}`}>{Math.round(currentTikZWidth)}px</span>
+                 <button onClick={() => onTikZSizeChange(20)} className={`p-1.5 ${subTextClass} ${buttonHoverClass} rounded-lg transition-colors`} title="Increase Size">
+                   <Plus size={14} />
+                 </button>
+               </div>
+             )}
              
              <button onClick={() => setTheme(theme === 'dark' ? 'light' : 'dark')} className={`p-1.5 ${subTextClass} ${buttonHoverClass} rounded-lg transition-colors`}>{theme === 'dark' ? <Sun size={14} /> : <Moon size={14} />}</button>
              <button onClick={onRemove} className={`p-1.5 ${subTextClass} hover:text-red-600 ${theme === 'dark' ? 'hover:bg-red-900/20' : 'hover:bg-red-50'} rounded-lg transition-colors`}><Trash2 size={14} /></button>
@@ -575,7 +590,7 @@ const MathEditorPopover = ({
 };
 
 // --- ISOLATED TIKZ RENDERER ---
-const TikZRenderer = ({ code, isLoaded, onSuccess }: { code: string, isLoaded: boolean, onSuccess?: () => void }) => {
+const TikZRenderer = ({ code, isLoaded, onSuccess }: { code: string, isLoaded: boolean, onSuccess?: (aspectRatio: number) => void }) => {
   const outputRef = useRef<HTMLDivElement>(null);
   const [error, setError] = useState<string | null>(null);
   const [isCompiling, setIsCompiling] = useState(true);
@@ -612,14 +627,23 @@ const TikZRenderer = ({ code, isLoaded, onSuccess }: { code: string, isLoaded: b
           // This isolates the SVG from TikZJax's internal state and allows us to style it freely.
           // CRITICAL FIX: Ensure viewBox is present and width/height are 100% to scale with container
           
-          const width = svg.getAttribute('width');
-          const height = svg.getAttribute('height');
-          
-          if (!svg.hasAttribute('viewBox') && width && height) {
+          const widthStr = svg.getAttribute('width');
+          const heightStr = svg.getAttribute('height');
+          let aspectRatio = 1;
+
+          if (!svg.hasAttribute('viewBox') && widthStr && heightStr) {
              // Convert pt to numbers (approximate) or just use the string if it's unitless
-             const w = parseFloat(width);
-             const h = parseFloat(height);
-             svg.setAttribute('viewBox', `0 0 ${w} ${h}`);
+             const w = parseFloat(widthStr);
+             const h = parseFloat(heightStr);
+             if (!isNaN(w) && !isNaN(h) && w > 0) {
+               aspectRatio = h / w;
+               svg.setAttribute('viewBox', `0 0 ${w} ${h}`);
+             }
+          } else if (svg.hasAttribute('viewBox')) {
+             const vb = svg.getAttribute('viewBox')!.split(' ').map(parseFloat);
+             if (vb.length === 4 && vb[2] > 0) {
+                aspectRatio = vb[3] / vb[2];
+             }
           }
           
           svg.setAttribute('width', '100%');
@@ -636,7 +660,7 @@ const TikZRenderer = ({ code, isLoaded, onSuccess }: { code: string, isLoaded: b
           setIsCompiling(false);
           observer.disconnect();
           
-          if (onSuccess) onSuccess();
+          if (onSuccess) onSuccess(aspectRatio);
         }
       });
       
@@ -736,6 +760,11 @@ export const MathBlock: React.FC<MathBlockProps> = ({ initialTex, fontSize, onUp
   
   // Local state for font size
   const [currentFontSize, setCurrentFontSize] = useState(fontSize || 24); 
+  
+  // Local state for TikZ Dimensions
+  const [currentTikZWidth, setCurrentTikZWidth] = useState(300);
+  const [tikZAspectRatio, setTikZAspectRatio] = useState(0.66); // Default 3:2
+
   const [resizeVersion, setResizeVersion] = useState(0);
 
   const containerRef = useRef<HTMLDivElement>(null);
@@ -760,6 +789,21 @@ export const MathBlock: React.FC<MathBlockProps> = ({ initialTex, fontSize, onUp
     }).filter(Boolean) as { type: 'tikz' | 'math', content: string }[];
   }, [code]);
 
+  // Determine initial mode for the editor popover
+  const initialMode: BlockMode = useMemo(() => {
+    return (code.includes('\\begin{tikzpicture') || code.includes('\\tikz')) ? 'tikz' : 'math';
+  }, [code]);
+
+  // Set data-render-mode on the container for MathResizer
+  useEffect(() => {
+    if (containerRef.current) {
+      const wrapper = containerRef.current.closest('.math-wrapper') as HTMLElement;
+      if (wrapper) {
+        wrapper.dataset.renderMode = initialMode;
+      }
+    }
+  }, [initialMode]);
+
   // Listen for external edit events
   useEffect(() => {
     const container = containerRef.current;
@@ -770,10 +814,15 @@ export const MathBlock: React.FC<MathBlockProps> = ({ initialTex, fontSize, onUp
     const handleUpdateFontSize = (e: CustomEvent<{ fontSize: number }>) => {
         setCurrentFontSize(e.detail.fontSize);
     };
+    // NEW: Handle TikZ size updates from resizer
+    const handleUpdateTikZSize = (e: CustomEvent<{ width: number }>) => {
+        setCurrentTikZWidth(e.detail.width);
+    };
 
     container.addEventListener('editMath', handleEdit);
     container.addEventListener('deleteMath', handleDelete);
     container.addEventListener('updateMath', handleUpdateFontSize as EventListener);
+    container.addEventListener('updateTikZSize', handleUpdateTikZSize as EventListener);
 
     const resizeObserver = new ResizeObserver(() => setResizeVersion(v => v + 1));
     resizeObserver.observe(container);
@@ -782,6 +831,7 @@ export const MathBlock: React.FC<MathBlockProps> = ({ initialTex, fontSize, onUp
       container.removeEventListener('editMath', handleEdit);
       container.removeEventListener('deleteMath', handleDelete);
       container.removeEventListener('updateMath', handleUpdateFontSize as EventListener);
+      container.removeEventListener('updateTikZSize', handleUpdateTikZSize as EventListener);
       resizeObserver.disconnect();
     };
   }, [onRemove]);
@@ -834,28 +884,75 @@ export const MathBlock: React.FC<MathBlockProps> = ({ initialTex, fontSize, onUp
     }
   };
 
-  // Determine initial mode for the editor popover
-  const initialMode: BlockMode = useMemo(() => {
-    return (code.includes('\\begin{tikzpicture') || code.includes('\\tikz')) ? 'tikz' : 'math';
-  }, [code]);
+  // Initialize TikZ width from DOM when entering TikZ mode
+  useEffect(() => {
+    if (initialMode === 'tikz' && containerRef.current) {
+      const wrapper = containerRef.current.closest('.math-wrapper') as HTMLElement;
+      if (wrapper) {
+        // Prioritize style.width if set, otherwise use default 300
+        if (wrapper.style.width && wrapper.style.width !== 'auto') {
+           setCurrentTikZWidth(parseFloat(wrapper.style.width));
+        } else {
+           setCurrentTikZWidth(300);
+        }
+      }
+    }
+  }, [initialMode, isEditing]);
 
   // --- WRAPPER RESIZING LOGIC ---
-  const handleTikZSuccess = useCallback(() => {
+  const handleTikZSuccess = useCallback((aspectRatio: number) => {
+    setTikZAspectRatio(aspectRatio);
     // Only resize if it's a pure TikZ block (single segment)
     if (segments.length === 1 && segments[0].type === 'tikz') {
       const wrapper = containerRef.current?.closest('.math-wrapper') as HTMLElement;
       if (wrapper) {
-        // Check if it already has a custom size, if not, apply default
-        if (!wrapper.style.width || wrapper.style.width === 'auto') {
-           wrapper.style.width = '300px';
-           wrapper.style.height = '200px';
+        // Check if it's at the default dimensions (300x200) or missing dimensions
+        // If so, snap to the correct aspect ratio immediately to prevent letterboxing
+        const isDefault = !wrapper.style.width || wrapper.style.width === 'auto' || (wrapper.style.width === '300px' && wrapper.style.height === '200px');
+        
+        if (isDefault) {
+           const width = 300;
+           const height = width * aspectRatio;
+           
+           wrapper.style.width = `${width}px`;
+           wrapper.style.height = `${height}px`;
            wrapper.style.margin = '12px auto';
            wrapper.dataset.float = 'center';
            wrapper.style.display = 'block';
+           
+           setCurrentTikZWidth(width);
+        } else {
+           // If style width exists, sync state to it
+           setCurrentTikZWidth(parseFloat(wrapper.style.width));
         }
       }
     }
   }, [segments]);
+
+  const handleTikZSizeChange = (delta: number) => {
+    const wrapper = containerRef.current?.closest('.math-wrapper') as HTMLElement;
+    if (!wrapper) return;
+
+    let baseWidth = 300; // Default fallback
+
+    // 1. Try inline style first (most accurate for user intent)
+    if (wrapper.style.width && wrapper.style.width !== 'auto') {
+       baseWidth = parseFloat(wrapper.style.width);
+    } 
+    // 2. If no inline style, check if we have a valid state
+    else if (currentTikZWidth && currentTikZWidth !== 300) {
+       baseWidth = currentTikZWidth;
+    }
+    // 3. If all else fails, DO NOT read offsetWidth/computed width if it seems to be full width
+    // We assume if it's not set, it's the default 300.
+
+    const newWidth = Math.max(50, Math.min(800, baseWidth + delta));
+    
+    setCurrentTikZWidth(newWidth);
+    
+    wrapper.style.width = `${newWidth}px`;
+    wrapper.style.height = `${newWidth * tikZAspectRatio}px`;
+  };
 
   // --- FORCE DEFAULT DIMENSIONS & ALIGNMENT FOR TIKZ ---
   useEffect(() => {
@@ -929,6 +1026,8 @@ export const MathBlock: React.FC<MathBlockProps> = ({ initialTex, fontSize, onUp
           onFontSizeChange={handleFontSizeChange}
           anchorRef={containerRef}
           resizeVersion={resizeVersion}
+          currentTikZWidth={currentTikZWidth}
+          onTikZSizeChange={handleTikZSizeChange}
         />
       )}
     </div>

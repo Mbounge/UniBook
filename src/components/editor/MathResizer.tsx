@@ -299,8 +299,6 @@ export const MathResizer: React.FC<MathResizerProps> = ({
         const type = floatBtn.getAttribute('data-float-type') || 'none';
         
         // --- FIX: PRESERVE WIDTH ON ALIGNMENT CHANGE ---
-        // If width is not explicitly set (i.e., it's auto/full-width), lock it to the current computed width
-        // before applying float. This prevents the block from collapsing to fit-content width.
         if (!currentSelection.style.width || currentSelection.style.width === 'auto') {
             const rect = currentSelection.getBoundingClientRect();
             currentSelection.style.width = `${rect.width}px`;
@@ -398,53 +396,71 @@ export const MathResizer: React.FC<MathResizerProps> = ({
               newW = newH * aspectRatio;
           }
       }
+
+      // --- TIKZ MODE: Maintain Aspect Ratio on ALL Drags ---
+      if (mode === 'tikz') {
+          // Prioritize width for E/W/NE/SE/NW/SW
+          if (handle.includes('e') || handle.includes('w')) {
+              newH = newW / aspectRatio;
+          } 
+          // Prioritize height for N/S
+          else if (handle === 'n' || handle === 's') {
+              newW = newH * aspectRatio;
+          }
+      }
       
       newW = Math.max(50, Math.min(newW, MAX_EDITABLE_WIDTH));
       newH = Math.max(20, newH);
       
-      selectionRef.current.style.width = `${newW}px`;
-      selectionRef.current.style.height = `${newH}px`;
-      
-      // --- MATH MODE: Scale Font Size ---
-      if (mode === 'math') {
-         const scale = newH / height;
-         const newFS = Math.max(8, Math.min(120, fontSize * scale));
-         
-         selectionRef.current.dataset.fontSize = String(newFS);
-         
-         const innerContainer = selectionRef.current.querySelector('.math-block-container');
-         if (innerContainer) {
-             innerContainer.dispatchEvent(new CustomEvent('updateMath', { detail: { fontSize: newFS } }));
-         }
-      }
+      // Use requestAnimationFrame for smooth visual updates without layout thrashing
+      requestAnimationFrame(() => {
+          if (!selectionRef.current) return;
+          
+          selectionRef.current.style.width = `${newW}px`;
+          selectionRef.current.style.height = `${newH}px`;
 
-      // --- TIKZ MODE: Force SVG Fill ---
-      if (mode === 'tikz') {
-          const svg = selectionRef.current.querySelector('svg');
-          if (svg) {
-              svg.style.width = '100%';
-              svg.style.height = '100%';
-              if (!svg.hasAttribute('preserveAspectRatio')) {
-                 svg.setAttribute('preserveAspectRatio', 'xMidYMid meet');
-              }
-              let parent = svg.parentElement;
-              while (parent && parent !== selectionRef.current && selectionRef.current.contains(parent)) {
-                  parent.style.width = '100%';
-                  parent.style.height = '100%';
-                  parent.style.maxWidth = 'none';
-                  parent.style.maxHeight = 'none';
-                  parent.style.display = 'flex';
-                  parent.style.justifyContent = 'center';
-                  parent.style.alignItems = 'center';
-                  parent = parent.parentElement;
+          const innerContainer = selectionRef.current.querySelector('.math-block-container');
+
+          // Dispatch TikZ size update
+          if (innerContainer) {
+              innerContainer.dispatchEvent(new CustomEvent('updateTikZSize', { detail: { width: newW } }));
+          }
+          
+          // --- ALWAYS Scale Font Size (handles mixed content and pure math) ---
+          // We use the height ratio to determine the scale factor
+          const scale = newH / height;
+          const newFS = Math.max(8, Math.min(120, fontSize * scale));
+          
+          selectionRef.current.dataset.fontSize = String(newFS);
+          
+          if (innerContainer) {
+              innerContainer.dispatchEvent(new CustomEvent('updateMath', { detail: { fontSize: newFS } }));
+          }
+          
+          // --- TIKZ MODE: Force SVG Fill ---
+          if (mode === 'tikz') {
+              const svg = selectionRef.current.querySelector('svg');
+              if (svg) {
+                  svg.style.width = '100%';
+                  svg.style.height = '100%';
+                  if (!svg.hasAttribute('preserveAspectRatio')) {
+                     svg.setAttribute('preserveAspectRatio', 'xMidYMid meet');
+                  }
+                  // Ensure parent containers also fill
+                  let parent = svg.parentElement;
+                  while (parent && parent !== selectionRef.current && selectionRef.current.contains(parent)) {
+                      parent.style.width = '100%';
+                      parent.style.height = '100%';
+                      parent.style.maxWidth = 'none';
+                      parent.style.maxHeight = 'none';
+                      parent.style.display = 'flex';
+                      parent.style.justifyContent = 'center';
+                      parent.style.alignItems = 'center';
+                      parent = parent.parentElement;
+                  }
               }
           }
-      }
-
-      const page = selectionRef.current.closest('.page') as HTMLElement;
-      if (page) {
-        propsRef.current.reflowBackwardFromPage(page);
-      }
+      });
     };
     
     document.addEventListener('mousedown', handleResizeStart);
@@ -460,4 +476,4 @@ export const MathResizer: React.FC<MathResizerProps> = ({
   }, [pageContainerRef, createControls, cleanupControls, updateToolbarState]);
 
   return null;
-}; 
+};
