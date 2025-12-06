@@ -6,13 +6,14 @@ import katex from 'katex';
 import 'katex/dist/katex.min.css';
 import { 
   Calculator, FunctionSquare, Sigma, Binary, ArrowRightLeft, 
-  X, Check, Trash2, Sun, Moon, 
+  X, Check, Sun, Moon, 
   Circle, Square, ArrowRight, Grid, Share2, Network, Cpu, Activity, 
-  RefreshCw, AlertCircle, PenTool, Plus, Minus, Table,
+  PenTool, Plus, Minus, Table,
   CornerUpRight, Type, Crosshair, Palette, Repeat, 
   GitCommit, GitMerge, Clock, Combine, Layout, List, Share,
   Box, Aperture, Anchor, Eye, Triangle, BarChart, PieChart, Orbit,
-  AlertTriangle, Loader2
+  AlertTriangle, AlertCircle,
+  Columns, Rows
 } from 'lucide-react';
 
 // --- TYPES ---
@@ -25,13 +26,14 @@ interface MathBlockProps {
 
 type EditorTheme = 'dark' | 'light';
 type BlockMode = 'math' | 'tikz';
+type BlockLayout = 'vertical' | 'horizontal';
 type Category = 'basic' | 'algebra' | 'greek' | 'logic' | 'calculus' | 'essentials' | 'diagrams' | 'advanced';
 
 interface SymbolItem {
   label: string;
   insert: string;
-  display?: string; // For Math (KaTeX)
-  icon?: React.ElementType; // For TikZ
+  display?: string; 
+  icon?: React.ElementType; 
   description?: string;
   offset?: number;
 }
@@ -53,94 +55,94 @@ const TIKZ_CATEGORIES: { id: Category; icon: React.ElementType; label: string }[
 ];
 
 const MATH_SYMBOLS: Record<string, SymbolItem[]> = {
-  basic: [
-    { label: 'Fraction', display: '\\frac{a}{b}', insert: '\\frac{}{}', offset: -3 },
-    { label: 'Sqrt', display: '\\sqrt{x}', insert: '\\sqrt{}', offset: -1 },
-    { label: 'Power', display: 'x^n', insert: '^{}', offset: -1 },
-    { label: 'Sub', display: 'x_n', insert: '_{}', offset: -1 },
-    { label: 'Times', display: '\\times', insert: '\\times ' },
-    { label: 'Div', display: '\\div', insert: '\\div ' },
-    { label: 'PM', display: '\\pm', insert: '\\pm ' },
-    { label: 'Approx', display: '\\approx', insert: '\\approx ' },
-    { label: 'Neq', display: '\\neq', insert: '\\neq ' },
-    { label: 'Inf', display: '\\infty', insert: '\\infty ' },
-  ],
-  algebra: [
-    { label: 'Parens', display: '(x)', insert: '()' },
-    { label: 'Brackets', display: '[x]', insert: '[]', offset: -1 },
-    { label: 'Braces', display: '\\{x\\}', insert: '\\{\\}', offset: -2 },
-    { label: 'Sum', display: '\\sum', insert: '\\sum_{}^{}', offset: -4 },
-    { label: 'Vector', display: '\\vec{x}', insert: '\\vec{}', offset: -1 },
-    { label: 'Matrix', display: '\\begin{bmatrix}\\dots\\end{bmatrix}', insert: '\\begin{bmatrix} a & b \\\\ c & d \\end{bmatrix}' },
-  ],
-  calculus: [
-    { label: 'Int', display: '\\int', insert: '\\int_{}^{}', offset: -4 },
-    { label: 'Lim', display: '\\lim', insert: '\\lim_{x \\to }', offset: -1 },
-    { label: 'd/dx', display: '\\frac{d}{dx}', insert: '\\frac{d}{dx}' },
-    { label: 'Partial', display: '\\partial', insert: '\\partial ' },
-    { label: 'Nabla', display: '\\nabla', insert: '\\nabla ' },
-  ],
-  greek: [
-    { label: 'Alpha', display: '\\alpha', insert: '\\alpha ' },
-    { label: 'Beta', display: '\\beta', insert: '\\beta ' },
-    { label: 'Gamma', display: '\\gamma', insert: '\\gamma ' },
-    { label: 'Delta', display: '\\Delta', insert: '\\Delta ' },
-    { label: 'Theta', display: '\\theta', insert: '\\theta ' },
-    { label: 'Pi', display: '\\pi', insert: '\\pi ' },
-    { label: 'Sigma', display: '\\sigma', insert: '\\sigma ' },
-    { label: 'Omega', display: '\\Omega', insert: '\\Omega ' },
-    { label: 'Phi', display: '\\phi', insert: '\\phi ' },
-  ],
-  logic: [
-    { label: 'Right', display: '\\rightarrow', insert: '\\rightarrow ' },
-    { label: 'Left', display: '\\leftarrow', insert: '\\leftarrow ' },
-    { label: 'Implies', display: '\\Rightarrow', insert: '\\Rightarrow ' },
-    { label: 'For All', display: '\\forall', insert: '\\forall ' },
-    { label: 'Exists', display: '\\exists', insert: '\\exists ' },
-    { label: 'In', display: '\\in', insert: '\\in ' },
-    { label: 'Therefore', display: '\\therefore', insert: '\\therefore ' },
-  ],
+    basic: [
+      { label: 'Fraction', display: '\\frac{a}{b}', insert: '\\frac{}{}', offset: -3 },
+      { label: 'Sqrt', display: '\\sqrt{x}', insert: '\\sqrt{}', offset: -1 },
+      { label: 'Power', display: 'x^n', insert: '^{}', offset: -1 },
+      { label: 'Sub', display: 'x_n', insert: '_{}', offset: -1 },
+      { label: 'Times', display: '\\times', insert: '\\times ' },
+      { label: 'Div', display: '\\div', insert: '\\div ' },
+      { label: 'PM', display: '\\pm', insert: '\\pm ' },
+      { label: 'Approx', display: '\\approx', insert: '\\approx ' },
+      { label: 'Neq', display: '\\neq', insert: '\\neq ' },
+      { label: 'Inf', display: '\\infty', insert: '\\infty ' },
+    ],
+    algebra: [
+        { label: 'Parens', display: '(x)', insert: '()' },
+        { label: 'Brackets', display: '[x]', insert: '[]', offset: -1 },
+        { label: 'Braces', display: '\\{x\\}', insert: '\\{\\}', offset: -2 },
+        { label: 'Sum', display: '\\sum', insert: '\\sum_{}^{}', offset: -4 },
+        { label: 'Vector', display: '\\vec{x}', insert: '\\vec{}', offset: -1 },
+        { label: 'Matrix', display: '\\begin{bmatrix}\\dots\\end{bmatrix}', insert: '\\begin{bmatrix} a & b \\\\ c & d \\end{bmatrix}' },
+    ],
+    calculus: [
+        { label: 'Int', display: '\\int', insert: '\\int_{}^{}', offset: -4 },
+        { label: 'Lim', display: '\\lim', insert: '\\lim_{x \\to }', offset: -1 },
+        { label: 'd/dx', display: '\\frac{d}{dx}', insert: '\\frac{d}{dx}' },
+        { label: 'Partial', display: '\\partial', insert: '\\partial ' },
+        { label: 'Nabla', display: '\\nabla', insert: '\\nabla ' },
+    ],
+    greek: [
+        { label: 'Alpha', display: '\\alpha', insert: '\\alpha ' },
+        { label: 'Beta', display: '\\beta', insert: '\\beta ' },
+        { label: 'Gamma', display: '\\gamma', insert: '\\gamma ' },
+        { label: 'Delta', display: '\\Delta', insert: '\\Delta ' },
+        { label: 'Theta', display: '\\theta', insert: '\\theta ' },
+        { label: 'Pi', display: '\\pi', insert: '\\pi ' },
+        { label: 'Sigma', display: '\\sigma', insert: '\\sigma ' },
+        { label: 'Omega', display: '\\Omega', insert: '\\Omega ' },
+        { label: 'Phi', display: '\\phi', insert: '\\phi ' },
+    ],
+    logic: [
+        { label: 'Right', display: '\\rightarrow', insert: '\\rightarrow ' },
+        { label: 'Left', display: '\\leftarrow', insert: '\\leftarrow ' },
+        { label: 'Implies', display: '\\Rightarrow', insert: '\\Rightarrow ' },
+        { label: 'For All', display: '\\forall', insert: '\\forall ' },
+        { label: 'Exists', display: '\\exists', insert: '\\exists ' },
+        { label: 'In', display: '\\in', insert: '\\in ' },
+        { label: 'Therefore', display: '\\therefore', insert: '\\therefore ' },
+    ],
 };
 
 const COMMON_PREAMBLE = `\\usetikzlibrary{arrows.meta,calc,positioning,shapes.geometric,patterns,intersections,backgrounds,fit,matrix}`;
 
 const TIKZ_TEMPLATES: Record<string, SymbolItem[]> = {
-  essentials: [
-    { label: 'Line', icon: Minus, description: 'Basic line path', insert: `\\begin{tikzpicture}\n  \\draw (0,0) -- (2,1);\n  \\draw[red, thick] (0,1) -- (2,0);\n\\end{tikzpicture}` },
-    { label: 'Circle', icon: Circle, description: 'Circle with radius', insert: `\\begin{tikzpicture}\n  \\draw[blue, fill=blue!10] (0,0) circle (1cm);\n  \\draw (0,0) -- (1,0) node[midway, above] {$r$};\n\\end{tikzpicture}` },
-    { label: 'Rect', icon: Square, description: 'Rectangle box', insert: `\\begin{tikzpicture}\n  \\draw[thick, fill=green!10] (0,0) rectangle (3,2);\n  \\node at (1.5,1) {Box};\n\\end{tikzpicture}` },
-    { label: 'Grid', icon: Grid, description: 'Coordinate grid', insert: `\\begin{tikzpicture}\n  \\draw[step=0.5cm, gray, very thin] (-1,-1) grid (1,1);\n  \\draw[->] (-1.2,0) -- (1.2,0) node[right] {$x$};\n  \\draw[->] (0,-1.2) -- (0,1.2) node[above] {$y$};\n\\end{tikzpicture}` },
-    { label: 'Arc', icon: CornerUpRight, description: 'Curved path', insert: `\\begin{tikzpicture}\n  \\draw[thick] (0,0) arc (0:90:1.5cm);\n  \\draw[dashed] (0,0) -- (1.5,0);\n  \\draw[dashed] (0,0) -- (0,1.5);\n\\end{tikzpicture}` },
-    { label: 'Node', icon: Type, description: 'Text label', insert: `\\begin{tikzpicture}\n  \\node[draw] (A) at (0,0) {Hello};\n  \\node[draw, circle] (B) at (2,0) {World};\n\\end{tikzpicture}` },
-    { label: 'Coords', icon: Crosshair, description: 'Named coordinates', insert: `\\begin{tikzpicture}\n  \\coordinate (A) at (0,0);\n  \\coordinate (B) at (2,2);\n  \\draw[->] (A) -- (B);\n  \\fill (A) circle (2pt) node[below] {A};\n  \\fill (B) circle (2pt) node[above] {B};\n\\end{tikzpicture}` },
-    { label: 'Style', icon: Palette, description: 'Custom styles', insert: `\\begin{tikzpicture}[mybox/.style={draw, fill=yellow!20, thick, rounded corners}]\n  \\node[mybox] {Styled Node};\n\\end{tikzpicture}` },
-    { label: 'Arrow', icon: ArrowRight, description: 'Arrow tips', insert: `\\begin{tikzpicture}[>=Stealth]\n  \\draw[->] (0,0) -- (2,0);\n  \\draw[<->] (0,-0.5) -- (2,-0.5);\n  \\draw[|->] (0,-1) -- (2,-1);\n\\end{tikzpicture}` },
-    { label: 'Loop', icon: Repeat, description: 'Foreach loop', insert: `\\begin{tikzpicture}\n  \\foreach \\x in {0,1,2,3}\n    \\draw[fill=red!\\x0] (\\x,0) circle (0.4);\n\\end{tikzpicture}` },
-  ],
-  diagrams: [
-    { label: 'Flow', icon: Share2, description: 'Flowchart', insert: `${COMMON_PREAMBLE}\n\\begin{tikzpicture}[node distance=1.5cm, >={Stealth[round]}, thick]\n  \\node[draw, rounded corners] (start) {Start};\n  \\node[draw, rectangle, below=of start] (step1) {Step 1};\n  \\node[draw, diamond, aspect=2, below=of step1] (choice) {?};\n  \\draw[->] (start) -- (step1);\n  \\draw[->] (step1) -- (choice);\n\\end{tikzpicture}` },
-    { label: 'Tree', icon: Network, description: 'Hierarchy tree', insert: `${COMMON_PREAMBLE}\n\\begin{tikzpicture}[level distance=1.5cm, sibling distance=1.5cm]\n  \\node {Root} child { node {L} } child { node {R} child { node {R1} } child { node {R2} } };\n\\end{tikzpicture}` },
-    { label: 'Table', icon: Table, description: 'Matrix Table', insert: `\\usetikzlibrary{matrix}\n\\begin{tikzpicture}\n  \\matrix [matrix of nodes, nodes={draw, minimum height=0.8cm, minimum width=1.5cm, anchor=center}, column sep=-\\pgflinewidth, row sep=-\\pgflinewidth, row 1/.style={nodes={fill=gray!20, font=\\bfseries}}] {\n    ID & Val \\\\\n    1 & A \\\\\n    2 & B \\\\\n  };\n\\end{tikzpicture}` },
-    { label: 'State', icon: GitCommit, description: 'State machine', insert: `\\begin{tikzpicture}[>=Stealth, node distance=2cm, thick]\n  \\node[draw, circle] (A) {A};\n  \\node[draw, circle, right=of A] (B) {B};\n  \\draw[->] (A) to[bend left] (B);\n  \\draw[->] (B) to[bend left] (A);\n  \\draw[->] (A) edge[loop above] (A);\n\\end{tikzpicture}` },
-    { label: 'MindMap', icon: GitMerge, description: 'Central concept', insert: `\\begin{tikzpicture}\n  \\node[draw, circle, fill=blue!10, minimum size=1.5cm] (center) {Idea};\n  \\foreach \\angle/\\text in {0/A, 90/B, 180/C, 270/D}\n    \\node[draw, circle, fill=yellow!10] at (\\angle:2cm) {\\text} edge (center);\n\\end{tikzpicture}` },
-    { label: 'Time', icon: Clock, description: 'Timeline', insert: `\\begin{tikzpicture}\n  \\draw[->, thick] (0,0) -- (5,0);\n  \\foreach \\x/\\label in {0/Start, 2/Mid, 4/End}\n    \\draw (\\x,0.1) -- (\\x,-0.1) node[below] {\\label};\n\\end{tikzpicture}` },
-    { label: 'Venn', icon: Combine, description: 'Venn diagram', insert: `\\begin{tikzpicture}\n  \\draw[fill=red, opacity=0.3] (0,0) circle (1.2);\n  \\draw[fill=blue, opacity=0.3] (1.5,0) circle (1.2);\n  \\node at (0.75,0) {A $\\cap$ B};\n\\end{tikzpicture}` },
-    { label: 'UML', icon: Layout, description: 'Class diagram', insert: `\\begin{tikzpicture}\n  \\node[draw, rectangle split, rectangle split parts=2] (class) {\n    \\textbf{User}\n    \\nodepart{second} name: String \\\\ age: Int\n  };\n\\end{tikzpicture}` },
-    { label: 'Seq', icon: List, description: 'Sequence diagram', insert: `\\begin{tikzpicture}\n  \\draw (0,0) node[above]{A} -- (0,-3);\n  \\draw (3,0) node[above]{B} -- (3,-3);\n  \\draw[->] (0,-1) -- (3,-1) node[midway, above] {msg 1};\n  \\draw[->, dashed] (3,-2) -- (0,-2) node[midway, above] {reply};\n\\end{tikzpicture}` },
-    { label: 'Graph', icon: Share, description: 'Network graph', insert: `\\begin{tikzpicture}[auto, node distance=2cm]\n  \\node[draw, circle] (1) {1};\n  \\node[draw, circle, below right=of 1] (2) {2};\n  \\node[draw, circle, below left=of 1] (3) {3};\n  \\draw (1) -- (2);\n  \\draw (1) -- (3);\n  \\draw (2) -- (3);\n\\end{tikzpicture}` },
-  ],
-  advanced: [
-    { label: 'Plot', icon: Activity, description: 'Function plot', insert: `\\begin{tikzpicture}\n  \\draw[->] (-0.5,0) -- (3,0) node[right] {$x$};\n  \\draw[->] (0,-0.5) -- (0,3) node[above] {$y$};\n  \\draw[domain=0:2, smooth, variable=\\x, blue, thick] plot (\\x, {\\x*\\x});\n\\end{tikzpicture}` },
-    { label: 'Circuit', icon: Cpu, description: 'Electrical circuit', insert: `\\begin{tikzpicture}[thick, scale=1.2]\n  \\draw (0,0) -- (0,2) -- (1,2);\n  \\draw (1,2) -- (1.2,2.2) -- (1.4,1.8) -- (1.6,2.2) -- (1.8,1.8) -- (2,2);\n  \\draw (2,2) -- (3,2) -- (3,0) -- (0,0);\n  \\draw (1.5, 2.5) node {$R$};\n  \\draw (-0.2, 0.8) -- (0.2, 0.8);\n  \\draw (-0.2, 1.2) -- (0.2, 1.2);\n  \\node at (-0.5, 1) {$V$};\n\\end{tikzpicture}` },
-    { label: '3D Box', icon: Box, description: 'Isometric view', insert: `\\begin{tikzpicture}[x={(-0.5cm,-0.5cm)}, y={(1cm,0cm)}, z={(0cm,1cm)}]\n  \\draw[thick] (0,0,0) -- (2,0,0) -- (2,2,0) -- (0,2,0) -- cycle;\n  \\draw[thick] (0,0,2) -- (2,0,2) -- (2,2,2) -- (0,2,2) -- cycle;\n  \\draw[thick] (0,0,0) -- (0,0,2);\n  \\draw[thick] (2,0,0) -- (2,0,2);\n  \\draw[thick] (2,2,0) -- (2,2,2);\n  \\draw[thick] (0,2,0) -- (0,2,2);\n\\end{tikzpicture}` },
-    { label: 'Polar', icon: Aperture, description: 'Polar coordinates', insert: `\\begin{tikzpicture}\n  \\draw[->] (-2,0) -- (2,0);\n  \\draw[->] (0,-2) -- (0,2);\n  \\draw[red, thick, domain=0:360, samples=100] plot ({cos(\\x)*1.5}, {sin(\\x)*1.5});\n\\end{tikzpicture}` },
-    { label: 'Physics', icon: Anchor, description: 'Pendulum', insert: `\\begin{tikzpicture}\n  \\fill[pattern=north east lines] (-1,0) rectangle (1,0.2);\n  \\draw[thick] (-1,0) -- (1,0);\n  \\draw (0,0) -- (300:3cm) coordinate (bob);\n  \\fill (bob) circle (0.2);\n  \\draw[dashed] (0,0) -- (0,-3);\n  \\draw (0,-1) arc (270:300:1);\n  \\node at (0.3,-1.2) {$\\theta$};\n\\end{tikzpicture}` },
-    { label: 'Optics', icon: Eye, description: 'Lens and rays', insert: `\\begin{tikzpicture}\n  \\draw[thick, <->] (0,-2) -- (0,2);\n  \\draw[dashed] (-3,0) -- (3,0);\n  \\draw[red] (-2,1) -- (0,1) -- (2,-1);\n  \\draw[red] (-2,1) -- (0,0) -- (2,-1);\n  \\draw[fill] (-2,1) circle (1pt) node[above] {Obj};\n  \\draw[fill] (2,-1) circle (1pt) node[below] {Img};\n\\end{tikzpicture}` },
-    { label: 'Fractal', icon: Triangle, description: 'Sierpinski triangle', insert: `\\begin{tikzpicture}[scale=3]\n  \\draw (0,0) -- (1,0) -- (0.5,0.866) -- cycle;\n  \\foreach \\i in {0,1,2} {\n    \\begin{scope}[shift={(0,0)}, scale=0.5]\n       \\draw[fill=white] (0.5,0) -- (0.75,0.433) -- (0.25,0.433) -- cycle;\n    \\end{scope}\n  }\n\\end{tikzpicture}` },
-    { label: 'Bar', icon: BarChart, description: 'Bar chart', insert: `\\begin{tikzpicture}\n  \\draw (0,0) -- (4,0);\n  \\draw (0,0) -- (0,3);\n  \\foreach \\x/\\h in {0.5/1, 1.5/2.5, 2.5/1.5, 3.5/0.5}\n    \\draw[fill=blue] (\\x-0.25,0) rectangle (\\x+0.25,\\h);\n\\end{tikzpicture}` },
-    { label: 'Pie', icon: PieChart, description: 'Pie chart', insert: `\\begin{tikzpicture}\n  \\draw[fill=red!30] (0,0) -- (0:1.5) arc (0:120:1.5) -- cycle;\n  \\draw[fill=green!30] (0,0) -- (120:1.5) arc (120:200:1.5) -- cycle;\n  \\draw[fill=blue!30] (0,0) -- (200:1.5) arc (200:360:1.5) -- cycle;\n\\end{tikzpicture}` },
-    { label: 'Orbit', icon: Orbit, description: 'Solar system', insert: `\\begin{tikzpicture}\n  \\draw[fill=yellow] (0,0) circle (0.5);\n  \\draw[dashed] (0,0) circle (1.5);\n  \\draw[dashed] (0,0) circle (2.5);\n  \\fill[blue] (45:1.5) circle (0.1) node[right] {Earth};\n  \\fill[red] (120:2.5) circle (0.15) node[above] {Mars};\n\\end{tikzpicture}` },
-  ]
+    essentials: [
+        { label: 'Line', icon: Minus, description: 'Basic line path', insert: `\\begin{tikzpicture}\n  \\draw (0,0) -- (2,1);\n  \\draw[red, thick] (0,1) -- (2,0);\n\\end{tikzpicture}` },
+        { label: 'Circle', icon: Circle, description: 'Circle with radius', insert: `\\begin{tikzpicture}\n  \\draw[blue, fill=blue!10] (0,0) circle (1cm);\n  \\draw (0,0) -- (1,0) node[midway, above] {$r$};\n\\end{tikzpicture}` },
+        { label: 'Rect', icon: Square, description: 'Rectangle box', insert: `\\begin{tikzpicture}\n  \\draw[thick, fill=green!10] (0,0) rectangle (3,2);\n  \\node at (1.5,1) {Box};\n\\end{tikzpicture}` },
+        { label: 'Grid', icon: Grid, description: 'Coordinate grid', insert: `\\begin{tikzpicture}\n  \\draw[step=0.5cm, gray, very thin] (-1,-1) grid (1,1);\n  \\draw[->] (-1.2,0) -- (1.2,0) node[right] {$x$};\n  \\draw[->] (0,-1.2) -- (0,1.2) node[above] {$y$};\n\\end{tikzpicture}` },
+        { label: 'Arc', icon: CornerUpRight, description: 'Curved path', insert: `\\begin{tikzpicture}\n  \\draw[thick] (0,0) arc (0:90:1.5cm);\n  \\draw[dashed] (0,0) -- (1.5,0);\n  \\draw[dashed] (0,0) -- (0,1.5);\n\\end{tikzpicture}` },
+        { label: 'Node', icon: Type, description: 'Text label', insert: `\\begin{tikzpicture}\n  \\node[draw] (A) at (0,0) {Hello};\n  \\node[draw, circle] (B) at (2,0) {World};\n\\end{tikzpicture}` },
+        { label: 'Coords', icon: Crosshair, description: 'Named coordinates', insert: `\\begin{tikzpicture}\n  \\coordinate (A) at (0,0);\n  \\coordinate (B) at (2,2);\n  \\draw[->] (A) -- (B);\n  \\fill (A) circle (2pt) node[below] {A};\n  \\fill (B) circle (2pt) node[above] {B};\n\\end{tikzpicture}` },
+        { label: 'Style', icon: Palette, description: 'Custom styles', insert: `\\begin{tikzpicture}[mybox/.style={draw, fill=yellow!20, thick, rounded corners}]\n  \\node[mybox] {Styled Node};\n\\end{tikzpicture}` },
+        { label: 'Arrow', icon: ArrowRight, description: 'Arrow tips', insert: `\\begin{tikzpicture}[>=Stealth]\n  \\draw[->] (0,0) -- (2,0);\n  \\draw[<->] (0,-0.5) -- (2,-0.5);\n  \\draw[|->] (0,-1) -- (2,-1);\n\\end{tikzpicture}` },
+        { label: 'Loop', icon: Repeat, description: 'Foreach loop', insert: `\\begin{tikzpicture}\n  \\foreach \\x in {0,1,2,3}\n    \\draw[fill=red!\\x0] (\\x,0) circle (0.4);\n\\end{tikzpicture}` },
+    ],
+    diagrams: [
+        { label: 'Flow', icon: Share2, description: 'Flowchart', insert: `${COMMON_PREAMBLE}\n\\begin{tikzpicture}[node distance=1.5cm, >={Stealth[round]}, thick]\n  \\node[draw, rounded corners] (start) {Start};\n  \\node[draw, rectangle, below=of start] (step1) {Step 1};\n  \\node[draw, diamond, aspect=2, below=of step1] (choice) {?};\n  \\draw[->] (start) -- (step1);\n  \\draw[->] (step1) -- (choice);\n\\end{tikzpicture}` },
+        { label: 'Tree', icon: Network, description: 'Hierarchy tree', insert: `${COMMON_PREAMBLE}\n\\begin{tikzpicture}[level distance=1.5cm, sibling distance=1.5cm]\n  \\node {Root} child { node {L} } child { node {R} child { node {R1} } child { node {R2} } };\n\\end{tikzpicture}` },
+        { label: 'Table', icon: Table, description: 'Matrix Table', insert: `\\usetikzlibrary{matrix}\n\\begin{tikzpicture}\n  \\matrix [matrix of nodes, nodes={draw, minimum height=0.8cm, minimum width=1.5cm, anchor=center}, column sep=-\\pgflinewidth, row sep=-\\pgflinewidth, row 1/.style={nodes={fill=gray!20, font=\\bfseries}}] {\n    ID & Val \\\\\n    1 & A \\\\\n    2 & B \\\\\n  };\n\\end{tikzpicture}` },
+        { label: 'State', icon: GitCommit, description: 'State machine', insert: `\\begin{tikzpicture}[>=Stealth, node distance=2cm, thick]\n  \\node[draw, circle] (A) {A};\n  \\node[draw, circle, right=of A] (B) {B};\n  \\draw[->] (A) to[bend left] (B);\n  \\draw[->] (B) to[bend left] (A);\n  \\draw[->] (A) edge[loop above] (A);\n\\end{tikzpicture}` },
+        { label: 'MindMap', icon: GitMerge, description: 'Central concept', insert: `\\begin{tikzpicture}\n  \\node[draw, circle, fill=blue!10, minimum size=1.5cm] (center) {Idea};\n  \\foreach \\angle/\\text in {0/A, 90/B, 180/C, 270/D}\n    \\node[draw, circle, fill=yellow!10] at (\\angle:2cm) {\\text} edge (center);\n\\end{tikzpicture}` },
+        { label: 'Time', icon: Clock, description: 'Timeline', insert: `\\begin{tikzpicture}\n  \\draw[->, thick] (0,0) -- (5,0);\n  \\foreach \\x/\\label in {0/Start, 2/Mid, 4/End}\n    \\draw (\\x,0.1) -- (\\x,-0.1) node[below] {\\label};\n\\end{tikzpicture}` },
+        { label: 'Venn', icon: Combine, description: 'Venn diagram', insert: `\\begin{tikzpicture}\n  \\draw[fill=red, opacity=0.3] (0,0) circle (1.2);\n  \\draw[fill=blue, opacity=0.3] (1.5,0) circle (1.2);\n  \\node at (0.75,0) {A $\\cap$ B};\n\\end{tikzpicture}` },
+        { label: 'UML', icon: Layout, description: 'Class diagram', insert: `\\begin{tikzpicture}\n  \\node[draw, rectangle split, rectangle split parts=2] (class) {\n    \\textbf{User}\n    \\nodepart{second} name: String \\\\ age: Int\n  };\n\\end{tikzpicture}` },
+        { label: 'Seq', icon: List, description: 'Sequence diagram', insert: `\\begin{tikzpicture}\n  \\draw (0,0) node[above]{A} -- (0,-3);\n  \\draw (3,0) node[above]{B} -- (3,-3);\n  \\draw[->] (0,-1) -- (3,-1) node[midway, above] {msg 1};\n  \\draw[->, dashed] (3,-2) -- (0,-2) node[midway, above] {reply};\n\\end{tikzpicture}` },
+        { label: 'Graph', icon: Share, description: 'Network graph', insert: `\\begin{tikzpicture}[auto, node distance=2cm]\n  \\node[draw, circle] (1) {1};\n  \\node[draw, circle, below right=of 1] (2) {2};\n  \\node[draw, circle, below left=of 1] (3) {3};\n  \\draw (1) -- (2);\n  \\draw (1) -- (3);\n  \\draw (2) -- (3);\n\\end{tikzpicture}` },
+    ],
+    advanced: [
+        { label: 'Plot', icon: Activity, description: 'Function plot', insert: `\\begin{tikzpicture}\n  \\draw[->] (-0.5,0) -- (3,0) node[right] {$x$};\n  \\draw[->] (0,-0.5) -- (0,3) node[above] {$y$};\n  \\draw[domain=0:2, smooth, variable=\\x, blue, thick] plot (\\x, {\\x*\\x});\n\\end{tikzpicture}` },
+        { label: 'Circuit', icon: Cpu, description: 'Electrical circuit', insert: `\\begin{tikzpicture}[thick, scale=1.2]\n  \\draw (0,0) -- (0,2) -- (1,2);\n  \\draw (1,2) -- (1.2,2.2) -- (1.4,1.8) -- (1.6,2.2) -- (1.8,1.8) -- (2,2);\n  \\draw (2,2) -- (3,2) -- (3,0) -- (0,0);\n  \\draw (1.5, 2.5) node {$R$};\n  \\draw (-0.2, 0.8) -- (0.2, 0.8);\n  \\draw (-0.2, 1.2) -- (0.2, 1.2);\n  \\node at (-0.5, 1) {$V$};\n\\end{tikzpicture}` },
+        { label: '3D Box', icon: Box, description: 'Isometric view', insert: `\\begin{tikzpicture}[x={(-0.5cm,-0.5cm)}, y={(1cm,0cm)}, z={(0cm,1cm)}]\n  \\draw[thick] (0,0,0) -- (2,0,0) -- (2,2,0) -- (0,2,0) -- cycle;\n  \\draw[thick] (0,0,2) -- (2,0,2) -- (2,2,2) -- (0,2,2) -- cycle;\n  \\draw[thick] (0,0,0) -- (0,0,2);\n  \\draw[thick] (2,0,0) -- (2,0,2);\n  \\draw[thick] (2,2,0) -- (2,2,2);\n  \\draw[thick] (0,2,0) -- (0,2,2);\n\\end{tikzpicture}` },
+        { label: 'Polar', icon: Aperture, description: 'Polar coordinates', insert: `\\begin{tikzpicture}\n  \\draw[->] (-2,0) -- (2,0);\n  \\draw[->] (0,-2) -- (0,2);\n  \\draw[red, thick, domain=0:360, samples=100] plot ({cos(\\x)*1.5}, {sin(\\x)*1.5});\n\\end{tikzpicture}` },
+        { label: 'Physics', icon: Anchor, description: 'Pendulum', insert: `\\begin{tikzpicture}\n  \\fill[pattern=north east lines] (-1,0) rectangle (1,0.2);\n  \\draw[thick] (-1,0) -- (1,0);\n  \\draw (0,0) -- (300:3cm) coordinate (bob);\n  \\fill (bob) circle (0.2);\n  \\draw[dashed] (0,0) -- (0,-3);\n  \\draw (0,-1) arc (270:300:1);\n  \\node at (0.3,-1.2) {$\\theta$};\n\\end{tikzpicture}` },
+        { label: 'Optics', icon: Eye, description: 'Lens and rays', insert: `\\begin{tikzpicture}\n  \\draw[thick, <->] (0,-2) -- (0,2);\n  \\draw[dashed] (-3,0) -- (3,0);\n  \\draw[red] (-2,1) -- (0,1) -- (2,-1);\n  \\draw[red] (-2,1) -- (0,0) -- (2,-1);\n  \\draw[fill] (-2,1) circle (1pt) node[above] {Obj};\n  \\draw[fill] (2,-1) circle (1pt) node[below] {Img};\n\\end{tikzpicture}` },
+        { label: 'Fractal', icon: Triangle, description: 'Sierpinski triangle', insert: `\\begin{tikzpicture}[scale=3]\n  \\draw (0,0) -- (1,0) -- (0.5,0.866) -- cycle;\n  \\foreach \\i in {0,1,2} {\n    \\begin{scope}[shift={(0,0)}, scale=0.5]\n       \\draw[fill=white] (0.5,0) -- (0.75,0.433) -- (0.25,0.433) -- cycle;\n    \\end{scope}\n  }\n\\end{tikzpicture}` },
+        { label: 'Bar', icon: BarChart, description: 'Bar chart', insert: `\\begin{tikzpicture}\n  \\draw (0,0) -- (4,0);\n  \\draw (0,0) -- (0,3);\n  \\foreach \\x/\\h in {0.5/1, 1.5/2.5, 2.5/1.5, 3.5/0.5}\n    \\draw[fill=blue] (\\x-0.25,0) rectangle (\\x+0.25,\\h);\n\\end{tikzpicture}` },
+        { label: 'Pie', icon: PieChart, description: 'Pie chart', insert: `\\begin{tikzpicture}\n  \\draw[fill=red!30] (0,0) -- (0:1.5) arc (0:120:1.5) -- cycle;\n  \\draw[fill=green!30] (0,0) -- (120:1.5) arc (120:200:1.5) -- cycle;\n  \\draw[fill=blue!30] (0,0) -- (200:1.5) arc (200:360:1.5) -- cycle;\n\\end{tikzpicture}` },
+        { label: 'Orbit', icon: Orbit, description: 'Solar system', insert: `\\begin{tikzpicture}\n  \\draw[fill=yellow] (0,0) circle (0.5);\n  \\draw[dashed] (0,0) circle (1.5);\n  \\draw[dashed] (0,0) circle (2.5);\n  \\fill[blue] (45:1.5) circle (0.1) node[right] {Earth};\n  \\fill[red] (120:2.5) circle (0.15) node[above] {Mars};\n\\end{tikzpicture}` },
+    ]
 };
 
 // --- HELPERS ---
@@ -204,9 +206,10 @@ const highlightLaTeX = (code: string, theme: EditorTheme) => {
     text: 'text-gray-900'
   };
 
-  const regex = /(%.*$)|(\\(?:usetikzlibrary|usepackage|documentclass|begin|end|newcommand|def|tikzset)\b)|(\\\[a-zA-Z@]+)|(\b(?:draw|fill|filldraw|path|node|coordinate|clip|scope|shade|shadedraw|matrix|grid|graph|plot|foreach)\b)|(\b(?:style|nodes|row|column|sep|minimum|height|width|anchor|align|inner|outer|scale|shift|rotate|x|y|z|opacity|line|thick|thin|ultra|very|semithick|dashed|dotted|solid|double|rounded|corners|sharp|arrow|arrows|shapes|decoration|postaction|preaction|pattern|samples|domain|variable|at|to|cycle|in|of|font|text)\b)|(\b(?:circle|rectangle|ellipse|arc|edge|child|level|sibling|sin|cos|tan|exp|ln|north|south|east|west|center|mid|base|left|right|above|below)\b)|(\b(?:red|green|blue|cyan|magenta|yellow|black|white|gray|orange|purple|brown|teal|violet|pink)\b)|(\d+(?:\.\d+)?)|([\{\}\[\]])|([\(\)])|(--|->|<-|\|-|-|\||\+|!|=|:|\.\.)|([^%\\\{\}\[\]\(\)\d\s-!]+)/gm;
+  // Fixed regex - properly escape everything and match commands correctly
+  const regex = /(%.*$)|(\\(?:usetikzlibrary|usepackage|documentclass|begin|end|newcommand|def|tikzset)\b)|(\\[a-zA-Z@]+)|(\b(?:draw|fill|filldraw|path|node|coordinate|clip|scope|shade|shadedraw|matrix|grid|graph|plot|foreach)\b)|(\b(?:style|nodes|row|column|sep|minimum|height|width|anchor|align|inner|outer|scale|shift|rotate|x|y|z|opacity|line|thick|thin|ultra|very|semithick|dashed|dotted|solid|double|rounded|corners|sharp|arrow|arrows|shapes|decoration|postaction|preaction|pattern|samples|domain|variable|at|to|cycle|in|of|font|text)\b)|(\b(?:circle|rectangle|ellipse|arc|edge|child|level|sibling|sin|cos|tan|exp|ln|north|south|east|west|center|mid|base|left|right|above|below)\b)|(\b(?:red|green|blue|cyan|magenta|yellow|black|white|gray|orange|purple|brown|teal|violet|pink)\b)|(\d+(?:\.\d+)?)|([\{\}\[\]])|([\(\)])|(--|->|<-|\|-|\||\+|=|:|\.\.)|(.)/gm;
 
-  return code.replace(regex, (match, comment, structure, command, primary, property, shape, color, number, bracket, paren, operator, text) => {
+  return code.replace(regex, (match, comment, structure, command, primary, property, shape, color, number, bracket, paren, operator, other) => {
     const esc = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
     
     if (comment) return `<span class="${colors.comment}">${esc(match)}</span>`;
@@ -220,8 +223,8 @@ const highlightLaTeX = (code: string, theme: EditorTheme) => {
     if (bracket) return `<span class="${colors.bracket}">${esc(match)}</span>`;
     if (paren) return `<span class="${colors.paren}">${esc(match)}</span>`;
     if (operator) return `<span class="${colors.operator}">${esc(match)}</span>`;
-    if (text) return `<span class="${colors.text}">${esc(match)}</span>`;
-    return esc(match);
+    // Everything else gets text color
+    return `<span class="${colors.text}">${esc(match)}</span>`;
   });
 };
 
@@ -361,14 +364,16 @@ const RibbonButton = ({ item, onClick, theme, mode }: { item: SymbolItem; onClic
 };
 
 const MathEditorPopover = ({ 
-  code, setCode, onSave, onRemove, onClose, initialMode, 
+  code, setCode, onSave, onClose, initialMode, 
   currentFontSize, onFontSizeChange, anchorRef, resizeVersion,
-  currentTikZWidth, onTikZSizeChange
+  currentTikZWidth, onTikZSizeChange,
+  layout, onLayoutChange
 }: { 
-  code: string; setCode: (t: string) => void; onSave: () => void; onRemove: () => void; onClose: () => void; initialMode: BlockMode;
+  code: string; setCode: (t: string) => void; onSave: () => void; onClose: () => void; initialMode: BlockMode;
   currentFontSize: number; onFontSizeChange: (size: number) => void; anchorRef: React.RefObject<HTMLDivElement | null>;
   resizeVersion: number;
   currentTikZWidth?: number; onTikZSizeChange?: (delta: number) => void;
+  layout: BlockLayout; onLayoutChange: (l: BlockLayout) => void;
 }) => {
   const [mode, setMode] = useState<BlockMode>(initialMode);
   const [activeCategory, setActiveCategory] = useState<Category>(mode === 'math' ? 'basic' : 'essentials');
@@ -388,7 +393,6 @@ const MathEditorPopover = ({
     }
   }, [anchorRef]);
 
-  // Dynamic Positioning with ResizeObserver
   useLayoutEffect(() => {
     if (!anchorRef.current || !popoverRef.current || !portalContainer) return;
 
@@ -397,10 +401,8 @@ const MathEditorPopover = ({
       const containerRect = portalContainer.getBoundingClientRect();
       const popoverRect = popoverRef.current!.getBoundingClientRect();
       
-      // Center horizontally relative to anchor
       let left = anchorRect.left - containerRect.left + (anchorRect.width / 2) - (popoverRect.width / 2);
       
-      // Clamp to container bounds
       const containerWidth = portalContainer.clientWidth;
       const padding = 20;
       if (left < padding) left = padding;
@@ -408,7 +410,6 @@ const MathEditorPopover = ({
         left = containerWidth - popoverRect.width - padding;
       }
 
-      // Position strictly below the anchor
       let top = anchorRect.bottom - containerRect.top + portalContainer.scrollTop + 10;
 
       setPosition({ top, left });
@@ -416,7 +417,6 @@ const MathEditorPopover = ({
 
     updatePosition();
 
-    // Observe the anchor for size changes (this fixes the "disconnect" issue)
     const resizeObserver = new ResizeObserver(() => {
         updatePosition();
     });
@@ -458,7 +458,13 @@ const MathEditorPopover = ({
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     e.stopPropagation(); 
-    if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); onSave(); }
+    if (e.key === 'Enter' && !e.shiftKey) { 
+      e.preventDefault(); 
+      console.log('=== SAVE TRIGGERED ===');
+      console.log('Code value:', code);
+      console.log('Code char codes:', Array.from(code).map((c, i) => `${i}: '${c}' (${c.charCodeAt(0)})`));
+      onSave(); 
+    }
     if (e.key === 'Escape') { e.preventDefault(); onClose(); }
   };
 
@@ -469,6 +475,9 @@ const MathEditorPopover = ({
     const end = textarea.selectionEnd;
     
     let insertText = item.insert;
+    console.log('Inserting symbol:', insertText);
+    console.log('Insert text char codes:', Array.from(insertText).map((c, i) => `${i}: '${c}' (${c.charCodeAt(0)})`));
+    
     if (mode === 'tikz' && (code.trim() === '' || code.includes('\\begin{tikzpicture}'))) {
        setCode(insertText);
        setTimeout(() => textarea.focus(), 0);
@@ -476,6 +485,9 @@ const MathEditorPopover = ({
     }
 
     const newCode = code.substring(0, start) + insertText + code.substring(end);
+    console.log('New code after insert:', newCode);
+    console.log('New code char codes:', Array.from(newCode).map((c, i) => `${i}: '${c}' (${c.charCodeAt(0)})`));
+    
     setCode(newCode);
     const newCursorPos = start + insertText.length + (item.offset || 0);
     setTimeout(() => {
@@ -516,11 +528,19 @@ const MathEditorPopover = ({
         <div className={`flex items-center justify-between px-4 pt-3 pb-2 border-b ${headerBgClass}`}>
           <div className="flex items-center gap-3">
             <div className="flex bg-gray-100/10 p-0.5 rounded-lg border border-gray-200/20">
-              <button onClick={() => setMode('math')} className={`flex items-center gap-1.5 px-3 py-1 text-xs font-medium rounded-md transition-all ${mode === 'math' ? 'bg-blue-600 text-white shadow-sm' : `${subTextClass} hover:text-gray-300`}`}>
-                <Calculator size={12} /> Equation
+              <button 
+                onClick={() => setMode('math')} 
+                title="Equation Mode"
+                className={`flex items-center justify-center p-1.5 rounded-md transition-all ${mode === 'math' ? 'bg-blue-600 text-white shadow-sm' : `${subTextClass} hover:text-gray-300`}`}
+              >
+                <Calculator size={17} />
               </button>
-              <button onClick={() => setMode('tikz')} className={`flex items-center gap-1.5 px-3 py-1 text-xs font-medium rounded-md transition-all ${mode === 'tikz' ? 'bg-blue-600 text-white shadow-sm' : `${subTextClass} hover:text-gray-300`}`}>
-                <PenTool size={12} /> Diagram
+              <button 
+                onClick={() => setMode('tikz')} 
+                title="Diagram Mode"
+                className={`flex items-center justify-center p-1.5 rounded-md transition-all ${mode === 'tikz' ? 'bg-blue-600 text-white shadow-sm' : `${subTextClass} hover:text-gray-300`}`}
+              >
+                <PenTool size={17} />
               </button>
             </div>
             <div className={`h-4 w-px ${theme === 'dark' ? 'bg-[#444]' : 'bg-gray-200'}`}></div>
@@ -562,8 +582,25 @@ const MathEditorPopover = ({
                </div>
              )}
              
+             {/* Layout Toggle */}
+             <div className="flex bg-gray-100/10 p-0.5 rounded-lg border border-gray-200/20 mr-2">
+                <button 
+                    onClick={() => onLayoutChange('vertical')} 
+                    className={`p-1.5 rounded-md transition-all ${layout === 'vertical' ? 'bg-blue-600 text-white shadow-sm' : `${subTextClass} hover:text-gray-300`}`}
+                    title="Vertical Layout"
+                >
+                    <Rows size={14} />
+                </button>
+                <button 
+                    onClick={() => onLayoutChange('horizontal')} 
+                    className={`p-1.5 rounded-md transition-all ${layout === 'horizontal' ? 'bg-blue-600 text-white shadow-sm' : `${subTextClass} hover:text-gray-300`}`}
+                    title="Horizontal Layout"
+                >
+                    <Columns size={14} />
+                </button>
+             </div>
+
              <button onClick={() => setTheme(theme === 'dark' ? 'light' : 'dark')} className={`p-1.5 ${subTextClass} ${buttonHoverClass} rounded-lg transition-colors`}>{theme === 'dark' ? <Sun size={14} /> : <Moon size={14} />}</button>
-             <button onClick={onRemove} className={`p-1.5 ${subTextClass} hover:text-red-600 ${theme === 'dark' ? 'hover:bg-red-900/20' : 'hover:bg-red-50'} rounded-lg transition-colors`}><Trash2 size={14} /></button>
           </div>
         </div>
 
@@ -601,7 +638,17 @@ const TikZRenderer = ({ code, isLoaded, onSuccess }: { code: string, isLoaded: b
   const [isCompiling, setIsCompiling] = useState(true);
 
   useEffect(() => {
+    // Regex check for completeness
+    const isComplete = /\\end\{tikzpicture\}/.test(code);
+    
     if (!isLoaded || !outputRef.current) return;
+
+    // If incomplete, just show compiling state and wait
+    if (!isComplete) {
+        setIsCompiling(true);
+        setError(null);
+        return;
+    }
     
     setError(null);
     setIsCompiling(true);
@@ -713,26 +760,82 @@ const KaTeXRenderer = ({ code, fontSize }: { code: string, fontSize: number }) =
   useEffect(() => {
     if (!containerRef.current) return;
     setError(null);
+    
+    let cleanCode = code.trim();
+    
+    if (!cleanCode) {
+      containerRef.current.innerHTML = '';
+      return;
+    }
+    
+    // Sanitize: Remove any zero-width or combining characters
+    cleanCode = cleanCode.replace(/[\u200B-\u200D\uFEFF\u0300-\u036F]/g, '');
+    cleanCode = cleanCode.normalize('NFC');
+    
+    // Check if the LaTeX looks incomplete (common patterns)
+    const startsWithSupSub = cleanCode.startsWith('^') || cleanCode.startsWith('_');
+    const isJustSupSub = /^[\^_]\{.*\}$/.test(cleanCode);
+    const hasIncompleteSupSub = cleanCode.match(/[\^_]$/) || cleanCode.match(/[\^_]\{[^}]*$/); // ends with ^ or _ or ^{ or _{
+    
+    const isIncomplete = (
+      cleanCode.endsWith('\\') || // ends with backslash
+      cleanCode.match(/\\[a-zA-Z]*$/) || // ends with incomplete command like \fra
+      cleanCode.match(/\{[^}]*$/) || // has unclosed brace
+      cleanCode.match(/\\[a-zA-Z]+\{[^}]*$/) || // command with unclosed brace like \frac{
+      cleanCode.match(/\\frac\{\}$/) || // \frac{} without second argument
+      cleanCode.match(/\\frac\{[^}]*\}$/) || // \frac{x} without second argument
+      cleanCode.match(/\\sqrt\{[^}]*$/) || // incomplete sqrt
+      startsWithSupSub || // starts with ^ or _ (no base)
+      isJustSupSub || // is only ^{} or _{} with nothing before
+      hasIncompleteSupSub || // has incomplete ^ or _ anywhere (like "2^" or "x_{")
+      // Check for unbalanced braces
+      (cleanCode.split('{').length !== cleanCode.split('}').length)
+    );
+    
+    if (isIncomplete) {
+      // Don't try to render incomplete LaTeX - just show placeholder
+      containerRef.current.innerHTML = '<span style="color: #9ca3af; font-style: italic; font-size: 0.875rem;">typing...</span>';
+      return;
+    }
+    
     try {
-      katex.render(code, containerRef.current, {
-        throwOnError: true,
+      katex.render(cleanCode, containerRef.current, {
+        throwOnError: false,
         displayMode: true,
         strict: false,
-        trust: true
+        trust: true,
+        fleqn: false,
+        errorColor: '#dc2626',
+        macros: {
+          "\\RR": "\\mathbb{R}",
+          "\\NN": "\\mathbb{N}",
+          "\\ZZ": "\\mathbb{Z}",
+          "\\QQ": "\\mathbb{Q}",
+          "\\CC": "\\mathbb{C}"
+        }
       });
+      
+      // Check if KaTeX rendered an error (it will have the katex-error class)
+      const hasError = containerRef.current.querySelector('.katex-error');
+      if (hasError) {
+        setError(hasError.textContent || "Invalid LaTeX syntax");
+        containerRef.current.innerHTML = '';
+      }
     } catch (err: any) {
-      setError(err.message || "Invalid LaTeX syntax");
+      const errorMsg = err.message || "Invalid LaTeX syntax";
+      setError(errorMsg);
       containerRef.current.innerHTML = ''; 
     }
-  }, [code]);
+  }, [code, fontSize]);
 
   if (error) {
     return (
-      <div className="text-center py-2">
+      <div className="text-center py-2 px-4">
         <span className="inline-flex items-center px-2 py-1 rounded bg-red-50 text-red-600 text-xs border border-red-100">
           <AlertCircle size={12} className="mr-1" /> Invalid Equation
         </span>
-        <div className="text-[10px] text-gray-400 mt-1 font-mono truncate max-w-xs mx-auto">{code}</div>
+        <div className="text-[10px] text-gray-400 mt-1 font-mono max-w-xs mx-auto break-all">{error}</div>
+        <div className="text-[10px] text-gray-500 mt-1 font-mono max-w-md mx-auto break-all bg-gray-50 p-2 rounded border border-gray-200">{code}</div>
       </div>
     );
   }
@@ -755,6 +858,9 @@ export const MathBlock: React.FC<MathBlockProps> = ({ initialTex, fontSize, onUp
   const [currentFontSize, setCurrentFontSize] = useState(fontSize || 24); 
   const [currentTikZWidth, setCurrentTikZWidth] = useState(300);
   const [tikZAspectRatio, setTikZAspectRatio] = useState(0.66); 
+  
+  // NEW: Layout State
+  const [layout, setLayout] = useState<BlockLayout>('vertical');
 
   const [resizeVersion, setResizeVersion] = useState(0);
 
@@ -764,16 +870,71 @@ export const MathBlock: React.FC<MathBlockProps> = ({ initialTex, fontSize, onUp
     loadTikZJax().then(() => setIsTikZLoaded(true)).catch(console.error);
   }, []);
 
+  // Initialize layout from DOM if present
+  useEffect(() => {
+    if (containerRef.current) {
+        const wrapper = containerRef.current.closest('.math-wrapper') as HTMLElement;
+        if (wrapper && wrapper.dataset.layout) {
+            setLayout(wrapper.dataset.layout as BlockLayout);
+        }
+    }
+  }, []);
+
+  // Persist layout to DOM
+  useEffect(() => {
+    if (containerRef.current) {
+        const wrapper = containerRef.current.closest('.math-wrapper') as HTMLElement;
+        if (wrapper) {
+            wrapper.dataset.layout = layout;
+        }
+    }
+  }, [layout]);
+
   const segments = useMemo(() => {
-    if (!code) return [];
-    const regex = /(\\begin\{tikzpicture\}[\s\S]*?\\end\{tikzpicture\})/g;
-    const parts = code.split(regex);
-    return parts.map(part => {
-      if (part.match(regex)) return { type: 'tikz', content: part };
-      if (part.trim() === '') return null;
-      return { type: 'math', content: part };
-    }).filter(Boolean) as { type: 'tikz' | 'math', content: string }[];
-  }, [code]);
+  console.log('=== SEGMENTS PARSING ===');
+  console.log('Input code:', code);
+  console.log('Input char codes:', Array.from(code).map((c, i) => `${i}: '${c}' (${c.charCodeAt(0)})`));
+  if (!code) return [];
+  
+  const tikzRegex = /\\begin\{tikzpicture\}[\s\S]*?(?:\\end\{tikzpicture\}|$)/g;
+  const matches = [...code.matchAll(tikzRegex)];
+  
+  if (matches.length === 0) {
+    // No TikZ at all - treat entire content as math
+    const trimmed = code.trim();
+    if (!trimmed) return [];
+    console.log('No TikZ found, returning as math:', trimmed);
+    return [{ type: 'math', content: trimmed }];
+  }
+  
+  // Has TikZ - need to split properly
+  const segments: { type: 'tikz' | 'math', content: string }[] = [];
+  let lastIndex = 0;
+  
+  for (const match of matches) {
+    // Add math content before this TikZ block
+    if (match.index! > lastIndex) {
+      const mathContent = code.substring(lastIndex, match.index!).trim();
+      if (mathContent) {
+        segments.push({ type: 'math', content: mathContent });
+      }
+    }
+    
+    // Add the TikZ block
+    segments.push({ type: 'tikz', content: match[0] });
+    lastIndex = match.index! + match[0].length;
+  }
+  
+  // Add any remaining math content after the last TikZ block
+  if (lastIndex < code.length) {
+    const mathContent = code.substring(lastIndex).trim();
+    if (mathContent) {
+      segments.push({ type: 'math', content: mathContent });
+    }
+  }
+  
+  return segments;
+}, [code]);
 
   const initialMode: BlockMode = useMemo(() => {
     return (code.includes('\\begin{tikzpicture') || code.includes('\\tikz')) ? 'tikz' : 'math';
@@ -834,14 +995,10 @@ export const MathBlock: React.FC<MathBlockProps> = ({ initialTex, fontSize, onUp
         return;
     }
     
-    // --- FIX: Detect Mixed Content and Unlock Height ---
-    // If we have mixed content (more than 1 segment), and the wrapper height is small (locked from text-only state),
-    // we force it to auto to allow growth.
     if (segments.length > 1 && wrapper) {
         const currentHeight = wrapper.clientHeight;
         if (currentHeight < 150 && wrapper.style.height && wrapper.style.height !== 'auto') {
             wrapper.style.height = 'auto';
-            // Also ensure width is sufficient
             if (wrapper.clientWidth < 300) {
                wrapper.style.width = '500px';
             }
@@ -870,12 +1027,16 @@ export const MathBlock: React.FC<MathBlockProps> = ({ initialTex, fontSize, onUp
   }, [segments]);
 
   const handleSave = () => {
-    if (code.trim() === '') onRemove();
-    else {
-      onUpdate(code);
-      setIsEditing(false);
-    }
-  };
+  console.log('=== HANDLE SAVE IN MATHBLOCK ===');
+  console.log('Code to save:', code);
+  console.log('Code char codes:', Array.from(code).map((c, i) => `${i}: '${c}' (${c.charCodeAt(0)})`));
+  
+  if (code.trim() === '') onRemove();
+  else {
+    onUpdate(code);
+    setIsEditing(false);
+  }
+};
 
   const handleFontSizeChange = (newSize: number) => {
     const size = Math.max(8, Math.min(72, newSize));
@@ -904,7 +1065,6 @@ export const MathBlock: React.FC<MathBlockProps> = ({ initialTex, fontSize, onUp
     const wrapper = containerRef.current?.closest('.math-wrapper') as HTMLElement;
     if (!wrapper) return;
 
-    // --- FIX: Handle Pure TikZ Sizing ---
     if (segments.length === 1 && segments[0].type === 'tikz') {
         const isDefault = !wrapper.style.width || wrapper.style.width === 'auto' || (wrapper.style.width === '300px' && wrapper.style.height === '200px');
         
@@ -923,9 +1083,7 @@ export const MathBlock: React.FC<MathBlockProps> = ({ initialTex, fontSize, onUp
            setCurrentTikZWidth(parseFloat(wrapper.style.width));
         }
     } 
-    // --- FIX: Handle Mixed Content Sizing ---
     else if (segments.length > 1) {
-        // If mixed, ensure we aren't crushed
         if (wrapper.style.height && parseFloat(wrapper.style.height) < 200) {
             wrapper.style.height = 'auto';
             wrapper.style.minHeight = '300px';
@@ -996,51 +1154,52 @@ export const MathBlock: React.FC<MathBlockProps> = ({ initialTex, fontSize, onUp
       
       {/* RENDER VIEW */}
       <div
-        className={`math-rendered transition-all rounded-lg cursor-pointer flex flex-col items-center justify-center w-full h-full ${isEditing ? '' : 'hover:bg-blue-50/50 hover:ring-2 hover:ring-blue-100'}`}
+        className={`math-rendered transition-all rounded-lg cursor-pointer flex w-full h-full ${isEditing ? '' : 'hover:bg-blue-50/50 hover:ring-2 hover:ring-blue-100'}`}
         title="Click to edit"
         onClick={(e) => { e.stopPropagation(); setIsEditing(true); }}
         style={{ 
             minHeight: '3rem',
             display: 'flex',
-            flexDirection: 'column',
+            flexDirection: layout === 'horizontal' ? 'row' : 'column', // DYNAMIC LAYOUT
             width: '100%',
             height: '100%',
-            overflow: 'hidden', // <--- ADDED: Ensures content stays inside border
-            position: 'relative' // <--- ADDED: For proper stacking
+            overflow: 'hidden',
+            position: 'relative',
+            gap: layout === 'horizontal' ? '1rem' : '0' // ADD GAP FOR HORIZONTAL
         }}
       >
         {segments.length === 0 ? (
-           <span className="text-gray-300 italic select-none">Empty Equation Block</span>
+           <span className="text-gray-300 italic select-none m-auto">Empty Equation Block</span>
         ) : (
            segments.map((seg, idx) => (
-  <React.Fragment key={idx}>
-    {seg.type === 'tikz' ? (
-      <div 
-        className="tikz-segment w-full" 
-        style={{ 
-          flex: segments.length > 1 ? '1 1 0%' : '1 1 auto',
+            <React.Fragment key={idx}>
+              {seg.type === 'tikz' ? (
+                <div 
+                  className="tikz-segment w-full" 
+                  style={{ 
+                    flex: layout === 'horizontal' ? '1 1 0%' : (segments.length > 1 ? '1 1 0%' : '1 1 auto'),
                     position: 'relative',
                     display: 'flex',
                     alignItems: 'center',
                     justifyContent: 'center',
-                    minHeight: 0 // <--- ADDED: Allows flex item to shrink below content size
-        }}
-      >
-        <TikZRenderer code={seg.content} isLoaded={isTikZLoaded} onSuccess={handleTikZSuccess} />
-      </div>
-    ) : (
-      <div className="math-segment w-full" style={{ 
-        flex: '0 0 auto',
-        display: 'flex',
-        justifyContent: 'center',
-        alignItems: 'center',
-        padding: '4px 0' // <--- ADDED: Slight breathing room
-      }}>
-        <KaTeXRenderer code={seg.content} fontSize={currentFontSize} />
-      </div>
-    )}
-  </React.Fragment>
-))
+                    minHeight: 0
+                  }}
+                >
+                  <TikZRenderer code={seg.content} isLoaded={isTikZLoaded} onSuccess={handleTikZSuccess} />
+                </div>
+              ) : (
+                <div className="math-segment w-full" style={{ 
+                  flex: layout === 'horizontal' ? '1 1 0%' : '0 0 auto',
+                  display: 'flex',
+                  justifyContent: 'center',
+                  alignItems: 'center',
+                  padding: '4px 0'
+                }}>
+                  <KaTeXRenderer code={seg.content} fontSize={currentFontSize} />
+                </div>
+              )}
+            </React.Fragment>
+          ))
         )}
       </div>
 
@@ -1050,7 +1209,6 @@ export const MathBlock: React.FC<MathBlockProps> = ({ initialTex, fontSize, onUp
           code={code}
           setCode={setCode}
           onSave={handleSave}
-          onRemove={onRemove}
           onClose={() => setIsEditing(false)}
           initialMode={initialMode}
           currentFontSize={currentFontSize}
@@ -1059,6 +1217,8 @@ export const MathBlock: React.FC<MathBlockProps> = ({ initialTex, fontSize, onUp
           resizeVersion={resizeVersion}
           currentTikZWidth={currentTikZWidth}
           onTikZSizeChange={handleTikZSizeChange}
+          layout={layout}
+          onLayoutChange={setLayout}
         />
       )}
     </div>
