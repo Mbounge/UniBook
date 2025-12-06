@@ -388,40 +388,45 @@ const MathEditorPopover = ({
     }
   }, [anchorRef]);
 
-  // Simplified Positioning Logic
+  // Dynamic Positioning with ResizeObserver
   useLayoutEffect(() => {
+    if (!anchorRef.current || !popoverRef.current || !portalContainer) return;
+
     const updatePosition = () => {
-      if (anchorRef.current && popoverRef.current && portalContainer) {
-        const anchorRect = anchorRef.current.getBoundingClientRect();
-        const containerRect = portalContainer.getBoundingClientRect();
-        const popoverRect = popoverRef.current.getBoundingClientRect();
-        
-        // Center horizontally relative to anchor
-        let left = anchorRect.left - containerRect.left + (anchorRect.width / 2) - (popoverRect.width / 2);
-        
-        // Clamp to container bounds
-        const containerWidth = portalContainer.clientWidth;
-        const padding = 20;
-        if (left < padding) left = padding;
-        if (left + popoverRect.width > containerWidth - padding) {
-          left = containerWidth - popoverRect.width - padding;
-        }
-
-        // Position strictly below the anchor
-        let top = anchorRect.bottom - containerRect.top + portalContainer.scrollTop + 10;
-
-        setPosition({ top, left });
+      const anchorRect = anchorRef.current!.getBoundingClientRect();
+      const containerRect = portalContainer.getBoundingClientRect();
+      const popoverRect = popoverRef.current!.getBoundingClientRect();
+      
+      // Center horizontally relative to anchor
+      let left = anchorRect.left - containerRect.left + (anchorRect.width / 2) - (popoverRect.width / 2);
+      
+      // Clamp to container bounds
+      const containerWidth = portalContainer.clientWidth;
+      const padding = 20;
+      if (left < padding) left = padding;
+      if (left + popoverRect.width > containerWidth - padding) {
+        left = containerWidth - popoverRect.width - padding;
       }
+
+      // Position strictly below the anchor
+      let top = anchorRect.bottom - containerRect.top + portalContainer.scrollTop + 10;
+
+      setPosition({ top, left });
     };
-    
+
     updatePosition();
-    
-    // Only update on scroll/resize, but use requestAnimationFrame to throttle if needed
-    // For now, standard listeners are fine as long as logic is simple
+
+    // Observe the anchor for size changes (this fixes the "disconnect" issue)
+    const resizeObserver = new ResizeObserver(() => {
+        updatePosition();
+    });
+    resizeObserver.observe(anchorRef.current);
+
     window.addEventListener('scroll', updatePosition, true);
     window.addEventListener('resize', updatePosition);
     
     return () => {
+      resizeObserver.disconnect();
       window.removeEventListener('scroll', updatePosition, true);
       window.removeEventListener('resize', updatePosition);
     };
@@ -500,7 +505,7 @@ const MathEditorPopover = ({
         left: position.left,
         width: '800px', 
         maxWidth: '90vw', 
-        cursor: 'default' 
+        cursor: 'default',
       }}
       onMouseDown={(e) => e.stopPropagation()} 
       onClick={(e) => e.stopPropagation()}
@@ -598,12 +603,10 @@ const TikZRenderer = ({ code, isLoaded, onSuccess }: { code: string, isLoaded: b
   useEffect(() => {
     if (!isLoaded || !outputRef.current) return;
     
-    // Reset state
     setError(null);
     setIsCompiling(true);
     outputRef.current.innerHTML = '';
 
-    // Safety timeout
     const timeoutId = setTimeout(() => {
       if (isCompiling) {
         setIsCompiling(false);
@@ -617,22 +620,16 @@ const TikZRenderer = ({ code, isLoaded, onSuccess }: { code: string, isLoaded: b
       script.textContent = code;
       outputRef.current.appendChild(script);
 
-      // TikZJax replaces the script with an SVG. We watch for that.
       const observer = new MutationObserver((mutations) => {
         const svg = outputRef.current?.querySelector('svg');
         if (svg) {
           clearTimeout(timeoutId);
-          
-          // --- CLONE AND REPLACE STRATEGY ---
-          // This isolates the SVG from TikZJax's internal state and allows us to style it freely.
-          // CRITICAL FIX: Ensure viewBox is present and width/height are 100% to scale with container
           
           const widthStr = svg.getAttribute('width');
           const heightStr = svg.getAttribute('height');
           let aspectRatio = 1;
 
           if (!svg.hasAttribute('viewBox') && widthStr && heightStr) {
-             // Convert pt to numbers (approximate) or just use the string if it's unitless
              const w = parseFloat(widthStr);
              const h = parseFloat(heightStr);
              if (!isNaN(w) && !isNaN(h) && w > 0) {
@@ -649,11 +646,10 @@ const TikZRenderer = ({ code, isLoaded, onSuccess }: { code: string, isLoaded: b
           svg.setAttribute('width', '100%');
           svg.setAttribute('height', '100%');
           svg.setAttribute('preserveAspectRatio', 'xMidYMid meet');
-          svg.style.display = 'block'; // Remove inline spacing
+          svg.style.display = 'block'; 
           
           const svgClone = svg.cloneNode(true) as SVGElement;
           
-          // Clear the container (removes original SVG and script)
           outputRef.current!.innerHTML = '';
           outputRef.current!.appendChild(svgClone);
 
@@ -666,7 +662,6 @@ const TikZRenderer = ({ code, isLoaded, onSuccess }: { code: string, isLoaded: b
       
       observer.observe(outputRef.current, { childList: true, subtree: true });
       
-      // Trigger TikZJax processing
       if (window.dispatchEvent) {
          window.dispatchEvent(new Event('load'));
       }
@@ -693,7 +688,7 @@ const TikZRenderer = ({ code, isLoaded, onSuccess }: { code: string, isLoaded: b
   }
 
   return (
-    <div className="relative w-full h-full"> {/* Removed min-h/min-w to allow full resizing */}
+    <div className="relative w-full h-full"> 
       {isCompiling && (
         <div className="absolute inset-0 flex flex-col items-center justify-center bg-gray-50/90 backdrop-blur-sm z-20 rounded-lg border border-gray-100">
           <div className="relative mb-3">
@@ -720,13 +715,12 @@ const KaTeXRenderer = ({ code, fontSize }: { code: string, fontSize: number }) =
     setError(null);
     try {
       katex.render(code, containerRef.current, {
-        throwOnError: true, // We catch it below
+        throwOnError: true,
         displayMode: true,
         strict: false,
         trust: true
       });
     } catch (err: any) {
-      // Friendly error UI instead of crash
       setError(err.message || "Invalid LaTeX syntax");
       containerRef.current.innerHTML = ''; 
     }
@@ -758,28 +752,20 @@ export const MathBlock: React.FC<MathBlockProps> = ({ initialTex, fontSize, onUp
   const [code, setCode] = useState(initialTex);
   const [isTikZLoaded, setIsTikZLoaded] = useState(false);
   
-  // Local state for font size
   const [currentFontSize, setCurrentFontSize] = useState(fontSize || 24); 
-  
-  // Local state for TikZ Dimensions
   const [currentTikZWidth, setCurrentTikZWidth] = useState(300);
-  const [tikZAspectRatio, setTikZAspectRatio] = useState(0.66); // Default 3:2
+  const [tikZAspectRatio, setTikZAspectRatio] = useState(0.66); 
 
   const [resizeVersion, setResizeVersion] = useState(0);
 
   const containerRef = useRef<HTMLDivElement>(null);
 
-  // Load TikZ if needed (global check)
   useEffect(() => {
     loadTikZJax().then(() => setIsTikZLoaded(true)).catch(console.error);
   }, []);
 
-  // --- PARSE MIXED CONTENT ---
-  // Splits code into segments: Text/Math vs TikZ
   const segments = useMemo(() => {
     if (!code) return [];
-    // Regex to find TikZ environments
-    // FIX: Use [\s\S] instead of . with /s flag for compatibility
     const regex = /(\\begin\{tikzpicture\}[\s\S]*?\\end\{tikzpicture\})/g;
     const parts = code.split(regex);
     return parts.map(part => {
@@ -789,12 +775,10 @@ export const MathBlock: React.FC<MathBlockProps> = ({ initialTex, fontSize, onUp
     }).filter(Boolean) as { type: 'tikz' | 'math', content: string }[];
   }, [code]);
 
-  // Determine initial mode for the editor popover
   const initialMode: BlockMode = useMemo(() => {
     return (code.includes('\\begin{tikzpicture') || code.includes('\\tikz')) ? 'tikz' : 'math';
   }, [code]);
 
-  // Set data-render-mode on the container for MathResizer
   useEffect(() => {
     if (containerRef.current) {
       const wrapper = containerRef.current.closest('.math-wrapper') as HTMLElement;
@@ -804,7 +788,6 @@ export const MathBlock: React.FC<MathBlockProps> = ({ initialTex, fontSize, onUp
     }
   }, [initialMode]);
 
-  // Listen for external edit events
   useEffect(() => {
     const container = containerRef.current;
     if (!container) return;
@@ -814,7 +797,6 @@ export const MathBlock: React.FC<MathBlockProps> = ({ initialTex, fontSize, onUp
     const handleUpdateFontSize = (e: CustomEvent<{ fontSize: number }>) => {
         setCurrentFontSize(e.detail.fontSize);
     };
-    // NEW: Handle TikZ size updates from resizer
     const handleUpdateTikZSize = (e: CustomEvent<{ width: number }>) => {
         setCurrentTikZWidth(e.detail.width);
     };
@@ -836,7 +818,6 @@ export const MathBlock: React.FC<MathBlockProps> = ({ initialTex, fontSize, onUp
     };
   }, [onRemove]);
 
-  // Sync font size to DOM so resizer can read it
   useEffect(() => {
     if (containerRef.current) {
       containerRef.current.dataset.fontSize = String(currentFontSize);
@@ -844,29 +825,49 @@ export const MathBlock: React.FC<MathBlockProps> = ({ initialTex, fontSize, onUp
   }, [currentFontSize]);
 
   // --- AUTO-RESIZE WRAPPER ON CONTENT CHANGE ---
-  // This ensures the parent wrapper expands if the content (e.g., TikZ SVG) grows.
   useEffect(() => {
     if (!containerRef.current) return;
     
+    const wrapper = containerRef.current?.closest('.math-wrapper') as HTMLElement;
+    
+    if (wrapper?.dataset.resizing === 'true') {
+        return;
+    }
+    
+    // --- FIX: Detect Mixed Content and Unlock Height ---
+    // If we have mixed content (more than 1 segment), and the wrapper height is small (locked from text-only state),
+    // we force it to auto to allow growth.
+    if (segments.length > 1 && wrapper) {
+        const currentHeight = wrapper.clientHeight;
+        if (currentHeight < 150 && wrapper.style.height && wrapper.style.height !== 'auto') {
+            wrapper.style.height = 'auto';
+            // Also ensure width is sufficient
+            if (wrapper.clientWidth < 300) {
+               wrapper.style.width = '500px';
+            }
+        }
+    }
+
     const observer = new ResizeObserver((entries) => {
       for (const entry of entries) {
         const wrapper = containerRef.current?.closest('.math-wrapper') as HTMLElement;
-        if (wrapper) {
-          // If content is taller than wrapper, expand wrapper
-          if (entry.contentRect.height > wrapper.clientHeight) {
-             wrapper.style.height = 'auto';
-          }
-          // If content is wider than wrapper, expand wrapper (up to max)
-          if (entry.contentRect.width > wrapper.clientWidth) {
-             wrapper.style.width = `${Math.min(entry.contentRect.width, 800)}px`;
-          }
+        if (!wrapper || wrapper.dataset.resizing === 'true') continue;
+        
+        const contentHeight = entry.contentRect.height;
+        const contentWidth = entry.contentRect.width;
+        
+        if (contentHeight > wrapper.clientHeight + 10) {
+           wrapper.style.height = `${contentHeight + 20}px`; 
+        }
+        if (contentWidth > wrapper.clientWidth + 10) {
+           wrapper.style.width = `${Math.min(contentWidth + 20, 800)}px`;
         }
       }
     });
     
     observer.observe(containerRef.current);
     return () => observer.disconnect();
-  }, []);
+  }, [segments]);
 
   const handleSave = () => {
     if (code.trim() === '') onRemove();
@@ -884,12 +885,10 @@ export const MathBlock: React.FC<MathBlockProps> = ({ initialTex, fontSize, onUp
     }
   };
 
-  // Initialize TikZ width from DOM when entering TikZ mode
   useEffect(() => {
     if (initialMode === 'tikz' && containerRef.current) {
       const wrapper = containerRef.current.closest('.math-wrapper') as HTMLElement;
       if (wrapper) {
-        // Prioritize style.width if set, otherwise use default 300
         if (wrapper.style.width && wrapper.style.width !== 'auto') {
            setCurrentTikZWidth(parseFloat(wrapper.style.width));
         } else {
@@ -899,15 +898,14 @@ export const MathBlock: React.FC<MathBlockProps> = ({ initialTex, fontSize, onUp
     }
   }, [initialMode, isEditing]);
 
-  // --- WRAPPER RESIZING LOGIC ---
   const handleTikZSuccess = useCallback((aspectRatio: number) => {
     setTikZAspectRatio(aspectRatio);
-    // Only resize if it's a pure TikZ block (single segment)
+    
+    const wrapper = containerRef.current?.closest('.math-wrapper') as HTMLElement;
+    if (!wrapper) return;
+
+    // --- FIX: Handle Pure TikZ Sizing ---
     if (segments.length === 1 && segments[0].type === 'tikz') {
-      const wrapper = containerRef.current?.closest('.math-wrapper') as HTMLElement;
-      if (wrapper) {
-        // Check if it's at the default dimensions (300x200) or missing dimensions
-        // If so, snap to the correct aspect ratio immediately to prevent letterboxing
         const isDefault = !wrapper.style.width || wrapper.style.width === 'auto' || (wrapper.style.width === '300px' && wrapper.style.height === '200px');
         
         if (isDefault) {
@@ -922,10 +920,16 @@ export const MathBlock: React.FC<MathBlockProps> = ({ initialTex, fontSize, onUp
            
            setCurrentTikZWidth(width);
         } else {
-           // If style width exists, sync state to it
            setCurrentTikZWidth(parseFloat(wrapper.style.width));
         }
-      }
+    } 
+    // --- FIX: Handle Mixed Content Sizing ---
+    else if (segments.length > 1) {
+        // If mixed, ensure we aren't crushed
+        if (wrapper.style.height && parseFloat(wrapper.style.height) < 200) {
+            wrapper.style.height = 'auto';
+            wrapper.style.minHeight = '300px';
+        }
     }
   }, [segments]);
 
@@ -933,18 +937,14 @@ export const MathBlock: React.FC<MathBlockProps> = ({ initialTex, fontSize, onUp
     const wrapper = containerRef.current?.closest('.math-wrapper') as HTMLElement;
     if (!wrapper) return;
 
-    let baseWidth = 300; // Default fallback
+    let baseWidth = 300; 
 
-    // 1. Try inline style first (most accurate for user intent)
     if (wrapper.style.width && wrapper.style.width !== 'auto') {
        baseWidth = parseFloat(wrapper.style.width);
     } 
-    // 2. If no inline style, check if we have a valid state
     else if (currentTikZWidth && currentTikZWidth !== 300) {
        baseWidth = currentTikZWidth;
     }
-    // 3. If all else fails, DO NOT read offsetWidth/computed width if it seems to be full width
-    // We assume if it's not set, it's the default 300.
 
     const newWidth = Math.max(50, Math.min(800, baseWidth + delta));
     
@@ -954,62 +954,93 @@ export const MathBlock: React.FC<MathBlockProps> = ({ initialTex, fontSize, onUp
     wrapper.style.height = `${newWidth * tikZAspectRatio}px`;
   };
 
-  // --- FORCE DEFAULT DIMENSIONS & ALIGNMENT FOR TIKZ ---
   useEffect(() => {
-    const wrapper = containerRef.current?.closest('.math-wrapper') as HTMLElement;
-    if (wrapper) {
-      // 1. Enforce Center Alignment Default
-      // We check if float is missing OR if it is set to center, then force the CSS
-      if (!wrapper.dataset.float || wrapper.dataset.float === 'center') {
-        wrapper.dataset.float = 'center';
-        wrapper.style.float = 'none';       // Critical: Explicitly remove float
-        wrapper.style.margin = '12px auto'; // Critical: Force auto margins
-        wrapper.style.display = 'block';    // Critical: Ensure block display
-      }
+  const wrapper = containerRef.current?.closest('.math-wrapper') as HTMLElement;
+  if (wrapper) {
+    if (!wrapper.dataset.float || wrapper.dataset.float === 'center') {
+      wrapper.dataset.float = 'center';
+      wrapper.style.float = 'none';
+      wrapper.style.margin = '12px auto';
+      wrapper.style.display = 'block';
+    }
 
-      // 2. Enforce Default Dimensions for TikZ (only if it has no size yet)
-      // This applies specifically when it's a pure drawing to give it a good starting size
-      if (segments.length === 1 && segments[0].type === 'tikz') {
-        if (!wrapper.style.width || wrapper.style.width === 'auto') {
-          wrapper.style.width = '300px';
-          wrapper.style.height = '200px';
-        }
+    if (segments.length === 1 && segments[0].type === 'tikz') {
+      if (!wrapper.style.width || wrapper.style.width === 'auto') {
+        wrapper.style.width = '500px';
+      }
+      if (!wrapper.style.height || wrapper.style.height === 'auto') {
+        wrapper.style.height = '200px';
+      }
+    } else if (segments.length > 1) {
+      if (!wrapper.style.height || wrapper.style.height === 'auto') {
+        wrapper.style.height = '300px'; 
+      }
+      if (!wrapper.style.width || wrapper.style.width === 'auto') {
+        wrapper.style.width = '500px';
       }
     }
-  }, [segments]);
+  }
+}, [segments]);
 
   return (
-    <div ref={containerRef} className="relative inline-block w-full h-full group math-block-container">
+    <div 
+    ref={containerRef} 
+    className="relative w-full h-full group math-block-container"
+    style={{
+      minHeight: '3rem',
+      height: '100%',
+      display: 'flex',
+      flexDirection: 'column'
+    }}
+  >
       
       {/* RENDER VIEW */}
       <div
         className={`math-rendered transition-all rounded-lg cursor-pointer flex flex-col items-center justify-center w-full h-full ${isEditing ? '' : 'hover:bg-blue-50/50 hover:ring-2 hover:ring-blue-100'}`}
         title="Click to edit"
         onClick={(e) => { e.stopPropagation(); setIsEditing(true); }}
-        style={{ minHeight: '3rem' }}
+        style={{ 
+            minHeight: '3rem',
+            display: 'flex',
+            flexDirection: 'column',
+            width: '100%',
+            height: '100%',
+            overflow: 'hidden', // <--- ADDED: Ensures content stays inside border
+            position: 'relative' // <--- ADDED: For proper stacking
+        }}
       >
         {segments.length === 0 ? (
            <span className="text-gray-300 italic select-none">Empty Equation Block</span>
         ) : (
            segments.map((seg, idx) => (
-             <React.Fragment key={idx}>
-               {seg.type === 'tikz' ? (
-                 <div 
-                   className="w-full flex-1" 
-                   style={{ 
-                     // Use flex-basis to set a default height for mixed content,
-                     // but allow it to shrink if the container is resized smaller.
-                     flex: segments.length > 1 ? '1 1 200px' : '1 1 0%',
-                     minHeight: '0' 
-                   }}
-                 >
-                   <TikZRenderer code={seg.content} isLoaded={isTikZLoaded} onSuccess={handleTikZSuccess} />
-                 </div>
-               ) : (
-                 <KaTeXRenderer code={seg.content} fontSize={currentFontSize} />
-               )}
-             </React.Fragment>
-           ))
+  <React.Fragment key={idx}>
+    {seg.type === 'tikz' ? (
+      <div 
+        className="tikz-segment w-full" 
+        style={{ 
+          flex: segments.length > 1 ? '1 1 0%' : '1 1 auto',
+                    position: 'relative',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    minHeight: 0 // <--- ADDED: Allows flex item to shrink below content size
+        }}
+      >
+        <TikZRenderer code={seg.content} isLoaded={isTikZLoaded} onSuccess={handleTikZSuccess} />
+      </div>
+    ) : (
+      <div className="math-segment w-full" style={{ 
+        flex: '0 0 auto',
+        display: 'flex',
+        justifyContent: 'center',
+        alignItems: 'center',
+        padding: '4px 0' // <--- ADDED: Slight breathing room
+      }}>
+        <KaTeXRenderer code={seg.content} fontSize={currentFontSize} />
+      </div>
+    )}
+  </React.Fragment>
+))
         )}
       </div>
 

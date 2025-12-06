@@ -48,6 +48,9 @@ export const MathResizer: React.FC<MathResizerProps> = ({
 
   const resizeHandleRef = useRef<string | null>(null);
   
+  // Store values to commit on mouseup
+  const pendingResizeValues = useRef<{ width: number; height: number; fontSize: number } | null>(null);
+
   const resizeStart = useRef({ 
     fontSize: 0,
     width: 0, 
@@ -120,11 +123,21 @@ export const MathResizer: React.FC<MathResizerProps> = ({
     if (element.querySelector('.math-resize-overlay')) return;
 
     const mode = element.dataset.renderMode || 'math';
-    const isTikZ = mode === 'tikz';
-
+    
     element.style.position = 'relative';
     element.classList.add('math-selected');
     element.style.overflow = 'visible';
+
+    // Only set initial height if it's missing, but respect auto if it was set by MathBlock
+    if (!element.style.width || element.style.width === 'auto') {
+        const rect = element.getBoundingClientRect();
+        element.style.width = `${rect.width}px`;
+    }
+    // Don't lock height immediately if it's auto, let content dictate unless resized
+    if (!element.style.height) {
+        const rect = element.getBoundingClientRect();
+        element.style.height = `${rect.height}px`;
+    }
 
     const overlay = document.createElement('div');
     overlay.className = 'math-resize-overlay';
@@ -215,7 +228,6 @@ export const MathResizer: React.FC<MathResizerProps> = ({
     const currentFloat = element.dataset.float || 'center';
     element.dataset.float = currentFloat;
     
-    // Explicitly apply styles based on state to ensure visual sync
     if (currentFloat === 'center') {
         element.style.float = 'none';
         element.style.margin = '1rem auto';
@@ -248,12 +260,26 @@ export const MathResizer: React.FC<MathResizerProps> = ({
 
   useEffect(() => {
     const handleMouseUp = () => {
-      if (isResizingRef.current) {
+      if (isResizingRef.current && selectionRef.current && pendingResizeValues.current) {
+        
+        // Remove resizing flag so auto-resize can resume if needed
+        delete selectionRef.current.dataset.resizing;
+        
+        const { width, fontSize } = pendingResizeValues.current;
+        const innerContainer = selectionRef.current.querySelector('.math-block-container');
+
+        if (innerContainer) {
+            innerContainer.dispatchEvent(new CustomEvent('updateTikZSize', { detail: { width } }));
+            innerContainer.dispatchEvent(new CustomEvent('updateMath', { detail: { fontSize } }));
+        }
+
         propsRef.current.saveToHistory(true);
         propsRef.current.fullDocumentReflow();
       }
+      
       setIsResizing(false);
       resizeHandleRef.current = null;
+      pendingResizeValues.current = null;
     };
 
     const handleActionClick = (e: MouseEvent) => {
@@ -298,7 +324,6 @@ export const MathResizer: React.FC<MathResizerProps> = ({
         e.stopPropagation();
         const type = floatBtn.getAttribute('data-float-type') || 'none';
         
-        // --- FIX: PRESERVE WIDTH ON ALIGNMENT CHANGE ---
         if (!currentSelection.style.width || currentSelection.style.width === 'auto') {
             const rect = currentSelection.getBoundingClientRect();
             currentSelection.style.width = `${rect.width}px`;
@@ -387,7 +412,6 @@ export const MathResizer: React.FC<MathResizerProps> = ({
       if (handle.includes('s')) newH = height + dy;
       if (handle.includes('n')) newH = height - dy;
 
-      // --- MATH MODE: Maintain Aspect Ratio on Side Drag ---
       if (mode === 'math') {
           if (handle === 'e' || handle === 'w') {
               newH = newW / aspectRatio;
@@ -397,13 +421,10 @@ export const MathResizer: React.FC<MathResizerProps> = ({
           }
       }
 
-      // --- TIKZ MODE: Maintain Aspect Ratio on ALL Drags ---
       if (mode === 'tikz') {
-          // Prioritize width for E/W/NE/SE/NW/SW
           if (handle.includes('e') || handle.includes('w')) {
               newH = newW / aspectRatio;
           } 
-          // Prioritize height for N/S
           else if (handle === 'n' || handle === 's') {
               newW = newH * aspectRatio;
           }
@@ -412,54 +433,55 @@ export const MathResizer: React.FC<MathResizerProps> = ({
       newW = Math.max(50, Math.min(newW, MAX_EDITABLE_WIDTH));
       newH = Math.max(20, newH);
       
-      // Use requestAnimationFrame for smooth visual updates without layout thrashing
       requestAnimationFrame(() => {
-          if (!selectionRef.current) return;
-          
-          selectionRef.current.style.width = `${newW}px`;
-          selectionRef.current.style.height = `${newH}px`;
+        if (!selectionRef.current) return;
+        
+        selectionRef.current.dataset.resizing = 'true';
+        
+        selectionRef.current.style.width = `${newW}px`;
 
-          const innerContainer = selectionRef.current.querySelector('.math-block-container');
+        selectionRef.current.style.height = `${newH}px`;
+        selectionRef.current.style.minHeight = '0px'; // Reset any previous min-height
+        
+        // Let height be determined by content for mixed layouts to prevent clipping
+        const hasMixedContent = selectionRef.current.querySelectorAll('.tikz-segment, .math-segment').length > 1;
+        
+        if (!hasMixedContent || mode === 'tikz') {
+            selectionRef.current.style.height = `${newH}px`;
+        } else {
+            // For mixed content, set min-height but allow growth
+            selectionRef.current.style.minHeight = `${newH}px`;
+            selectionRef.current.style.height = 'auto';
+        }
 
-          // Dispatch TikZ size update
-          if (innerContainer) {
-              innerContainer.dispatchEvent(new CustomEvent('updateTikZSize', { detail: { width: newW } }));
-          }
-          
-          // --- ALWAYS Scale Font Size (handles mixed content and pure math) ---
-          // We use the height ratio to determine the scale factor
-          const scale = newH / height;
-          const newFS = Math.max(8, Math.min(120, fontSize * scale));
-          
-          selectionRef.current.dataset.fontSize = String(newFS);
-          
-          if (innerContainer) {
-              innerContainer.dispatchEvent(new CustomEvent('updateMath', { detail: { fontSize: newFS } }));
-          }
-          
-          // --- TIKZ MODE: Force SVG Fill ---
-          if (mode === 'tikz') {
-              const svg = selectionRef.current.querySelector('svg');
-              if (svg) {
-                  svg.style.width = '100%';
-                  svg.style.height = '100%';
-                  if (!svg.hasAttribute('preserveAspectRatio')) {
-                     svg.setAttribute('preserveAspectRatio', 'xMidYMid meet');
-                  }
-                  // Ensure parent containers also fill
-                  let parent = svg.parentElement;
-                  while (parent && parent !== selectionRef.current && selectionRef.current.contains(parent)) {
-                      parent.style.width = '100%';
-                      parent.style.height = '100%';
-                      parent.style.maxWidth = 'none';
-                      parent.style.maxHeight = 'none';
-                      parent.style.display = 'flex';
-                      parent.style.justifyContent = 'center';
-                      parent.style.alignItems = 'center';
-                      parent = parent.parentElement;
-                  }
-              }
-          }
+        const scale = newH / height;
+        const effectiveScale = hasMixedContent ? Math.sqrt(scale) : scale;
+
+        const newFS = Math.max(8, Math.min(120, fontSize * effectiveScale));
+        
+        selectionRef.current.style.fontSize = `${newFS}px`;
+        selectionRef.current.dataset.fontSize = String(newFS);
+        
+        pendingResizeValues.current = { width: newW, height: newH, fontSize: newFS };
+
+        if (mode === 'tikz') {
+            const svg = selectionRef.current.querySelector('svg');
+            if (svg) {
+                svg.style.width = '100%';
+                svg.style.height = '100%';
+                if (!svg.hasAttribute('preserveAspectRatio')) {
+                   svg.setAttribute('preserveAspectRatio', 'xMidYMid meet');
+                }
+                let parent = svg.parentElement;
+                while (parent && parent !== selectionRef.current && selectionRef.current.contains(parent)) {
+                    parent.style.width = '100%';
+                    parent.style.height = '100%';
+                    parent.style.maxWidth = 'none';
+                    parent.style.maxHeight = 'none';
+                    parent = parent.parentElement;
+                }
+            }
+        }
       });
     };
     
