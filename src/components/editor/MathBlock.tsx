@@ -1,3 +1,4 @@
+// src/components/editor/MathBlock.tsx
 "use client";
 
 import React, { useState, useRef, useEffect, useLayoutEffect, useMemo, useCallback } from 'react';
@@ -13,7 +14,7 @@ import {
   GitCommit, GitMerge, Clock, Combine, Layout, List, Share,
   Box, Aperture, Anchor, Eye, Triangle, BarChart, PieChart, Orbit,
   AlertTriangle, AlertCircle,
-  Columns, Rows
+  Columns, Rows, BookOpen
 } from 'lucide-react';
 
 // --- TYPES ---
@@ -27,7 +28,8 @@ interface MathBlockProps {
 type EditorTheme = 'dark' | 'light';
 type BlockMode = 'math' | 'tikz';
 type BlockLayout = 'vertical' | 'horizontal';
-type Category = 'basic' | 'algebra' | 'greek' | 'logic' | 'calculus' | 'essentials' | 'diagrams' | 'advanced';
+type Category = 'basic' | 'algebra' | 'greek' | 'logic' | 'calculus' | 'academic' | 'essentials' | 'diagrams' | 'advanced';
+type Alignment = 'left' | 'center' | 'right';
 
 interface SymbolItem {
   label: string;
@@ -46,6 +48,7 @@ const MATH_CATEGORIES: { id: Category; icon: React.ElementType; label: string }[
   { id: 'calculus', icon: Sigma, label: 'Calculus' },
   { id: 'greek', icon: Binary, label: 'Greek' },
   { id: 'logic', icon: ArrowRightLeft, label: 'Logic' },
+  { id: 'academic', icon: BookOpen, label: 'Academic' },
 ];
 
 const TIKZ_CATEGORIES: { id: Category; icon: React.ElementType; label: string }[] = [
@@ -101,6 +104,79 @@ const MATH_SYMBOLS: Record<string, SymbolItem[]> = {
         { label: 'Exists', display: '\\exists', insert: '\\exists ' },
         { label: 'In', display: '\\in', insert: '\\in ' },
         { label: 'Therefore', display: '\\therefore', insert: '\\therefore ' },
+    ],
+    academic: [
+      { 
+        label: 'Algorithm', 
+        display: '\\textbf{Alg}', 
+        description: 'Algorithm Block',
+        insert: `\\def\\arraystretch{1.4}
+\\begin{array}{l}
+\\hline
+\\textbf{Algorithm 1 } \\text{Name of Algorithm} \\\\
+\\hline
+1: \\text{Initialize } x = 0 \\\\
+2: \\textbf{for } t = 1 \\text{ to } T \\textbf{ do} \\\\
+3: \\quad x \\leftarrow x + 1 \\\\
+4: \\textbf{end for} \\\\
+\\hline
+\\end{array}` 
+      },
+      { 
+        label: 'Theorem', 
+        display: '\\textbf{Thm}', 
+        description: 'Theorem Statement',
+        insert: `\\begin{array}{l}
+\\textbf{Theorem 1.1. } \\textit{Let } f \\textit{ be a function such that...} \\\\
+\\quad \\text{Then } \\lim_{x \\to \\infty} f(x) = 0.
+\\end{array}` 
+      },
+      { 
+        label: 'Lemma', 
+        display: '\\textbf{Lem}', 
+        description: 'Lemma Statement',
+        insert: `\\begin{array}{l}
+\\textbf{Lemma 2. } \\textit{If } A \\subseteq B \\textit{ then...}
+\\end{array}` 
+      },
+      { 
+        label: 'Proof', 
+        display: '\\textbf{Pf}', 
+        description: 'Proof Block',
+        insert: `\\begin{array}{l}
+\\textit{Proof.} \\\\
+\\quad \\text{We start by assuming...} \\\\
+\\quad \\text{...intermediate steps...} \\\\
+\\quad \\text{Thus, the proof is complete.} \\; \\square
+\\end{array}` 
+      },
+      { 
+        label: 'Definition', 
+        display: '\\textbf{Def}', 
+        description: 'Definition Block',
+        insert: `\\textbf{Definition 1. } \\textit{A space } X \\textit{ is compact if...}` 
+      },
+      { 
+        label: 'Complex Algo', 
+        display: '\\textbf{Alg+}', 
+        description: 'Complex Algorithm (Like Image)',
+        insert: `\\def\\arraystretch{1.3}
+\\begin{array}{l}
+\\hline
+\\textbf{Algorithm 31 } \\text{Follow the Leading History} \\\\
+\\hline
+1: \\text{Let } \\mathcal{A} \\text{ be an OCO algorithm. Initialize } p_1^1 = 1 \\\\
+2: \\textbf{for } t = 1 \\text{ to } T \\textbf{ do} \\\\
+3: \\quad \\text{Set } \\forall j \\leq t, \\mathbf{x}_t^j \\leftarrow \\mathcal{A}(f_j, ..., f_{t-1}) \\\\
+4: \\quad \\text{Play } \\mathbf{x}_t = \\sum_{j=1}^t p_t^j \\mathbf{x}_t^j \\\\
+5: \\quad \\text{After receiving } f_t, \\text{ update for } 1 \\leq i \\leq t \\\\
+6: \\qquad \\hat{p}_{t+1}^i = \\frac{p_t^i e^{-\\alpha f_t(\\mathbf{x}_t^i)}}{\\sum_{j=1}^t p_t^j e^{-\\alpha f_t(\\mathbf{x}_t^j)}} \\\\
+7: \\quad \\text{Mixing step: set } p_{t+1}^{t+1} = \\frac{1}{t+1} \\text{ and } \\\\
+\\qquad \\qquad \\forall i \\neq t+1, p_{t+1}^i = (1 - \\frac{1}{t+1}) \\hat{p}_{t+1}^i \\\\
+8: \\textbf{end for} \\\\
+\\hline
+\\end{array}` 
+      },
     ],
 };
 
@@ -206,7 +282,6 @@ const highlightLaTeX = (code: string, theme: EditorTheme) => {
     text: 'text-gray-900'
   };
 
-  // Fixed regex - properly escape everything and match commands correctly
   const regex = /(%.*$)|(\\(?:usetikzlibrary|usepackage|documentclass|begin|end|newcommand|def|tikzset)\b)|(\\[a-zA-Z@]+)|(\b(?:draw|fill|filldraw|path|node|coordinate|clip|scope|shade|shadedraw|matrix|grid|graph|plot|foreach)\b)|(\b(?:style|nodes|row|column|sep|minimum|height|width|anchor|align|inner|outer|scale|shift|rotate|x|y|z|opacity|line|thick|thin|ultra|very|semithick|dashed|dotted|solid|double|rounded|corners|sharp|arrow|arrows|shapes|decoration|postaction|preaction|pattern|samples|domain|variable|at|to|cycle|in|of|font|text)\b)|(\b(?:circle|rectangle|ellipse|arc|edge|child|level|sibling|sin|cos|tan|exp|ln|north|south|east|west|center|mid|base|left|right|above|below)\b)|(\b(?:red|green|blue|cyan|magenta|yellow|black|white|gray|orange|purple|brown|teal|violet|pink)\b)|(\d+(?:\.\d+)?)|([\{\}\[\]])|([\(\)])|(--|->|<-|\|-|\||\+|=|:|\.\.)|(.)/gm;
 
   return code.replace(regex, (match, comment, structure, command, primary, property, shape, color, number, bracket, paren, operator, other) => {
@@ -223,7 +298,6 @@ const highlightLaTeX = (code: string, theme: EditorTheme) => {
     if (bracket) return `<span class="${colors.bracket}">${esc(match)}</span>`;
     if (paren) return `<span class="${colors.paren}">${esc(match)}</span>`;
     if (operator) return `<span class="${colors.operator}">${esc(match)}</span>`;
-    // Everything else gets text color
     return `<span class="${colors.text}">${esc(match)}</span>`;
   });
 };
@@ -381,6 +455,10 @@ const MathEditorPopover = ({
   const [position, setPosition] = useState({ top: 0, left: 0 });
   const [mounted, setMounted] = useState(false);
   const [portalContainer, setPortalContainer] = useState<HTMLElement | null>(null);
+  const [editorHeight, setEditorHeight] = useState(200);
+  const [isResizing, setIsResizing] = useState(false);
+  const startYRef = useRef(0);
+  const startHeightRef = useRef(0);
   
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const popoverRef = useRef<HTMLDivElement>(null);
@@ -392,6 +470,39 @@ const MathEditorPopover = ({
         setPortalContainer(scrollParent || document.body);
     }
   }, [anchorRef]);
+
+  // Resize logic
+  useEffect(() => {
+    const handleMouseMove = (e: MouseEvent) => {
+      if (!isResizing) return;
+      const delta = e.clientY - startYRef.current;
+      setEditorHeight(Math.max(100, Math.min(600, startHeightRef.current + delta)));
+    };
+
+    const handleMouseUp = () => {
+      setIsResizing(false);
+      document.body.style.cursor = '';
+      document.body.style.userSelect = '';
+    };
+
+    if (mounted) {
+      document.addEventListener('mousemove', handleMouseMove);
+      document.addEventListener('mouseup', handleMouseUp);
+    }
+    return () => {
+      document.removeEventListener('mousemove', handleMouseMove);
+      document.removeEventListener('mouseup', handleMouseUp);
+    };
+  }, [mounted, isResizing]);
+
+  const handleResizeStart = (e: React.MouseEvent) => {
+    e.preventDefault();
+    setIsResizing(true);
+    startYRef.current = e.clientY;
+    startHeightRef.current = editorHeight;
+    document.body.style.cursor = 'ns-resize';
+    document.body.style.userSelect = 'none';
+  };
 
   useLayoutEffect(() => {
     if (!anchorRef.current || !popoverRef.current || !portalContainer) return;
@@ -460,9 +571,6 @@ const MathEditorPopover = ({
     e.stopPropagation(); 
     if (e.key === 'Enter' && !e.shiftKey) { 
       e.preventDefault(); 
-      console.log('=== SAVE TRIGGERED ===');
-      console.log('Code value:', code);
-      console.log('Code char codes:', Array.from(code).map((c, i) => `${i}: '${c}' (${c.charCodeAt(0)})`));
       onSave(); 
     }
     if (e.key === 'Escape') { e.preventDefault(); onClose(); }
@@ -475,8 +583,6 @@ const MathEditorPopover = ({
     const end = textarea.selectionEnd;
     
     let insertText = item.insert;
-    console.log('Inserting symbol:', insertText);
-    console.log('Insert text char codes:', Array.from(insertText).map((c, i) => `${i}: '${c}' (${c.charCodeAt(0)})`));
     
     if (mode === 'tikz' && (code.trim() === '' || code.includes('\\begin{tikzpicture}'))) {
        setCode(insertText);
@@ -485,8 +591,6 @@ const MathEditorPopover = ({
     }
 
     const newCode = code.substring(0, start) + insertText + code.substring(end);
-    console.log('New code after insert:', newCode);
-    console.log('New code char codes:', Array.from(newCode).map((c, i) => `${i}: '${c}' (${c.charCodeAt(0)})`));
     
     setCode(newCode);
     const newCursorPos = start + insertText.length + (item.offset || 0);
@@ -515,7 +619,7 @@ const MathEditorPopover = ({
       style={{ 
         top: position.top, 
         left: position.left,
-        width: '800px', 
+        width: '850px', 
         maxWidth: '90vw', 
         cursor: 'default',
       }}
@@ -526,8 +630,8 @@ const MathEditorPopover = ({
         
         {/* Header */}
         <div className={`flex items-center justify-between px-4 pt-3 pb-2 border-b ${headerBgClass}`}>
-          <div className="flex items-center gap-3">
-            <div className="flex bg-gray-100/10 p-0.5 rounded-lg border border-gray-200/20">
+          <div className="flex items-center gap-3 flex-1 min-w-0">
+            <div className="flex bg-gray-100/10 p-0.5 rounded-lg border border-gray-200/20 flex-shrink-0">
               <button 
                 onClick={() => setMode('math')} 
                 title="Equation Mode"
@@ -543,19 +647,19 @@ const MathEditorPopover = ({
                 <PenTool size={17} />
               </button>
             </div>
-            <div className={`h-4 w-px ${theme === 'dark' ? 'bg-[#444]' : 'bg-gray-200'}`}></div>
-            <div className="flex gap-1 overflow-x-auto no-scrollbar">
+            <div className={`h-4 w-px flex-shrink-0 ${theme === 'dark' ? 'bg-[#444]' : 'bg-gray-200'}`}></div>
+            <div className="flex gap-1 overflow-x-auto no-scrollbar flex-1 min-w-0">
               {categories.map((cat) => {
                 const Icon = cat.icon;
                 return (
-                  <button key={cat.id} onClick={() => setActiveCategory(cat.id)} className={`flex items-center gap-2 px-2 py-1 text-xs font-semibold rounded-lg transition-all ${activeCategory === cat.id ? 'bg-blue-50 text-blue-600 ring-1 ring-blue-200' : `${subTextClass} ${buttonHoverClass}`}`}>
+                  <button key={cat.id} onClick={() => setActiveCategory(cat.id)} className={`flex-shrink-0 flex items-center gap-2 px-2 py-1 text-xs font-semibold rounded-lg transition-all ${activeCategory === cat.id ? 'bg-blue-50 text-blue-600 ring-1 ring-blue-200' : `${subTextClass} ${buttonHoverClass}`}`}>
                     <Icon size={14} /> {cat.label}
                   </button>
                 );
               })}
             </div>
           </div>
-          <div className="flex items-center gap-2 pl-2 border-l border-gray-200/20">
+          <div className="flex items-center gap-2 pl-2 border-l border-gray-200/20 flex-shrink-0">
              {/* Font Size Controls */}
              {mode === 'math' && (
                <div className="flex items-center gap-1 mr-2">
@@ -614,12 +718,31 @@ const MathEditorPopover = ({
         </div>
 
         {/* Editor */}
-        <div className={`h-48 ${theme === 'dark' ? 'bg-[#1e1e1e]' : 'bg-white'}`}>
+        <div style={{ height: editorHeight }} className={`${theme === 'dark' ? 'bg-[#1e1e1e]' : 'bg-white'} relative`}>
           <CodeEditor ref={textareaRef} value={code} onChange={setCode} onKeyDown={handleKeyDown} theme={theme} />
         </div>
 
+        {/* Resize Handle */}
+        <div 
+          onMouseDown={handleResizeStart}
+          className={`
+            h-6 w-full cursor-ns-resize flex items-center justify-center 
+            border-t border-b
+            ${theme === 'dark' ? 'border-[#333] bg-[#252526] hover:bg-[#2d2d2d]' : 'border-gray-200 bg-gray-50 hover:bg-gray-100'}
+            ${isResizing ? (theme === 'dark' ? 'bg-[#2d2d2d]' : 'bg-blue-50/50') : ''}
+            transition-colors z-10 relative group
+          `}
+          title="Drag to resize editor"
+        >
+          <div className={`
+            w-16 h-1 rounded-full 
+            ${theme === 'dark' ? 'bg-gray-600 group-hover:bg-blue-500' : 'bg-gray-300 group-hover:bg-blue-400'} 
+            transition-colors absolute
+          `} />
+        </div>
+
         {/* Footer */}
-        <div className={`flex items-center justify-between px-4 py-3 border-t ${footerBgClass}`}>
+        <div className={`flex items-center justify-between px-4 py-3 ${footerBgClass}`}>
           <div className="flex flex-col gap-1">
             <div className={`text-[10px] ${subTextClass} flex items-center gap-1.5`}><span className={`font-mono border px-1.5 py-0.5 rounded text-[10px] shadow-sm min-w-[32px] text-center ${theme === 'dark' ? 'bg-[#333] border-[#444] text-gray-300' : 'bg-white border-gray-200 text-gray-500'}`}>Enter</span><span>to save</span></div>
           </div>
@@ -632,7 +755,7 @@ const MathEditorPopover = ({
 };
 
 // --- ISOLATED TIKZ RENDERER ---
-const TikZRenderer = ({ code, isLoaded, onSuccess }: { code: string, isLoaded: boolean, onSuccess?: (aspectRatio: number) => void }) => {
+const TikZRenderer = ({ code, isLoaded, onSuccess, alignment }: { code: string, isLoaded: boolean, onSuccess?: (aspectRatio: number) => void, alignment?: Alignment }) => {
   const outputRef = useRef<HTMLDivElement>(null);
   const [error, setError] = useState<string | null>(null);
   const [isCompiling, setIsCompiling] = useState(true);
@@ -747,59 +870,36 @@ const TikZRenderer = ({ code, isLoaded, onSuccess }: { code: string, isLoaded: b
           <span className="text-xs font-medium text-gray-500 animate-pulse">Rendering Diagram...</span>
         </div>
       )}
-      <div ref={outputRef} className="w-full h-full flex items-center justify-center" />
+      <div 
+        ref={outputRef} 
+        className={`w-full h-full flex items-center ${alignment === 'left' ? 'justify-start' : alignment === 'right' ? 'justify-end' : 'justify-center'}`} 
+      />
     </div>
   );
 };
 
 // --- ISOLATED KATEX RENDERER ---
-const KaTeXRenderer = ({ code, fontSize }: { code: string, fontSize: number }) => {
-  const containerRef = useRef<HTMLDivElement>(null);
+const KaTeXRenderer = ({ code, fontSize, alignment }: { code: string, fontSize: number, alignment?: Alignment }) => {
+  const katexTargetRef = useRef<HTMLDivElement>(null);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    if (!containerRef.current) return;
+    if (!katexTargetRef.current) return;
     setError(null);
     
     let cleanCode = code.trim();
     
     if (!cleanCode) {
-      containerRef.current.innerHTML = '';
+      katexTargetRef.current.innerHTML = '';
       return;
     }
     
-    // Sanitize: Remove any zero-width or combining characters
+    // Sanitize
     cleanCode = cleanCode.replace(/[\u200B-\u200D\uFEFF\u0300-\u036F]/g, '');
     cleanCode = cleanCode.normalize('NFC');
     
-    // Check if the LaTeX looks incomplete (common patterns)
-    const startsWithSupSub = cleanCode.startsWith('^') || cleanCode.startsWith('_');
-    const isJustSupSub = /^[\^_]\{.*\}$/.test(cleanCode);
-    const hasIncompleteSupSub = cleanCode.match(/[\^_]$/) || cleanCode.match(/[\^_]\{[^}]*$/); // ends with ^ or _ or ^{ or _{
-    
-    const isIncomplete = (
-      cleanCode.endsWith('\\') || // ends with backslash
-      cleanCode.match(/\\[a-zA-Z]*$/) || // ends with incomplete command like \fra
-      cleanCode.match(/\{[^}]*$/) || // has unclosed brace
-      cleanCode.match(/\\[a-zA-Z]+\{[^}]*$/) || // command with unclosed brace like \frac{
-      cleanCode.match(/\\frac\{\}$/) || // \frac{} without second argument
-      cleanCode.match(/\\frac\{[^}]*\}$/) || // \frac{x} without second argument
-      cleanCode.match(/\\sqrt\{[^}]*$/) || // incomplete sqrt
-      startsWithSupSub || // starts with ^ or _ (no base)
-      isJustSupSub || // is only ^{} or _{} with nothing before
-      hasIncompleteSupSub || // has incomplete ^ or _ anywhere (like "2^" or "x_{")
-      // Check for unbalanced braces
-      (cleanCode.split('{').length !== cleanCode.split('}').length)
-    );
-    
-    if (isIncomplete) {
-      // Don't try to render incomplete LaTeX - just show placeholder
-      containerRef.current.innerHTML = '<span style="color: #9ca3af; font-style: italic; font-size: 0.875rem;">typing...</span>';
-      return;
-    }
-    
     try {
-      katex.render(cleanCode, containerRef.current, {
+      katex.render(cleanCode, katexTargetRef.current, {
         throwOnError: false,
         displayMode: true,
         strict: false,
@@ -815,16 +915,22 @@ const KaTeXRenderer = ({ code, fontSize }: { code: string, fontSize: number }) =
         }
       });
       
-      // Check if KaTeX rendered an error (it will have the katex-error class)
-      const hasError = containerRef.current.querySelector('.katex-error');
+      const hasError = katexTargetRef.current.querySelector('.katex-error');
       if (hasError) {
-        setError(hasError.textContent || "Invalid LaTeX syntax");
-        containerRef.current.innerHTML = '';
+        // Check if it looks like an incomplete command (heuristic)
+        const isLikelyIncomplete = cleanCode.endsWith('\\') || cleanCode.match(/\\[a-zA-Z]+$/) || cleanCode.split('{').length !== cleanCode.split('}').length;
+        
+        if (isLikelyIncomplete) {
+           katexTargetRef.current.innerHTML = '<span style="color: #9ca3af; font-style: italic; font-size: 0.875rem;">typing...</span>';
+        } else {
+           setError(hasError.textContent || "Invalid LaTeX syntax");
+           katexTargetRef.current.innerHTML = '';
+        }
       }
     } catch (err: any) {
       const errorMsg = err.message || "Invalid LaTeX syntax";
       setError(errorMsg);
-      containerRef.current.innerHTML = ''; 
+      katexTargetRef.current.innerHTML = ''; 
     }
   }, [code, fontSize]);
 
@@ -842,10 +948,20 @@ const KaTeXRenderer = ({ code, fontSize }: { code: string, fontSize: number }) =
 
   return (
     <div 
-      ref={containerRef} 
+      className={`w-full flex items-center py-2 ${alignment === 'left' ? 'justify-start' : alignment === 'right' ? 'justify-end' : 'justify-center'}`}
       style={{ fontSize: `${fontSize}px` }}
-      className="w-full flex justify-center items-center py-2"
-    />
+    >
+      {alignment && (
+        <style>{`
+          .katex-display {
+             text-align: ${alignment} !important;
+             margin-left: ${alignment === 'left' ? '0' : 'auto'} !important;
+             margin-right: ${alignment === 'right' ? '0' : 'auto'} !important;
+          }
+        `}</style>
+      )}
+      <div ref={katexTargetRef} />
+    </div>
   );
 };
 
@@ -859,8 +975,8 @@ export const MathBlock: React.FC<MathBlockProps> = ({ initialTex, fontSize, onUp
   const [currentTikZWidth, setCurrentTikZWidth] = useState(300);
   const [tikZAspectRatio, setTikZAspectRatio] = useState(0.66); 
   
-  // NEW: Layout State
   const [layout, setLayout] = useState<BlockLayout>('vertical');
+  const [alignment, setAlignment] = useState<Alignment>('center');
 
   const [resizeVersion, setResizeVersion] = useState(0);
 
@@ -870,12 +986,17 @@ export const MathBlock: React.FC<MathBlockProps> = ({ initialTex, fontSize, onUp
     loadTikZJax().then(() => setIsTikZLoaded(true)).catch(console.error);
   }, []);
 
-  // Initialize layout from DOM if present
+  // Initialize layout and alignment from DOM if present
   useEffect(() => {
     if (containerRef.current) {
         const wrapper = containerRef.current.closest('.math-wrapper') as HTMLElement;
-        if (wrapper && wrapper.dataset.layout) {
-            setLayout(wrapper.dataset.layout as BlockLayout);
+        if (wrapper) {
+            if (wrapper.dataset.layout) {
+                setLayout(wrapper.dataset.layout as BlockLayout);
+            }
+            if (wrapper.dataset.float) {
+                setAlignment(wrapper.dataset.float as Alignment);
+            }
         }
     }
   }, []);
@@ -890,10 +1011,30 @@ export const MathBlock: React.FC<MathBlockProps> = ({ initialTex, fontSize, onUp
     }
   }, [layout]);
 
+  // Watch for alignment changes from MathResizer
+  useEffect(() => {
+    if (!containerRef.current) return;
+    const wrapper = containerRef.current.closest('.math-wrapper') as HTMLElement;
+    if (!wrapper) return;
+
+    const observer = new MutationObserver((mutations) => {
+      mutations.forEach((mutation) => {
+        if (mutation.type === 'attributes' && mutation.attributeName === 'data-float') {
+          const newFloat = wrapper.dataset.float;
+          if (newFloat === 'left' || newFloat === 'right' || newFloat === 'center') {
+            setAlignment(newFloat);
+          } else {
+            setAlignment('center'); // Default for 'none' or other values
+          }
+        }
+      });
+    });
+
+    observer.observe(wrapper, { attributes: true, attributeFilter: ['data-float'] });
+    return () => observer.disconnect();
+  }, []);
+
   const segments = useMemo(() => {
-  console.log('=== SEGMENTS PARSING ===');
-  console.log('Input code:', code);
-  console.log('Input char codes:', Array.from(code).map((c, i) => `${i}: '${c}' (${c.charCodeAt(0)})`));
   if (!code) return [];
   
   const tikzRegex = /\\begin\{tikzpicture\}[\s\S]*?(?:\\end\{tikzpicture\}|$)/g;
@@ -903,7 +1044,6 @@ export const MathBlock: React.FC<MathBlockProps> = ({ initialTex, fontSize, onUp
     // No TikZ at all - treat entire content as math
     const trimmed = code.trim();
     if (!trimmed) return [];
-    console.log('No TikZ found, returning as math:', trimmed);
     return [{ type: 'math', content: trimmed }];
   }
   
@@ -1027,10 +1167,6 @@ export const MathBlock: React.FC<MathBlockProps> = ({ initialTex, fontSize, onUp
   }, [segments]);
 
   const handleSave = () => {
-  console.log('=== HANDLE SAVE IN MATHBLOCK ===');
-  console.log('Code to save:', code);
-  console.log('Code char codes:', Array.from(code).map((c, i) => `${i}: '${c}' (${c.charCodeAt(0)})`));
-  
   if (code.trim() === '') onRemove();
   else {
     onUpdate(code);
@@ -1160,12 +1296,14 @@ export const MathBlock: React.FC<MathBlockProps> = ({ initialTex, fontSize, onUp
         style={{ 
             minHeight: '3rem',
             display: 'flex',
-            flexDirection: layout === 'horizontal' ? 'row' : 'column', // DYNAMIC LAYOUT
+            flexDirection: layout === 'horizontal' ? 'row' : 'column', 
             width: '100%',
             height: '100%',
             overflow: 'hidden',
             position: 'relative',
-            gap: layout === 'horizontal' ? '1rem' : '0' // ADD GAP FOR HORIZONTAL
+            gap: layout === 'horizontal' ? '1rem' : '0',
+            // NEW: Apply alignment to the flex container
+            justifyContent: alignment === 'left' ? 'flex-start' : alignment === 'right' ? 'flex-end' : 'center'
         }}
       >
         {segments.length === 0 ? (
@@ -1181,21 +1319,23 @@ export const MathBlock: React.FC<MathBlockProps> = ({ initialTex, fontSize, onUp
                     position: 'relative',
                     display: 'flex',
                     alignItems: 'center',
-                    justifyContent: 'center',
+                    // NEW: Dynamic alignment for TikZ
+                    justifyContent: alignment === 'left' ? 'flex-start' : alignment === 'right' ? 'flex-end' : 'center',
                     minHeight: 0
                   }}
                 >
-                  <TikZRenderer code={seg.content} isLoaded={isTikZLoaded} onSuccess={handleTikZSuccess} />
+                  <TikZRenderer code={seg.content} isLoaded={isTikZLoaded} onSuccess={handleTikZSuccess} alignment={alignment} />
                 </div>
               ) : (
                 <div className="math-segment w-full" style={{ 
                   flex: layout === 'horizontal' ? '1 1 0%' : '0 0 auto',
                   display: 'flex',
-                  justifyContent: 'center',
+                  // NEW: Dynamic alignment for Math
+                  justifyContent: alignment === 'left' ? 'flex-start' : alignment === 'right' ? 'flex-end' : 'center',
                   alignItems: 'center',
                   padding: '4px 0'
                 }}>
-                  <KaTeXRenderer code={seg.content} fontSize={currentFontSize} />
+                  <KaTeXRenderer code={seg.content} fontSize={currentFontSize} alignment={alignment} />
                 </div>
               )}
             </React.Fragment>
