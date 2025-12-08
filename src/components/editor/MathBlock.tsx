@@ -14,7 +14,7 @@ import {
   GitCommit, GitMerge, Clock, Combine, Layout, List, Share,
   Box, Aperture, Anchor, Eye, Triangle, BarChart, PieChart, Orbit,
   AlertTriangle, AlertCircle,
-  Columns, Rows, BookOpen
+  Columns, Rows, BookOpen, GripHorizontal
 } from 'lucide-react';
 
 // --- TYPES ---
@@ -663,11 +663,11 @@ const MathEditorPopover = ({
              {/* Font Size Controls */}
              {mode === 'math' && (
                <div className="flex items-center gap-1 mr-2">
-                 <button onClick={() => onFontSizeChange(currentFontSize - 2)} className={`p-1.5 ${subTextClass} ${buttonHoverClass} rounded-lg transition-colors`} title="Decrease Font Size">
+                 <button onClick={() => onFontSizeChange(currentFontSize - 1)} className={`p-1.5 ${subTextClass} ${buttonHoverClass} rounded-lg transition-colors`} title="Decrease Font Size">
                    <Minus size={14} />
                  </button>
                  <span className={`text-[10px] font-mono w-6 text-center ${theme === 'dark' ? 'text-gray-300' : 'text-gray-600'}`}>{Math.round(currentFontSize)}</span>
-                 <button onClick={() => onFontSizeChange(currentFontSize + 2)} className={`p-1.5 ${subTextClass} ${buttonHoverClass} rounded-lg transition-colors`} title="Increase Font Size">
+                 <button onClick={() => onFontSizeChange(currentFontSize + 1)} className={`p-1.5 ${subTextClass} ${buttonHoverClass} rounded-lg transition-colors`} title="Increase Font Size">
                    <Plus size={14} />
                  </button>
                </div>
@@ -880,17 +880,17 @@ const TikZRenderer = ({ code, isLoaded, onSuccess, alignment }: { code: string, 
 
 // --- ISOLATED KATEX RENDERER ---
 const KaTeXRenderer = ({ code, fontSize, alignment }: { code: string, fontSize: number, alignment?: Alignment }) => {
-  const katexTargetRef = useRef<HTMLDivElement>(null);
+  const containerRef = useRef<HTMLDivElement>(null);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    if (!katexTargetRef.current) return;
+    if (!containerRef.current) return;
     setError(null);
     
     let cleanCode = code.trim();
     
     if (!cleanCode) {
-      katexTargetRef.current.innerHTML = '';
+      containerRef.current.innerHTML = '';
       return;
     }
     
@@ -899,7 +899,7 @@ const KaTeXRenderer = ({ code, fontSize, alignment }: { code: string, fontSize: 
     cleanCode = cleanCode.normalize('NFC');
     
     try {
-      katex.render(cleanCode, katexTargetRef.current, {
+      katex.render(cleanCode, containerRef.current, {
         throwOnError: false,
         displayMode: true,
         strict: false,
@@ -915,22 +915,25 @@ const KaTeXRenderer = ({ code, fontSize, alignment }: { code: string, fontSize: 
         }
       });
       
-      const hasError = katexTargetRef.current.querySelector('.katex-error');
+      const hasError = containerRef.current.querySelector('.katex-error');
       if (hasError) {
-        // Check if it looks like an incomplete command (heuristic)
+        // If error, check if it looks like an incomplete command (heuristic)
         const isLikelyIncomplete = cleanCode.endsWith('\\') || cleanCode.match(/\\[a-zA-Z]+$/) || cleanCode.split('{').length !== cleanCode.split('}').length;
         
         if (isLikelyIncomplete) {
-           katexTargetRef.current.innerHTML = '<span style="color: #9ca3af; font-style: italic; font-size: 0.875rem;">typing...</span>';
+           // Don't set error state for incomplete typing, just show placeholder in container
+           containerRef.current.innerHTML = '<span style="color: #9ca3af; font-style: italic; font-size: 0.875rem;">typing...</span>';
         } else {
            setError(hasError.textContent || "Invalid LaTeX syntax");
-           katexTargetRef.current.innerHTML = '';
+           // Keep the container empty or show previous valid state if possible? 
+           // For now, clear it to avoid confusion
+           containerRef.current.innerHTML = '';
         }
       }
     } catch (err: any) {
       const errorMsg = err.message || "Invalid LaTeX syntax";
       setError(errorMsg);
-      katexTargetRef.current.innerHTML = ''; 
+      containerRef.current.innerHTML = ''; 
     }
   }, [code, fontSize]);
 
@@ -948,7 +951,7 @@ const KaTeXRenderer = ({ code, fontSize, alignment }: { code: string, fontSize: 
 
   return (
     <div 
-      className={`w-full flex items-center py-2 ${alignment === 'left' ? 'justify-start' : alignment === 'right' ? 'justify-end' : 'justify-center'}`}
+      className={`w-full flex items-center py-2 relative ${alignment === 'left' ? 'justify-start' : alignment === 'right' ? 'justify-end' : 'justify-center'}`}
       style={{ fontSize: `${fontSize}px` }}
     >
       {alignment && (
@@ -960,7 +963,19 @@ const KaTeXRenderer = ({ code, fontSize, alignment }: { code: string, fontSize: 
           }
         `}</style>
       )}
-      <div ref={katexTargetRef} />
+      
+      {error && (
+        <div className="absolute inset-0 z-10 flex items-center justify-center bg-white/90">
+          <div className="text-center py-2 px-4 bg-red-50 border border-red-100 rounded shadow-sm">
+            <span className="inline-flex items-center text-red-600 text-xs font-medium">
+              <AlertCircle size={12} className="mr-1" /> Invalid Equation
+            </span>
+            <div className="text-[10px] text-gray-500 mt-1 font-mono max-w-xs mx-auto truncate">{error}</div>
+          </div>
+        </div>
+      )}
+      
+      <div ref={containerRef} className={error ? 'opacity-20 blur-sm' : ''} />
     </div>
   );
 };
@@ -1125,46 +1140,39 @@ export const MathBlock: React.FC<MathBlockProps> = ({ initialTex, fontSize, onUp
     }
   }, [currentFontSize]);
 
-  // --- AUTO-RESIZE WRAPPER ON CONTENT CHANGE ---
+  // --- AUTO-RESIZE & AUTO-SCALE ---
   useEffect(() => {
     if (!containerRef.current) return;
+    const wrapper = containerRef.current.closest('.math-wrapper') as HTMLElement;
+    if (!wrapper || wrapper.dataset.resizing === 'true') return;
+
+    // 1. Reset height to auto to prevent clipping
+    wrapper.style.height = 'auto';
     
-    const wrapper = containerRef.current?.closest('.math-wrapper') as HTMLElement;
-    
-    if (wrapper?.dataset.resizing === 'true') {
-        return;
-    }
-    
-    if (segments.length > 1 && wrapper) {
-        const currentHeight = wrapper.clientHeight;
-        if (currentHeight < 150 && wrapper.style.height && wrapper.style.height !== 'auto') {
-            wrapper.style.height = 'auto';
-            if (wrapper.clientWidth < 300) {
-               wrapper.style.width = '500px';
+    // 2. Check for width overflow and scale down font if needed (for Math only)
+    // We use a small timeout to allow layout to settle
+    const checkOverflow = () => {
+        if (initialMode === 'math' && containerRef.current) {
+            const contentWidth = containerRef.current.scrollWidth;
+            const containerWidth = containerRef.current.clientWidth;
+            
+            if (contentWidth > containerWidth && currentFontSize > 10) {
+                // Content is wider than container, scale down
+                const ratio = containerWidth / contentWidth;
+                const newSize = Math.max(10, Math.floor(currentFontSize * ratio * 0.95)); // 0.95 buffer
+                if (newSize !== currentFontSize) {
+                    setCurrentFontSize(newSize);
+                    // Dispatch event to update Resizer state if needed
+                    containerRef.current.dataset.fontSize = String(newSize);
+                }
             }
         }
-    }
+    };
 
-    const observer = new ResizeObserver((entries) => {
-      for (const entry of entries) {
-        const wrapper = containerRef.current?.closest('.math-wrapper') as HTMLElement;
-        if (!wrapper || wrapper.dataset.resizing === 'true') continue;
-        
-        const contentHeight = entry.contentRect.height;
-        const contentWidth = entry.contentRect.width;
-        
-        if (contentHeight > wrapper.clientHeight + 10) {
-           wrapper.style.height = `${contentHeight + 20}px`; 
-        }
-        if (contentWidth > wrapper.clientWidth + 10) {
-           wrapper.style.width = `${Math.min(contentWidth + 20, 800)}px`;
-        }
-      }
-    });
-    
-    observer.observe(containerRef.current);
-    return () => observer.disconnect();
-  }, [segments]);
+    // Run check
+    const timer = setTimeout(checkOverflow, 50);
+    return () => clearTimeout(timer);
+  }, [segments, initialMode]); // Run when content changes
 
   const handleSave = () => {
   if (code.trim() === '') onRemove();
@@ -1299,7 +1307,6 @@ export const MathBlock: React.FC<MathBlockProps> = ({ initialTex, fontSize, onUp
             flexDirection: layout === 'horizontal' ? 'row' : 'column', 
             width: '100%',
             height: '100%',
-            overflow: 'hidden',
             position: 'relative',
             gap: layout === 'horizontal' ? '1rem' : '0',
             // NEW: Apply alignment to the flex container
