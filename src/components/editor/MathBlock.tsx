@@ -1,4 +1,3 @@
-// src/components/editor/MathBlock.tsx
 "use client";
 
 import React, { useState, useRef, useEffect, useLayoutEffect, useMemo, useCallback } from 'react';
@@ -775,6 +774,9 @@ const TikZRenderer = ({ code, isLoaded, onSuccess, alignment }: { code: string, 
     
     setError(null);
     setIsCompiling(true);
+    // Do NOT clear innerHTML immediately to prevent flashing if we are just updating
+    // But since TikZJax replaces the script tag, we usually need to reset.
+    // To keep size stable, we rely on the parent container's dimensions.
     outputRef.current.innerHTML = '';
 
     const timeoutId = setTimeout(() => {
@@ -799,6 +801,7 @@ const TikZRenderer = ({ code, isLoaded, onSuccess, alignment }: { code: string, 
           const heightStr = svg.getAttribute('height');
           let aspectRatio = 1;
 
+          // Calculate aspect ratio from viewBox if available, or width/height
           if (!svg.hasAttribute('viewBox') && widthStr && heightStr) {
              const w = parseFloat(widthStr);
              const h = parseFloat(heightStr);
@@ -813,6 +816,7 @@ const TikZRenderer = ({ code, isLoaded, onSuccess, alignment }: { code: string, 
              }
           }
           
+          // Force SVG to fill container
           svg.setAttribute('width', '100%');
           svg.setAttribute('height', '100%');
           svg.setAttribute('preserveAspectRatio', 'xMidYMid meet');
@@ -826,6 +830,7 @@ const TikZRenderer = ({ code, isLoaded, onSuccess, alignment }: { code: string, 
           setIsCompiling(false);
           observer.disconnect();
           
+          // Only pass aspect ratio, do NOT pass natural width/height to avoid overriding user preference
           if (onSuccess) onSuccess(aspectRatio);
         }
       });
@@ -937,18 +942,6 @@ const KaTeXRenderer = ({ code, fontSize, alignment }: { code: string, fontSize: 
     }
   }, [code, fontSize]);
 
-  if (error) {
-    return (
-      <div className="text-center py-2 px-4">
-        <span className="inline-flex items-center px-2 py-1 rounded bg-red-50 text-red-600 text-xs border border-red-100">
-          <AlertCircle size={12} className="mr-1" /> Invalid Equation
-        </span>
-        <div className="text-[10px] text-gray-400 mt-1 font-mono max-w-xs mx-auto break-all">{error}</div>
-        <div className="text-[10px] text-gray-500 mt-1 font-mono max-w-md mx-auto break-all bg-gray-50 p-2 rounded border border-gray-200">{code}</div>
-      </div>
-    );
-  }
-
   return (
     <div 
       className={`w-full flex items-center py-2 relative ${alignment === 'left' ? 'justify-start' : alignment === 'right' ? 'justify-end' : 'justify-center'}`}
@@ -987,7 +980,7 @@ export const MathBlock: React.FC<MathBlockProps> = ({ initialTex, fontSize, onUp
   const [isTikZLoaded, setIsTikZLoaded] = useState(false);
   
   const [currentFontSize, setCurrentFontSize] = useState(fontSize || 24); 
-  const [currentTikZWidth, setCurrentTikZWidth] = useState(300);
+  const [currentTikZWidth, setCurrentTikZWidth] = useState(300); // Default to 300px
   const [tikZAspectRatio, setTikZAspectRatio] = useState(0.66); 
   
   const [layout, setLayout] = useState<BlockLayout>('vertical');
@@ -1190,6 +1183,7 @@ export const MathBlock: React.FC<MathBlockProps> = ({ initialTex, fontSize, onUp
     }
   };
 
+  // Initialize currentTikZWidth from DOM on mount/mode change
   useEffect(() => {
     if (initialMode === 'tikz' && containerRef.current) {
       const wrapper = containerRef.current.closest('.math-wrapper') as HTMLElement;
@@ -1213,6 +1207,7 @@ export const MathBlock: React.FC<MathBlockProps> = ({ initialTex, fontSize, onUp
         const isDefault = !wrapper.style.width || wrapper.style.width === 'auto' || (wrapper.style.width === '300px' && wrapper.style.height === '200px');
         
         if (isDefault) {
+           // Force 300px default width
            const width = 300;
            const height = width * aspectRatio;
            
@@ -1224,6 +1219,7 @@ export const MathBlock: React.FC<MathBlockProps> = ({ initialTex, fontSize, onUp
            
            setCurrentTikZWidth(width);
         } else {
+           // If already resized, sync state to DOM
            setCurrentTikZWidth(parseFloat(wrapper.style.width));
         }
     } 
@@ -1239,16 +1235,8 @@ export const MathBlock: React.FC<MathBlockProps> = ({ initialTex, fontSize, onUp
     const wrapper = containerRef.current?.closest('.math-wrapper') as HTMLElement;
     if (!wrapper) return;
 
-    let baseWidth = 300; 
-
-    if (wrapper.style.width && wrapper.style.width !== 'auto') {
-       baseWidth = parseFloat(wrapper.style.width);
-    } 
-    else if (currentTikZWidth && currentTikZWidth !== 300) {
-       baseWidth = currentTikZWidth;
-    }
-
-    const newWidth = Math.max(50, Math.min(800, baseWidth + delta));
+    // Always calculate from the current state to avoid jumps
+    const newWidth = Math.max(50, Math.min(800, currentTikZWidth + delta));
     
     setCurrentTikZWidth(newWidth);
     
@@ -1268,11 +1256,22 @@ export const MathBlock: React.FC<MathBlockProps> = ({ initialTex, fontSize, onUp
 
     if (segments.length === 1 && segments[0].type === 'tikz') {
       if (!wrapper.style.width || wrapper.style.width === 'auto') {
-        wrapper.style.width = '500px';
+        wrapper.style.width = '300px'; // Default 300px
       }
       if (!wrapper.style.height || wrapper.style.height === 'auto') {
         wrapper.style.height = '200px';
       }
+    } else if (segments.length === 1 && segments[0].type === 'math') {
+       // PURE MATH LOGIC - FIX FOR WRAPPING
+       // Default to 100% width for block math to span page
+       wrapper.style.width = '100%';
+       wrapper.style.height = 'auto';
+       // Ensure it doesn't overflow the page horizontally
+       wrapper.style.maxWidth = '100%';
+       // Allow scrolling if content is wider than page
+       wrapper.style.overflowX = 'auto';
+       // Reset min-height that might have been set by mixed/tikz modes
+       wrapper.style.minHeight = '0';
     } else if (segments.length > 1) {
       if (!wrapper.style.height || wrapper.style.height === 'auto') {
         wrapper.style.height = '300px'; 
