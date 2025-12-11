@@ -128,15 +128,15 @@ export const MathResizer: React.FC<MathResizerProps> = ({
     element.classList.add('math-selected');
     element.style.overflow = 'visible';
 
-    // Only set initial height if it's missing, but respect auto if it was set by MathBlock
+    // Get actual rendered size
+    const rect = element.getBoundingClientRect();
+    
+    // Only set width/height if not already set
     if (!element.style.width || element.style.width === 'auto') {
-        const rect = element.getBoundingClientRect();
-        element.style.width = `${rect.width}px`;
+        element.style.width = mode === 'tikz' ? '300px' : `${rect.width}px`;
     }
-    // Don't lock height immediately if it's auto, let content dictate unless resized
-    if (!element.style.height) {
-        const rect = element.getBoundingClientRect();
-        element.style.height = `${rect.height}px`;
+    if (!element.style.height || element.style.height === 'auto') {
+        element.style.height = `${Math.max(rect.height, 100)}px`;
     }
 
     const overlay = document.createElement('div');

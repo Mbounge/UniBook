@@ -511,16 +511,27 @@ const MathEditorPopover = ({
       const containerRect = portalContainer.getBoundingClientRect();
       const popoverRect = popoverRef.current!.getBoundingClientRect();
       
-      let left = anchorRect.left - containerRect.left + (anchorRect.width / 2) - (popoverRect.width / 2);
+      // --- CHANGED LOGIC HERE ---
       
-      const containerWidth = portalContainer.clientWidth;
+      // OLD: Calculated center based on the MathBlock (anchorRect)
+      // let left = anchorRect.left - containerRect.left + (anchorRect.width / 2) - (popoverRect.width / 2);
+      
+      // NEW: Calculate center based on the Container (Main Editor)
+      // This ensures the popup stays in the center of the screen even if the block moves left/right
+      let left = (containerRect.width / 2) - (popoverRect.width / 2);
+      
+      // Ensure it doesn't go off screen
       const padding = 20;
       if (left < padding) left = padding;
-      if (left + popoverRect.width > containerWidth - padding) {
-        left = containerWidth - popoverRect.width - padding;
+      if (left + popoverRect.width > containerRect.width - padding) {
+        left = containerRect.width - popoverRect.width - padding;
       }
 
+      // Vertical position still respects the block location so you know what you are editing
       let top = anchorRect.bottom - containerRect.top + portalContainer.scrollTop + 10;
+
+      // Optional: Check if top goes off bottom of screen, flip to top? 
+      // For now, we keep it simple as per request.
 
       setPosition({ top, left });
     };
@@ -531,6 +542,8 @@ const MathEditorPopover = ({
         updatePosition();
     });
     resizeObserver.observe(anchorRef.current);
+    // Also observe container to keep centered if window resizes
+    resizeObserver.observe(portalContainer);
 
     window.addEventListener('scroll', updatePosition, true);
     window.addEventListener('resize', updatePosition);
@@ -754,11 +767,29 @@ const MathEditorPopover = ({
 };
 
 // --- ISOLATED TIKZ RENDERER ---
-const TikZRenderer = ({ code, isLoaded, onSuccess, alignment }: { code: string, isLoaded: boolean, onSuccess?: (aspectRatio: number) => void, alignment?: Alignment }) => {
+const TikZRenderer = ({ code, isLoaded, onSuccess, alignment }: { code: string, isLoaded: boolean, onSuccess?: (dimensions: { width: number, height: number, aspectRatio: number }) => void, alignment?: Alignment }) => {
   const outputRef = useRef<HTMLDivElement>(null);
   const [error, setError] = useState<string | null>(null);
   const [isCompiling, setIsCompiling] = useState(true);
 
+  // Helper to get SVG alignment string
+  const getAspectRatioValue = useCallback((align?: Alignment) => {
+    switch (align) {
+      case 'left': return 'xMinYMid meet';
+      case 'right': return 'xMaxYMid meet';
+      default: return 'xMidYMid meet';
+    }
+  }, []);
+
+  // 1. Handle Alignment Changes dynamically without re-rendering the whole script
+  useEffect(() => {
+    const svg = outputRef.current?.querySelector('svg');
+    if (svg) {
+      svg.setAttribute('preserveAspectRatio', getAspectRatioValue(alignment));
+    }
+  }, [alignment, getAspectRatioValue]);
+
+  // 2. Main Rendering Logic
   useEffect(() => {
     // Regex check for completeness
     const isComplete = /\\end\{tikzpicture\}/.test(code);
@@ -774,9 +805,6 @@ const TikZRenderer = ({ code, isLoaded, onSuccess, alignment }: { code: string, 
     
     setError(null);
     setIsCompiling(true);
-    // Do NOT clear innerHTML immediately to prevent flashing if we are just updating
-    // But since TikZJax replaces the script tag, we usually need to reset.
-    // To keep size stable, we rely on the parent container's dimensions.
     outputRef.current.innerHTML = '';
 
     const timeoutId = setTimeout(() => {
@@ -792,48 +820,79 @@ const TikZRenderer = ({ code, isLoaded, onSuccess, alignment }: { code: string, 
       script.textContent = code;
       outputRef.current.appendChild(script);
 
-      const observer = new MutationObserver((mutations) => {
-        const svg = outputRef.current?.querySelector('svg');
-        if (svg) {
-          clearTimeout(timeoutId);
-          
-          const widthStr = svg.getAttribute('width');
-          const heightStr = svg.getAttribute('height');
-          let aspectRatio = 1;
+      // Replace the TikZRenderer component's observer logic (around line 680-750)
 
-          // Calculate aspect ratio from viewBox if available, or width/height
-          if (!svg.hasAttribute('viewBox') && widthStr && heightStr) {
-             const w = parseFloat(widthStr);
-             const h = parseFloat(heightStr);
-             if (!isNaN(w) && !isNaN(h) && w > 0) {
-               aspectRatio = h / w;
-               svg.setAttribute('viewBox', `0 0 ${w} ${h}`);
-             }
-          } else if (svg.hasAttribute('viewBox')) {
-             const vb = svg.getAttribute('viewBox')!.split(' ').map(parseFloat);
-             if (vb.length === 4 && vb[2] > 0) {
-                aspectRatio = vb[3] / vb[2];
-             }
-          }
-          
-          // Force SVG to fill container
-          svg.setAttribute('width', '100%');
-          svg.setAttribute('height', '100%');
-          svg.setAttribute('preserveAspectRatio', 'xMidYMid meet');
-          svg.style.display = 'block'; 
-          
-          const svgClone = svg.cloneNode(true) as SVGElement;
-          
-          outputRef.current!.innerHTML = '';
-          outputRef.current!.appendChild(svgClone);
+const observer = new MutationObserver((mutations) => {
+  const svg = outputRef.current?.querySelector('svg');
+  if (svg) {
+    clearTimeout(timeoutId);
+    
+    const widthStr = svg.getAttribute('width');
+    const heightStr = svg.getAttribute('height');
+    let aspectRatio = 1;
+    let naturalWidth = 300;
+    let naturalHeight = 200;
 
-          setIsCompiling(false);
-          observer.disconnect();
-          
-          // Only pass aspect ratio, do NOT pass natural width/height to avoid overriding user preference
-          if (onSuccess) onSuccess(aspectRatio);
-        }
-      });
+    // Helper to parse units to pixels
+    const parseUnit = (val: string): number | null => {
+      if (!val) return null;
+      const num = parseFloat(val);
+      if (isNaN(num)) return null;
+      if (val.endsWith('pt')) return num * 1.3333;
+      if (val.endsWith('mm')) return num * 3.7795;
+      if (val.endsWith('cm')) return num * 37.795;
+      if (val.endsWith('in')) return num * 96;
+      return num; // assume px
+    };
+
+    const w = parseUnit(widthStr || '');
+    const h = parseUnit(heightStr || '');
+
+    if (w && h) {
+       naturalWidth = w;
+       naturalHeight = h;
+       aspectRatio = h / w;
+    }
+    
+    // **FIX: Expand viewBox to prevent clipping**
+    const viewBox = svg.getAttribute('viewBox');
+    if (viewBox) {
+      const [minX, minY, width, height] = viewBox.split(' ').map(parseFloat);
+      
+      // Add padding (5% on each side, minimum 2 units)
+      const paddingX = Math.max(width * 0.05, 2);
+      const paddingY = Math.max(height * 0.05, 2);
+      
+      const newViewBox = `${minX - paddingX} ${minY - paddingY} ${width + paddingX * 2} ${height + paddingY * 2}`;
+      svg.setAttribute('viewBox', newViewBox);
+      
+      // Recalculate dimensions with padding
+      naturalWidth = width + paddingX * 2;
+      naturalHeight = height + paddingY * 2;
+      aspectRatio = naturalHeight / naturalWidth;
+    } else if (w && h) {
+      // If no viewBox exists, create one with padding
+      const paddingX = Math.max(w * 0.05, 2);
+      const paddingY = Math.max(h * 0.05, 2);
+      svg.setAttribute('viewBox', `${-paddingX} ${-paddingY} ${w + paddingX * 2} ${h + paddingY * 2}`);
+    }
+    
+    svg.setAttribute('width', '100%');
+    svg.setAttribute('height', '100%');
+    svg.setAttribute('preserveAspectRatio', getAspectRatioValue(alignment));
+    svg.style.display = 'block'; 
+    
+    const svgClone = svg.cloneNode(true) as SVGElement;
+    
+    outputRef.current!.innerHTML = '';
+    outputRef.current!.appendChild(svgClone);
+
+    setIsCompiling(false);
+    observer.disconnect();
+    
+    if (onSuccess) onSuccess({ width: naturalWidth, height: naturalHeight, aspectRatio });
+  }
+});
       
       observer.observe(outputRef.current, { childList: true, subtree: true });
       
@@ -851,7 +910,7 @@ const TikZRenderer = ({ code, isLoaded, onSuccess, alignment }: { code: string, 
     return () => {
       clearTimeout(timeoutId);
     };
-  }, [code, isLoaded, onSuccess]);
+  }, [code, isLoaded, onSuccess, getAspectRatioValue]); // Removed 'alignment' from here to prevent full re-render
 
   if (error) {
     return (
@@ -875,6 +934,7 @@ const TikZRenderer = ({ code, isLoaded, onSuccess, alignment }: { code: string, 
           <span className="text-xs font-medium text-gray-500 animate-pulse">Rendering Diagram...</span>
         </div>
       )}
+      {/* CSS Flex alignment is still useful for the container, though SVG attributes do the heavy lifting */}
       <div 
         ref={outputRef} 
         className={`w-full h-full flex items-center ${alignment === 'left' ? 'justify-start' : alignment === 'right' ? 'justify-end' : 'justify-center'}`} 
@@ -980,7 +1040,7 @@ export const MathBlock: React.FC<MathBlockProps> = ({ initialTex, fontSize, onUp
   const [isTikZLoaded, setIsTikZLoaded] = useState(false);
   
   const [currentFontSize, setCurrentFontSize] = useState(fontSize || 24); 
-  const [currentTikZWidth, setCurrentTikZWidth] = useState(300); // Default to 300px
+  const [currentTikZWidth, setCurrentTikZWidth] = useState(300);
   const [tikZAspectRatio, setTikZAspectRatio] = useState(0.66); 
   
   const [layout, setLayout] = useState<BlockLayout>('vertical');
@@ -1043,46 +1103,53 @@ export const MathBlock: React.FC<MathBlockProps> = ({ initialTex, fontSize, onUp
   }, []);
 
   const segments = useMemo(() => {
-  if (!code) return [];
-  
-  const tikzRegex = /\\begin\{tikzpicture\}[\s\S]*?(?:\\end\{tikzpicture\}|$)/g;
-  const matches = [...code.matchAll(tikzRegex)];
-  
-  if (matches.length === 0) {
-    // No TikZ at all - treat entire content as math
-    const trimmed = code.trim();
-    if (!trimmed) return [];
-    return [{ type: 'math', content: trimmed }];
-  }
-  
-  // Has TikZ - need to split properly
-  const segments: { type: 'tikz' | 'math', content: string }[] = [];
-  let lastIndex = 0;
-  
-  for (const match of matches) {
-    // Add math content before this TikZ block
-    if (match.index! > lastIndex) {
-      const mathContent = code.substring(lastIndex, match.index!).trim();
+    if (!code) return [];
+    
+    const tikzRegex = /\\begin\{tikzpicture\}[\s\S]*?(?:\\end\{tikzpicture\}|$)/g;
+    const matches = [...code.matchAll(tikzRegex)];
+    
+    if (matches.length === 0) {
+      const trimmed = code.trim();
+      if (!trimmed) return [];
+      return [{ type: 'math', content: trimmed }];
+    }
+    
+    const segments: { type: 'tikz' | 'math', content: string }[] = [];
+    let lastIndex = 0;
+    
+    for (const match of matches) {
+      let preContent = code.substring(lastIndex, match.index!);
+      
+      // Look for TikZ-specific preamble commands at the end of the pre-content
+      const preambleRegex = /((?:\\usetikzlibrary\{[^}]+\}|\\tikzset\{[^}]+\})\s*)+$/;
+      const preambleMatch = preContent.match(preambleRegex);
+      
+      let tikzContent = match[0];
+      
+      if (preambleMatch) {
+        const preamble = preambleMatch[0];
+        tikzContent = preamble + tikzContent;
+        preContent = preContent.substring(0, preContent.length - preamble.length);
+      }
+      
+      const mathContent = preContent.trim();
+      if (mathContent) {
+        segments.push({ type: 'math', content: mathContent });
+      }
+      
+      segments.push({ type: 'tikz', content: tikzContent });
+      lastIndex = match.index! + match[0].length;
+    }
+    
+    if (lastIndex < code.length) {
+      const mathContent = code.substring(lastIndex).trim();
       if (mathContent) {
         segments.push({ type: 'math', content: mathContent });
       }
     }
     
-    // Add the TikZ block
-    segments.push({ type: 'tikz', content: match[0] });
-    lastIndex = match.index! + match[0].length;
-  }
-  
-  // Add any remaining math content after the last TikZ block
-  if (lastIndex < code.length) {
-    const mathContent = code.substring(lastIndex).trim();
-    if (mathContent) {
-      segments.push({ type: 'math', content: mathContent });
-    }
-  }
-  
-  return segments;
-}, [code]);
+    return segments;
+  }, [code]);
 
   const initialMode: BlockMode = useMemo(() => {
     return (code.includes('\\begin{tikzpicture') || code.includes('\\tikz')) ? 'tikz' : 'math';
@@ -1134,38 +1201,57 @@ export const MathBlock: React.FC<MathBlockProps> = ({ initialTex, fontSize, onUp
   }, [currentFontSize]);
 
   // --- AUTO-RESIZE & AUTO-SCALE ---
-  useEffect(() => {
-    if (!containerRef.current) return;
-    const wrapper = containerRef.current.closest('.math-wrapper') as HTMLElement;
-    if (!wrapper || wrapper.dataset.resizing === 'true') return;
+  // Replace the existing auto-resize useEffect (around line 850-880) with this improved version:
 
-    // 1. Reset height to auto to prevent clipping
+// --- AUTO-RESIZE & AUTO-SCALE ---
+useEffect(() => {
+  if (!containerRef.current) return;
+  const wrapper = containerRef.current.closest('.math-wrapper') as HTMLElement;
+  if (!wrapper || wrapper.dataset.resizing === 'true') return;
+
+  // FIX: Only reset height for Math mode. TikZ mode manages height via aspect ratio.
+  if (initialMode === 'math') {
     wrapper.style.height = 'auto';
     
-    // 2. Check for width overflow and scale down font if needed (for Math only)
-    // We use a small timeout to allow layout to settle
+    // 2. Check for width AND height overflow and scale down font if needed
     const checkOverflow = () => {
-        if (initialMode === 'math' && containerRef.current) {
-            const contentWidth = containerRef.current.scrollWidth;
-            const containerWidth = containerRef.current.clientWidth;
-            
-            if (contentWidth > containerWidth && currentFontSize > 10) {
-                // Content is wider than container, scale down
-                const ratio = containerWidth / contentWidth;
-                const newSize = Math.max(10, Math.floor(currentFontSize * ratio * 0.95)); // 0.95 buffer
-                if (newSize !== currentFontSize) {
-                    setCurrentFontSize(newSize);
-                    // Dispatch event to update Resizer state if needed
-                    containerRef.current.dataset.fontSize = String(newSize);
-                }
-            }
+      if (containerRef.current) {
+        const contentWidth = containerRef.current.scrollWidth;
+        const containerWidth = containerRef.current.clientWidth;
+        const contentHeight = containerRef.current.scrollHeight;
+        const containerHeight = containerRef.current.clientHeight;
+        
+        let scaleFactor = 1;
+        
+        // Check width overflow
+        if (contentWidth > containerWidth && currentFontSize > 10) {
+          const widthRatio = containerWidth / contentWidth;
+          scaleFactor = Math.min(scaleFactor, widthRatio);
         }
+        
+        // Check height overflow (for tall content like algorithms)
+        if (contentHeight > containerHeight && containerHeight > 0 && currentFontSize > 10) {
+          const heightRatio = containerHeight / contentHeight;
+          scaleFactor = Math.min(scaleFactor, heightRatio);
+        }
+        
+        // Apply scaling if needed
+        if (scaleFactor < 1) {
+          const newSize = Math.max(10, Math.floor(currentFontSize * scaleFactor * 0.95)); // 0.95 buffer
+          if (newSize !== currentFontSize) {
+            setCurrentFontSize(newSize);
+            containerRef.current.dataset.fontSize = String(newSize);
+          }
+        }
+      }
     };
 
-    // Run check
-    const timer = setTimeout(checkOverflow, 50);
+    // Run check with a longer delay to allow KaTeX rendering to complete
+    const timer = setTimeout(checkOverflow, 100);
     return () => clearTimeout(timer);
-  }, [segments, initialMode]); // Run when content changes
+  }
+}, [segments, code, initialMode, currentFontSize]); // Added 'code' and 'currentFontSize' as dependencies
+
 
   const handleSave = () => {
   if (code.trim() === '') onRemove();
@@ -1183,7 +1269,6 @@ export const MathBlock: React.FC<MathBlockProps> = ({ initialTex, fontSize, onUp
     }
   };
 
-  // Initialize currentTikZWidth from DOM on mount/mode change
   useEffect(() => {
     if (initialMode === 'tikz' && containerRef.current) {
       const wrapper = containerRef.current.closest('.math-wrapper') as HTMLElement;
@@ -1197,34 +1282,56 @@ export const MathBlock: React.FC<MathBlockProps> = ({ initialTex, fontSize, onUp
     }
   }, [initialMode, isEditing]);
 
-  const handleTikZSuccess = useCallback((aspectRatio: number) => {
+  const handleTikZSuccess = useCallback((dimensions: { width: number, height: number, aspectRatio: number }) => {
+    const { width, height, aspectRatio } = dimensions;
     setTikZAspectRatio(aspectRatio);
     
     const wrapper = containerRef.current?.closest('.math-wrapper') as HTMLElement;
     if (!wrapper) return;
 
     if (segments.length === 1 && segments[0].type === 'tikz') {
-        const isDefault = !wrapper.style.width || wrapper.style.width === 'auto' || (wrapper.style.width === '300px' && wrapper.style.height === '200px');
+        const currentWidthStr = wrapper.style.width;
+        
+        // We consider it "default" if:
+        // 1. No width set
+        // 2. Width is 'auto'
+        // 3. Width is exactly '300px' (the old hardcoded default) - this helps fix existing "too big" diagrams
+        // 4. Width is '500px' (another potential default)
+        const isDefault = !currentWidthStr || currentWidthStr === 'auto' || currentWidthStr === '300px' || currentWidthStr === '500px';
         
         if (isDefault) {
-           // Force 300px default width
-           const width = 300;
-           const height = width * aspectRatio;
-           
-           wrapper.style.width = `${width}px`;
-           wrapper.style.height = `${height}px`;
+           // Force 300x300 default as requested to prevent "too big" diagrams
+           const targetWidth = 300;
+           const targetHeight = 300;
+
+           wrapper.style.width = `${targetWidth}px`;
+           wrapper.style.height = `${targetHeight}px`;
            wrapper.style.margin = '12px auto';
            wrapper.dataset.float = 'center';
            wrapper.style.display = 'block';
            
-           setCurrentTikZWidth(width);
+           setCurrentTikZWidth(targetWidth);
         } else {
-           // If already resized, sync state to DOM
-           setCurrentTikZWidth(parseFloat(wrapper.style.width));
+           // Respect user's custom width, but update height to match new aspect ratio
+           const currentWidthVal = parseFloat(currentWidthStr);
+           const newHeight = currentWidthVal * aspectRatio;
+           wrapper.style.height = `${newHeight}px`;
+           
+           setCurrentTikZWidth(currentWidthVal);
         }
     } 
     else if (segments.length > 1) {
-        if (wrapper.style.height && parseFloat(wrapper.style.height) < 200) {
+        // Mixed content logic...
+        // Ensure it respects the 300px width constraint if set by useLayoutEffect
+        const currentWidthStr = wrapper.style.width;
+        if (currentWidthStr === '300px') {
+             // If we forced 300px width, we should probably let height be auto to fit text + diagram,
+             // OR force 300px height if that was the intent. 
+             // Given "dimensions should be 300px height and width", we enforce 300px height too.
+             if (!wrapper.style.height || wrapper.style.height === 'auto') {
+                 wrapper.style.height = '300px';
+             }
+        } else if (wrapper.style.height && parseFloat(wrapper.style.height) < 200) {
             wrapper.style.height = 'auto';
             wrapper.style.minHeight = '300px';
         }
@@ -1235,8 +1342,11 @@ export const MathBlock: React.FC<MathBlockProps> = ({ initialTex, fontSize, onUp
     const wrapper = containerRef.current?.closest('.math-wrapper') as HTMLElement;
     if (!wrapper) return;
 
-    // Always calculate from the current state to avoid jumps
-    const newWidth = Math.max(50, Math.min(800, currentTikZWidth + delta));
+    // Use current rendered width as base to avoid jumps
+    const currentRect = wrapper.getBoundingClientRect();
+    const baseWidth = currentRect.width;
+
+    const newWidth = Math.max(50, Math.min(800, baseWidth + delta));
     
     setCurrentTikZWidth(newWidth);
     
@@ -1244,44 +1354,36 @@ export const MathBlock: React.FC<MathBlockProps> = ({ initialTex, fontSize, onUp
     wrapper.style.height = `${newWidth * tikZAspectRatio}px`;
   };
 
-  useEffect(() => {
-  const wrapper = containerRef.current?.closest('.math-wrapper') as HTMLElement;
-  if (wrapper) {
-    if (!wrapper.dataset.float || wrapper.dataset.float === 'center') {
-      wrapper.dataset.float = 'center';
-      wrapper.style.float = 'none';
-      wrapper.style.margin = '12px auto';
-      wrapper.style.display = 'block';
-    }
+  // --- NEW: USE LAYOUT EFFECT TO FORCE INITIAL WIDTH ---
+  useLayoutEffect(() => {
+    const wrapper = containerRef.current?.closest('.math-wrapper') as HTMLElement;
+    if (wrapper) {
+      if (!wrapper.dataset.float || wrapper.dataset.float === 'center') {
+        wrapper.dataset.float = 'center';
+        wrapper.style.float = 'none';
+        wrapper.style.margin = '12px auto';
+        wrapper.style.display = 'block';
+      }
 
-    if (segments.length === 1 && segments[0].type === 'tikz') {
-      if (!wrapper.style.width || wrapper.style.width === 'auto') {
-        wrapper.style.width = '300px'; // Default 300px
-      }
-      if (!wrapper.style.height || wrapper.style.height === 'auto') {
-        wrapper.style.height = '200px';
-      }
-    } else if (segments.length === 1 && segments[0].type === 'math') {
-       // PURE MATH LOGIC - FIX FOR WRAPPING
-       // Default to 100% width for block math to span page
-       wrapper.style.width = '100%';
-       wrapper.style.height = 'auto';
-       // Ensure it doesn't overflow the page horizontally
-       wrapper.style.maxWidth = '100%';
-       // Allow scrolling if content is wider than page
-       wrapper.style.overflowX = 'auto';
-       // Reset min-height that might have been set by mixed/tikz modes
-       wrapper.style.minHeight = '0';
-    } else if (segments.length > 1) {
-      if (!wrapper.style.height || wrapper.style.height === 'auto') {
-        wrapper.style.height = '300px'; 
-      }
-      if (!wrapper.style.width || wrapper.style.width === 'auto') {
-        wrapper.style.width = '500px';
+      if (segments.length === 1 && segments[0].type === 'tikz') {
+        if (!wrapper.style.width || wrapper.style.width === 'auto') {
+          wrapper.style.width = '300px'; // Force 300px default
+        }
+        if (!wrapper.style.height || wrapper.style.height === 'auto') {
+          wrapper.style.height = '300px'; // Force 300px default height
+        }
+      } else if (segments.length > 1) {
+        // Mixed content: Also force 300px default dimensions
+        if (!wrapper.style.width || wrapper.style.width === 'auto' || wrapper.style.width === '500px') {
+          wrapper.style.width = '300px';
+        }
+        if (!wrapper.style.height || wrapper.style.height === 'auto') {
+          wrapper.style.height = '300px'; 
+        }
       }
     }
-  }
-}, [segments]);
+  }, [segments]);
+  
 
   return (
     <div 
@@ -1290,14 +1392,16 @@ export const MathBlock: React.FC<MathBlockProps> = ({ initialTex, fontSize, onUp
     style={{
       minHeight: '3rem',
       height: '100%',
+      width: '100%',
       display: 'flex',
-      flexDirection: 'column'
+      flexDirection: 'column',
+      overflow: 'hidden' // Prevent content from overflowing the resizer
     }}
   >
       
       {/* RENDER VIEW */}
       <div
-        className={`math-rendered transition-all rounded-lg cursor-pointer flex w-full h-full ${isEditing ? '' : 'hover:bg-blue-50/50 hover:ring-2 hover:ring-blue-100'}`}
+        className={`math-rendered transition-all rounded-lg cursor-pointer ${isEditing ? '' : 'hover:bg-blue-50/50 hover:ring-2 hover:ring-blue-100'}`}
         title="Click to edit"
         onClick={(e) => { e.stopPropagation(); setIsEditing(true); }}
         style={{ 
@@ -1307,9 +1411,11 @@ export const MathBlock: React.FC<MathBlockProps> = ({ initialTex, fontSize, onUp
             width: '100%',
             height: '100%',
             position: 'relative',
-            gap: layout === 'horizontal' ? '1rem' : '0',
-            // NEW: Apply alignment to the flex container
-            justifyContent: alignment === 'left' ? 'flex-start' : alignment === 'right' ? 'flex-end' : 'center'
+            gap: layout === 'horizontal' ? '1rem' : '0.5rem',
+            alignItems: layout === 'horizontal' ? 'center' : 'stretch',
+            justifyContent: alignment === 'left' ? 'flex-start' : alignment === 'right' ? 'flex-end' : 'center',
+            padding: '8px',
+            overflow: 'hidden' // Contain content within boundaries
         }}
       >
         {segments.length === 0 ? (
@@ -1319,29 +1425,51 @@ export const MathBlock: React.FC<MathBlockProps> = ({ initialTex, fontSize, onUp
             <React.Fragment key={idx}>
               {seg.type === 'tikz' ? (
                 <div 
-                  className="tikz-segment w-full" 
+                  className="tikz-segment" 
                   style={{ 
-                    flex: layout === 'horizontal' ? '1 1 0%' : (segments.length > 1 ? '1 1 0%' : '1 1 auto'),
+                    flexGrow: 0,
+                    flexShrink: 1,
+                    flexBasis: 'auto',
                     position: 'relative',
                     display: 'flex',
                     alignItems: 'center',
-                    // NEW: Dynamic alignment for TikZ
                     justifyContent: alignment === 'left' ? 'flex-start' : alignment === 'right' ? 'flex-end' : 'center',
-                    minHeight: 0
+                    width: layout === 'horizontal' ? `${currentTikZWidth}px` : '100%',
+                    height: layout === 'horizontal' ? `${currentTikZWidth * tikZAspectRatio}px` : '100%',
+                    minHeight: 0,
+                    minWidth: 0,
+                    maxWidth: '100%',
+                    maxHeight: '100%',
+                    overflow: 'hidden'
                   }}
                 >
                   <TikZRenderer code={seg.content} isLoaded={isTikZLoaded} onSuccess={handleTikZSuccess} alignment={alignment} />
                 </div>
               ) : (
-                <div className="math-segment w-full" style={{ 
-                  flex: layout === 'horizontal' ? '1 1 0%' : '0 0 auto',
+                <div className="math-segment" style={{ 
+                  flexGrow: layout === 'horizontal' ? 1 : 0,
+                  flexShrink: 1,
+                  flexBasis: 'auto',
                   display: 'flex',
-                  // NEW: Dynamic alignment for Math
                   justifyContent: alignment === 'left' ? 'flex-start' : alignment === 'right' ? 'flex-end' : 'center',
                   alignItems: 'center',
-                  padding: '4px 0'
+                  padding: '4px 0',
+                  minWidth: 0,
+                  minHeight: 0,
+                  maxWidth: '100%',
+                  maxHeight: '100%',
+                  overflow: 'hidden'
                 }}>
-                  <KaTeXRenderer code={seg.content} fontSize={currentFontSize} alignment={alignment} />
+                  <div style={{ 
+                    maxWidth: '100%', 
+                    maxHeight: '100%',
+                    overflow: 'hidden',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: alignment === 'left' ? 'flex-start' : alignment === 'right' ? 'flex-end' : 'center'
+                  }}>
+                    <KaTeXRenderer code={seg.content} fontSize={currentFontSize} alignment={alignment} />
+                  </div>
                 </div>
               )}
             </React.Fragment>
