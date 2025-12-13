@@ -1,20 +1,65 @@
 "use client";
 
-import React, { useState, useRef, useEffect, useLayoutEffect, useMemo, useCallback } from 'react';
-import { createPortal } from 'react-dom';
-import katex from 'katex';
-import 'katex/dist/katex.min.css';
-import { 
-  Calculator, FunctionSquare, Sigma, Binary, ArrowRightLeft, 
-  X, Check, Sun, Moon, 
-  Circle, Square, ArrowRight, Grid, Share2, Network, Cpu, Activity, 
-  PenTool, Plus, Minus, Table,
-  CornerUpRight, Type, Crosshair, Palette, Repeat, 
-  GitCommit, GitMerge, Clock, Combine, Layout, List, Share,
-  Box, Aperture, Anchor, Eye, Triangle, BarChart, PieChart, Orbit,
-  AlertTriangle, AlertCircle,
-  Columns, Rows, BookOpen, GripHorizontal
-} from 'lucide-react';
+import React, {
+  useState,
+  useRef,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useCallback,
+} from "react";
+import { createPortal } from "react-dom";
+import katex from "katex";
+import "katex/dist/katex.min.css";
+import {
+  Calculator,
+  FunctionSquare,
+  Sigma,
+  Binary,
+  ArrowRightLeft,
+  X,
+  Check,
+  Sun,
+  Moon,
+  Circle,
+  Square,
+  ArrowRight,
+  Grid,
+  Share2,
+  Network,
+  Cpu,
+  Activity,
+  PenTool,
+  Plus,
+  Minus,
+  Table,
+  CornerUpRight,
+  Type,
+  Crosshair,
+  Palette,
+  Repeat,
+  GitCommit,
+  GitMerge,
+  Clock,
+  Combine,
+  Layout,
+  List,
+  Share,
+  Box,
+  Aperture,
+  Anchor,
+  Eye,
+  Triangle,
+  BarChart,
+  PieChart,
+  Orbit,
+  AlertTriangle,
+  AlertCircle,
+  Columns,
+  Rows,
+  BookOpen,
+  GripHorizontal,
+} from "lucide-react";
 
 // --- TYPES ---
 interface MathBlockProps {
@@ -24,92 +69,118 @@ interface MathBlockProps {
   onRemove: () => void;
 }
 
-type EditorTheme = 'dark' | 'light';
-type BlockMode = 'math' | 'tikz';
-type BlockLayout = 'vertical' | 'horizontal';
-type Category = 'basic' | 'algebra' | 'greek' | 'logic' | 'calculus' | 'academic' | 'essentials' | 'diagrams' | 'advanced';
-type Alignment = 'left' | 'center' | 'right';
+type EditorTheme = "dark" | "light";
+type BlockMode = "math" | "tikz";
+type BlockLayout = "vertical" | "horizontal";
+type Category =
+  | "basic"
+  | "algebra"
+  | "greek"
+  | "logic"
+  | "calculus"
+  | "academic"
+  | "essentials"
+  | "diagrams"
+  | "advanced";
+type Alignment = "left" | "center" | "right";
 
 interface SymbolItem {
   label: string;
   insert: string;
-  display?: string; 
-  icon?: React.ElementType; 
+  display?: string;
+  icon?: React.ElementType;
   description?: string;
   offset?: number;
 }
 
 // --- CONFIGURATION ---
 
-const MATH_CATEGORIES: { id: Category; icon: React.ElementType; label: string }[] = [
-  { id: 'basic', icon: Calculator, label: 'Basic' },
-  { id: 'algebra', icon: FunctionSquare, label: 'Algebra' },
-  { id: 'calculus', icon: Sigma, label: 'Calculus' },
-  { id: 'greek', icon: Binary, label: 'Greek' },
-  { id: 'logic', icon: ArrowRightLeft, label: 'Logic' },
-  { id: 'academic', icon: BookOpen, label: 'Academic' },
+const MATH_CATEGORIES: {
+  id: Category;
+  icon: React.ElementType;
+  label: string;
+}[] = [
+  { id: "basic", icon: Calculator, label: "Basic" },
+  { id: "algebra", icon: FunctionSquare, label: "Algebra" },
+  { id: "calculus", icon: Sigma, label: "Calculus" },
+  { id: "greek", icon: Binary, label: "Greek" },
+  { id: "logic", icon: ArrowRightLeft, label: "Logic" },
+  { id: "academic", icon: BookOpen, label: "Academic" },
 ];
 
-const TIKZ_CATEGORIES: { id: Category; icon: React.ElementType; label: string }[] = [
-  { id: 'essentials', icon: Circle, label: 'Essentials' },
-  { id: 'diagrams', icon: Share2, label: 'Diagrams' },
-  { id: 'advanced', icon: Cpu, label: 'Advanced' },
+const TIKZ_CATEGORIES: {
+  id: Category;
+  icon: React.ElementType;
+  label: string;
+}[] = [
+  { id: "essentials", icon: Circle, label: "Essentials" },
+  { id: "diagrams", icon: Share2, label: "Diagrams" },
+  { id: "advanced", icon: Cpu, label: "Advanced" },
 ];
 
 const MATH_SYMBOLS: Record<string, SymbolItem[]> = {
-    basic: [
-      { label: 'Fraction', display: '\\frac{a}{b}', insert: '\\frac{}{}', offset: -3 },
-      { label: 'Sqrt', display: '\\sqrt{x}', insert: '\\sqrt{}', offset: -1 },
-      { label: 'Power', display: 'x^n', insert: '^{}', offset: -1 },
-      { label: 'Sub', display: 'x_n', insert: '_{}', offset: -1 },
-      { label: 'Times', display: '\\times', insert: '\\times ' },
-      { label: 'Div', display: '\\div', insert: '\\div ' },
-      { label: 'PM', display: '\\pm', insert: '\\pm ' },
-      { label: 'Approx', display: '\\approx', insert: '\\approx ' },
-      { label: 'Neq', display: '\\neq', insert: '\\neq ' },
-      { label: 'Inf', display: '\\infty', insert: '\\infty ' },
-    ],
-    algebra: [
-        { label: 'Parens', display: '(x)', insert: '()' },
-        { label: 'Brackets', display: '[x]', insert: '[]', offset: -1 },
-        { label: 'Braces', display: '\\{x\\}', insert: '\\{\\}', offset: -2 },
-        { label: 'Sum', display: '\\sum', insert: '\\sum_{}^{}', offset: -4 },
-        { label: 'Vector', display: '\\vec{x}', insert: '\\vec{}', offset: -1 },
-        { label: 'Matrix', display: '\\begin{bmatrix}\\dots\\end{bmatrix}', insert: '\\begin{bmatrix} a & b \\\\ c & d \\end{bmatrix}' },
-    ],
-    calculus: [
-        { label: 'Int', display: '\\int', insert: '\\int_{}^{}', offset: -4 },
-        { label: 'Lim', display: '\\lim', insert: '\\lim_{x \\to }', offset: -1 },
-        { label: 'd/dx', display: '\\frac{d}{dx}', insert: '\\frac{d}{dx}' },
-        { label: 'Partial', display: '\\partial', insert: '\\partial ' },
-        { label: 'Nabla', display: '\\nabla', insert: '\\nabla ' },
-    ],
-    greek: [
-        { label: 'Alpha', display: '\\alpha', insert: '\\alpha ' },
-        { label: 'Beta', display: '\\beta', insert: '\\beta ' },
-        { label: 'Gamma', display: '\\gamma', insert: '\\gamma ' },
-        { label: 'Delta', display: '\\Delta', insert: '\\Delta ' },
-        { label: 'Theta', display: '\\theta', insert: '\\theta ' },
-        { label: 'Pi', display: '\\pi', insert: '\\pi ' },
-        { label: 'Sigma', display: '\\sigma', insert: '\\sigma ' },
-        { label: 'Omega', display: '\\Omega', insert: '\\Omega ' },
-        { label: 'Phi', display: '\\phi', insert: '\\phi ' },
-    ],
-    logic: [
-        { label: 'Right', display: '\\rightarrow', insert: '\\rightarrow ' },
-        { label: 'Left', display: '\\leftarrow', insert: '\\leftarrow ' },
-        { label: 'Implies', display: '\\Rightarrow', insert: '\\Rightarrow ' },
-        { label: 'For All', display: '\\forall', insert: '\\forall ' },
-        { label: 'Exists', display: '\\exists', insert: '\\exists ' },
-        { label: 'In', display: '\\in', insert: '\\in ' },
-        { label: 'Therefore', display: '\\therefore', insert: '\\therefore ' },
-    ],
-    academic: [
-      { 
-        label: 'Algorithm', 
-        display: '\\textbf{Alg}', 
-        description: 'Algorithm Block',
-        insert: `\\def\\arraystretch{1.4}
+  basic: [
+    {
+      label: "Fraction",
+      display: "\\frac{a}{b}",
+      insert: "\\frac{}{}",
+      offset: -3,
+    },
+    { label: "Sqrt", display: "\\sqrt{x}", insert: "\\sqrt{}", offset: -1 },
+    { label: "Power", display: "x^n", insert: "^{}", offset: -1 },
+    { label: "Sub", display: "x_n", insert: "_{}", offset: -1 },
+    { label: "Times", display: "\\times", insert: "\\times " },
+    { label: "Div", display: "\\div", insert: "\\div " },
+    { label: "PM", display: "\\pm", insert: "\\pm " },
+    { label: "Approx", display: "\\approx", insert: "\\approx " },
+    { label: "Neq", display: "\\neq", insert: "\\neq " },
+    { label: "Inf", display: "\\infty", insert: "\\infty " },
+  ],
+  algebra: [
+    { label: "Parens", display: "(x)", insert: "()" },
+    { label: "Brackets", display: "[x]", insert: "[]", offset: -1 },
+    { label: "Braces", display: "\\{x\\}", insert: "\\{\\}", offset: -2 },
+    { label: "Sum", display: "\\sum", insert: "\\sum_{}^{}", offset: -4 },
+    { label: "Vector", display: "\\vec{x}", insert: "\\vec{}", offset: -1 },
+    {
+      label: "Matrix",
+      display: "\\begin{bmatrix}\\dots\\end{bmatrix}",
+      insert: "\\begin{bmatrix} a & b \\\\ c & d \\end{bmatrix}",
+    },
+  ],
+  calculus: [
+    { label: "Int", display: "\\int", insert: "\\int_{}^{}", offset: -4 },
+    { label: "Lim", display: "\\lim", insert: "\\lim_{x \\to }", offset: -1 },
+    { label: "d/dx", display: "\\frac{d}{dx}", insert: "\\frac{d}{dx}" },
+    { label: "Partial", display: "\\partial", insert: "\\partial " },
+    { label: "Nabla", display: "\\nabla", insert: "\\nabla " },
+  ],
+  greek: [
+    { label: "Alpha", display: "\\alpha", insert: "\\alpha " },
+    { label: "Beta", display: "\\beta", insert: "\\beta " },
+    { label: "Gamma", display: "\\gamma", insert: "\\gamma " },
+    { label: "Delta", display: "\\Delta", insert: "\\Delta " },
+    { label: "Theta", display: "\\theta", insert: "\\theta " },
+    { label: "Pi", display: "\\pi", insert: "\\pi " },
+    { label: "Sigma", display: "\\sigma", insert: "\\sigma " },
+    { label: "Omega", display: "\\Omega", insert: "\\Omega " },
+    { label: "Phi", display: "\\phi", insert: "\\phi " },
+  ],
+  logic: [
+    { label: "Right", display: "\\rightarrow", insert: "\\rightarrow " },
+    { label: "Left", display: "\\leftarrow", insert: "\\leftarrow " },
+    { label: "Implies", display: "\\Rightarrow", insert: "\\Rightarrow " },
+    { label: "For All", display: "\\forall", insert: "\\forall " },
+    { label: "Exists", display: "\\exists", insert: "\\exists " },
+    { label: "In", display: "\\in", insert: "\\in " },
+    { label: "Therefore", display: "\\therefore", insert: "\\therefore " },
+  ],
+  academic: [
+    {
+      label: "Algorithm",
+      display: "\\textbf{Alg}",
+      description: "Algorithm Block",
+      insert: `\\def\\arraystretch{1.4}
 \\begin{array}{l}
 \\hline
 \\textbf{Algorithm 1 } \\text{Name of Algorithm} \\\\
@@ -119,47 +190,47 @@ const MATH_SYMBOLS: Record<string, SymbolItem[]> = {
 3: \\quad x \\leftarrow x + 1 \\\\
 4: \\textbf{end for} \\\\
 \\hline
-\\end{array}` 
-      },
-      { 
-        label: 'Theorem', 
-        display: '\\textbf{Thm}', 
-        description: 'Theorem Statement',
-        insert: `\\begin{array}{l}
+\\end{array}`,
+    },
+    {
+      label: "Theorem",
+      display: "\\textbf{Thm}",
+      description: "Theorem Statement",
+      insert: `\\begin{array}{l}
 \\textbf{Theorem 1.1. } \\textit{Let } f \\textit{ be a function such that...} \\\\
 \\quad \\text{Then } \\lim_{x \\to \\infty} f(x) = 0.
-\\end{array}` 
-      },
-      { 
-        label: 'Lemma', 
-        display: '\\textbf{Lem}', 
-        description: 'Lemma Statement',
-        insert: `\\begin{array}{l}
+\\end{array}`,
+    },
+    {
+      label: "Lemma",
+      display: "\\textbf{Lem}",
+      description: "Lemma Statement",
+      insert: `\\begin{array}{l}
 \\textbf{Lemma 2. } \\textit{If } A \\subseteq B \\textit{ then...}
-\\end{array}` 
-      },
-      { 
-        label: 'Proof', 
-        display: '\\textbf{Pf}', 
-        description: 'Proof Block',
-        insert: `\\begin{array}{l}
+\\end{array}`,
+    },
+    {
+      label: "Proof",
+      display: "\\textbf{Pf}",
+      description: "Proof Block",
+      insert: `\\begin{array}{l}
 \\textit{Proof.} \\\\
 \\quad \\text{We start by assuming...} \\\\
 \\quad \\text{...intermediate steps...} \\\\
 \\quad \\text{Thus, the proof is complete.} \\; \\square
-\\end{array}` 
-      },
-      { 
-        label: 'Definition', 
-        display: '\\textbf{Def}', 
-        description: 'Definition Block',
-        insert: `\\textbf{Definition 1. } \\textit{A space } X \\textit{ is compact if...}` 
-      },
-      { 
-        label: 'Complex Algo', 
-        display: '\\textbf{Alg+}', 
-        description: 'Complex Algorithm (Like Image)',
-        insert: `\\def\\arraystretch{1.3}
+\\end{array}`,
+    },
+    {
+      label: "Definition",
+      display: "\\textbf{Def}",
+      description: "Definition Block",
+      insert: `\\textbf{Definition 1. } \\textit{A space } X \\textit{ is compact if...}`,
+    },
+    {
+      label: "Complex Algo",
+      display: "\\textbf{Alg+}",
+      description: "Complex Algorithm (Like Image)",
+      insert: `\\def\\arraystretch{1.3}
 \\begin{array}{l}
 \\hline
 \\textbf{Algorithm 31 } \\text{Follow the Leading History} \\\\
@@ -174,57 +245,207 @@ const MATH_SYMBOLS: Record<string, SymbolItem[]> = {
 \\qquad \\qquad \\forall i \\neq t+1, p_{t+1}^i = (1 - \\frac{1}{t+1}) \\hat{p}_{t+1}^i \\\\
 8: \\textbf{end for} \\\\
 \\hline
-\\end{array}` 
-      },
-    ],
+\\end{array}`,
+    },
+  ],
 };
 
 const COMMON_PREAMBLE = `\\usetikzlibrary{arrows.meta,calc,positioning,shapes.geometric,patterns,intersections,backgrounds,fit,matrix}`;
 
 const TIKZ_TEMPLATES: Record<string, SymbolItem[]> = {
-    essentials: [
-        { label: 'Line', icon: Minus, description: 'Basic line path', insert: `\\begin{tikzpicture}\n  \\draw (0,0) -- (2,1);\n  \\draw[red, thick] (0,1) -- (2,0);\n\\end{tikzpicture}` },
-        { label: 'Circle', icon: Circle, description: 'Circle with radius', insert: `\\begin{tikzpicture}\n  \\draw[blue, fill=blue!10] (0,0) circle (1cm);\n  \\draw (0,0) -- (1,0) node[midway, above] {$r$};\n\\end{tikzpicture}` },
-        { label: 'Rect', icon: Square, description: 'Rectangle box', insert: `\\begin{tikzpicture}\n  \\draw[thick, fill=green!10] (0,0) rectangle (3,2);\n  \\node at (1.5,1) {Box};\n\\end{tikzpicture}` },
-        { label: 'Grid', icon: Grid, description: 'Coordinate grid', insert: `\\begin{tikzpicture}\n  \\draw[step=0.5cm, gray, very thin] (-1,-1) grid (1,1);\n  \\draw[->] (-1.2,0) -- (1.2,0) node[right] {$x$};\n  \\draw[->] (0,-1.2) -- (0,1.2) node[above] {$y$};\n\\end{tikzpicture}` },
-        { label: 'Arc', icon: CornerUpRight, description: 'Curved path', insert: `\\begin{tikzpicture}\n  \\draw[thick] (0,0) arc (0:90:1.5cm);\n  \\draw[dashed] (0,0) -- (1.5,0);\n  \\draw[dashed] (0,0) -- (0,1.5);\n\\end{tikzpicture}` },
-        { label: 'Node', icon: Type, description: 'Text label', insert: `\\begin{tikzpicture}\n  \\node[draw] (A) at (0,0) {Hello};\n  \\node[draw, circle] (B) at (2,0) {World};\n\\end{tikzpicture}` },
-        { label: 'Coords', icon: Crosshair, description: 'Named coordinates', insert: `\\begin{tikzpicture}\n  \\coordinate (A) at (0,0);\n  \\coordinate (B) at (2,2);\n  \\draw[->] (A) -- (B);\n  \\fill (A) circle (2pt) node[below] {A};\n  \\fill (B) circle (2pt) node[above] {B};\n\\end{tikzpicture}` },
-        { label: 'Style', icon: Palette, description: 'Custom styles', insert: `\\begin{tikzpicture}[mybox/.style={draw, fill=yellow!20, thick, rounded corners}]\n  \\node[mybox] {Styled Node};\n\\end{tikzpicture}` },
-        { label: 'Arrow', icon: ArrowRight, description: 'Arrow tips', insert: `\\begin{tikzpicture}[>=Stealth]\n  \\draw[->] (0,0) -- (2,0);\n  \\draw[<->] (0,-0.5) -- (2,-0.5);\n  \\draw[|->] (0,-1) -- (2,-1);\n\\end{tikzpicture}` },
-        { label: 'Loop', icon: Repeat, description: 'Foreach loop', insert: `\\begin{tikzpicture}\n  \\foreach \\x in {0,1,2,3}\n    \\draw[fill=red!\\x0] (\\x,0) circle (0.4);\n\\end{tikzpicture}` },
-    ],
-    diagrams: [
-        { label: 'Flow', icon: Share2, description: 'Flowchart', insert: `${COMMON_PREAMBLE}\n\\begin{tikzpicture}[node distance=1.5cm, >={Stealth[round]}, thick]\n  \\node[draw, rounded corners] (start) {Start};\n  \\node[draw, rectangle, below=of start] (step1) {Step 1};\n  \\node[draw, diamond, aspect=2, below=of step1] (choice) {?};\n  \\draw[->] (start) -- (step1);\n  \\draw[->] (step1) -- (choice);\n\\end{tikzpicture}` },
-        { label: 'Tree', icon: Network, description: 'Hierarchy tree', insert: `${COMMON_PREAMBLE}\n\\begin{tikzpicture}[level distance=1.5cm, sibling distance=1.5cm]\n  \\node {Root} child { node {L} } child { node {R} child { node {R1} } child { node {R2} } };\n\\end{tikzpicture}` },
-        { label: 'Table', icon: Table, description: 'Matrix Table', insert: `\\usetikzlibrary{matrix}\n\\begin{tikzpicture}\n  \\matrix [matrix of nodes, nodes={draw, minimum height=0.8cm, minimum width=1.5cm, anchor=center}, column sep=-\\pgflinewidth, row sep=-\\pgflinewidth, row 1/.style={nodes={fill=gray!20, font=\\bfseries}}] {\n    ID & Val \\\\\n    1 & A \\\\\n    2 & B \\\\\n  };\n\\end{tikzpicture}` },
-        { label: 'State', icon: GitCommit, description: 'State machine', insert: `\\begin{tikzpicture}[>=Stealth, node distance=2cm, thick]\n  \\node[draw, circle] (A) {A};\n  \\node[draw, circle, right=of A] (B) {B};\n  \\draw[->] (A) to[bend left] (B);\n  \\draw[->] (B) to[bend left] (A);\n  \\draw[->] (A) edge[loop above] (A);\n\\end{tikzpicture}` },
-        { label: 'MindMap', icon: GitMerge, description: 'Central concept', insert: `\\begin{tikzpicture}\n  \\node[draw, circle, fill=blue!10, minimum size=1.5cm] (center) {Idea};\n  \\foreach \\angle/\\text in {0/A, 90/B, 180/C, 270/D}\n    \\node[draw, circle, fill=yellow!10] at (\\angle:2cm) {\\text} edge (center);\n\\end{tikzpicture}` },
-        { label: 'Time', icon: Clock, description: 'Timeline', insert: `\\begin{tikzpicture}\n  \\draw[->, thick] (0,0) -- (5,0);\n  \\foreach \\x/\\label in {0/Start, 2/Mid, 4/End}\n    \\draw (\\x,0.1) -- (\\x,-0.1) node[below] {\\label};\n\\end{tikzpicture}` },
-        { label: 'Venn', icon: Combine, description: 'Venn diagram', insert: `\\begin{tikzpicture}\n  \\draw[fill=red, opacity=0.3] (0,0) circle (1.2);\n  \\draw[fill=blue, opacity=0.3] (1.5,0) circle (1.2);\n  \\node at (0.75,0) {A $\\cap$ B};\n\\end{tikzpicture}` },
-        { label: 'UML', icon: Layout, description: 'Class diagram', insert: `\\begin{tikzpicture}\n  \\node[draw, rectangle split, rectangle split parts=2] (class) {\n    \\textbf{User}\n    \\nodepart{second} name: String \\\\ age: Int\n  };\n\\end{tikzpicture}` },
-        { label: 'Seq', icon: List, description: 'Sequence diagram', insert: `\\begin{tikzpicture}\n  \\draw (0,0) node[above]{A} -- (0,-3);\n  \\draw (3,0) node[above]{B} -- (3,-3);\n  \\draw[->] (0,-1) -- (3,-1) node[midway, above] {msg 1};\n  \\draw[->, dashed] (3,-2) -- (0,-2) node[midway, above] {reply};\n\\end{tikzpicture}` },
-        { label: 'Graph', icon: Share, description: 'Network graph', insert: `\\begin{tikzpicture}[auto, node distance=2cm]\n  \\node[draw, circle] (1) {1};\n  \\node[draw, circle, below right=of 1] (2) {2};\n  \\node[draw, circle, below left=of 1] (3) {3};\n  \\draw (1) -- (2);\n  \\draw (1) -- (3);\n  \\draw (2) -- (3);\n\\end{tikzpicture}` },
-    ],
-    advanced: [
-        { label: 'Plot', icon: Activity, description: 'Function plot', insert: `\\begin{tikzpicture}\n  \\draw[->] (-0.5,0) -- (3,0) node[right] {$x$};\n  \\draw[->] (0,-0.5) -- (0,3) node[above] {$y$};\n  \\draw[domain=0:2, smooth, variable=\\x, blue, thick] plot (\\x, {\\x*\\x});\n\\end{tikzpicture}` },
-        { label: 'Circuit', icon: Cpu, description: 'Electrical circuit', insert: `\\begin{tikzpicture}[thick, scale=1.2]\n  \\draw (0,0) -- (0,2) -- (1,2);\n  \\draw (1,2) -- (1.2,2.2) -- (1.4,1.8) -- (1.6,2.2) -- (1.8,1.8) -- (2,2);\n  \\draw (2,2) -- (3,2) -- (3,0) -- (0,0);\n  \\draw (1.5, 2.5) node {$R$};\n  \\draw (-0.2, 0.8) -- (0.2, 0.8);\n  \\draw (-0.2, 1.2) -- (0.2, 1.2);\n  \\node at (-0.5, 1) {$V$};\n\\end{tikzpicture}` },
-        { label: '3D Box', icon: Box, description: 'Isometric view', insert: `\\begin{tikzpicture}[x={(-0.5cm,-0.5cm)}, y={(1cm,0cm)}, z={(0cm,1cm)}]\n  \\draw[thick] (0,0,0) -- (2,0,0) -- (2,2,0) -- (0,2,0) -- cycle;\n  \\draw[thick] (0,0,2) -- (2,0,2) -- (2,2,2) -- (0,2,2) -- cycle;\n  \\draw[thick] (0,0,0) -- (0,0,2);\n  \\draw[thick] (2,0,0) -- (2,0,2);\n  \\draw[thick] (2,2,0) -- (2,2,2);\n  \\draw[thick] (0,2,0) -- (0,2,2);\n\\end{tikzpicture}` },
-        { label: 'Polar', icon: Aperture, description: 'Polar coordinates', insert: `\\begin{tikzpicture}\n  \\draw[->] (-2,0) -- (2,0);\n  \\draw[->] (0,-2) -- (0,2);\n  \\draw[red, thick, domain=0:360, samples=100] plot ({cos(\\x)*1.5}, {sin(\\x)*1.5});\n\\end{tikzpicture}` },
-        { label: 'Physics', icon: Anchor, description: 'Pendulum', insert: `\\begin{tikzpicture}\n  \\fill[pattern=north east lines] (-1,0) rectangle (1,0.2);\n  \\draw[thick] (-1,0) -- (1,0);\n  \\draw (0,0) -- (300:3cm) coordinate (bob);\n  \\fill (bob) circle (0.2);\n  \\draw[dashed] (0,0) -- (0,-3);\n  \\draw (0,-1) arc (270:300:1);\n  \\node at (0.3,-1.2) {$\\theta$};\n\\end{tikzpicture}` },
-        { label: 'Optics', icon: Eye, description: 'Lens and rays', insert: `\\begin{tikzpicture}\n  \\draw[thick, <->] (0,-2) -- (0,2);\n  \\draw[dashed] (-3,0) -- (3,0);\n  \\draw[red] (-2,1) -- (0,1) -- (2,-1);\n  \\draw[red] (-2,1) -- (0,0) -- (2,-1);\n  \\draw[fill] (-2,1) circle (1pt) node[above] {Obj};\n  \\draw[fill] (2,-1) circle (1pt) node[below] {Img};\n\\end{tikzpicture}` },
-        { label: 'Fractal', icon: Triangle, description: 'Sierpinski triangle', insert: `\\begin{tikzpicture}[scale=3]\n  \\draw (0,0) -- (1,0) -- (0.5,0.866) -- cycle;\n  \\foreach \\i in {0,1,2} {\n    \\begin{scope}[shift={(0,0)}, scale=0.5]\n       \\draw[fill=white] (0.5,0) -- (0.75,0.433) -- (0.25,0.433) -- cycle;\n    \\end{scope}\n  }\n\\end{tikzpicture}` },
-        { label: 'Bar', icon: BarChart, description: 'Bar chart', insert: `\\begin{tikzpicture}\n  \\draw (0,0) -- (4,0);\n  \\draw (0,0) -- (0,3);\n  \\foreach \\x/\\h in {0.5/1, 1.5/2.5, 2.5/1.5, 3.5/0.5}\n    \\draw[fill=blue] (\\x-0.25,0) rectangle (\\x+0.25,\\h);\n\\end{tikzpicture}` },
-        { label: 'Pie', icon: PieChart, description: 'Pie chart', insert: `\\begin{tikzpicture}\n  \\draw[fill=red!30] (0,0) -- (0:1.5) arc (0:120:1.5) -- cycle;\n  \\draw[fill=green!30] (0,0) -- (120:1.5) arc (120:200:1.5) -- cycle;\n  \\draw[fill=blue!30] (0,0) -- (200:1.5) arc (200:360:1.5) -- cycle;\n\\end{tikzpicture}` },
-        { label: 'Orbit', icon: Orbit, description: 'Solar system', insert: `\\begin{tikzpicture}\n  \\draw[fill=yellow] (0,0) circle (0.5);\n  \\draw[dashed] (0,0) circle (1.5);\n  \\draw[dashed] (0,0) circle (2.5);\n  \\fill[blue] (45:1.5) circle (0.1) node[right] {Earth};\n  \\fill[red] (120:2.5) circle (0.15) node[above] {Mars};\n\\end{tikzpicture}` },
-    ]
+  essentials: [
+    {
+      label: "Line",
+      icon: Minus,
+      description: "Basic line path",
+      insert: `\\begin{tikzpicture}\n  \\draw (0,0) -- (2,1);\n  \\draw[red, thick] (0,1) -- (2,0);\n\\end{tikzpicture}`,
+    },
+    {
+      label: "Circle",
+      icon: Circle,
+      description: "Circle with radius",
+      insert: `\\begin{tikzpicture}\n  \\draw[blue, fill=blue!10] (0,0) circle (1cm);\n  \\draw (0,0) -- (1,0) node[midway, above] {$r$};\n\\end{tikzpicture}`,
+    },
+    {
+      label: "Rect",
+      icon: Square,
+      description: "Rectangle box",
+      insert: `\\begin{tikzpicture}\n  \\draw[thick, fill=green!10] (0,0) rectangle (3,2);\n  \\node at (1.5,1) {Box};\n\\end{tikzpicture}`,
+    },
+    {
+      label: "Grid",
+      icon: Grid,
+      description: "Coordinate grid",
+      insert: `\\begin{tikzpicture}\n  \\draw[step=0.5cm, gray, very thin] (-1,-1) grid (1,1);\n  \\draw[->] (-1.2,0) -- (1.2,0) node[right] {$x$};\n  \\draw[->] (0,-1.2) -- (0,1.2) node[above] {$y$};\n\\end{tikzpicture}`,
+    },
+    {
+      label: "Arc",
+      icon: CornerUpRight,
+      description: "Curved path",
+      insert: `\\begin{tikzpicture}\n  \\draw[thick] (0,0) arc (0:90:1.5cm);\n  \\draw[dashed] (0,0) -- (1.5,0);\n  \\draw[dashed] (0,0) -- (0,1.5);\n\\end{tikzpicture}`,
+    },
+    {
+      label: "Node",
+      icon: Type,
+      description: "Text label",
+      insert: `\\begin{tikzpicture}\n  \\node[draw] (A) at (0,0) {Hello};\n  \\node[draw, circle] (B) at (2,0) {World};\n\\end{tikzpicture}`,
+    },
+    {
+      label: "Coords",
+      icon: Crosshair,
+      description: "Named coordinates",
+      insert: `\\begin{tikzpicture}\n  \\coordinate (A) at (0,0);\n  \\coordinate (B) at (2,2);\n  \\draw[->] (A) -- (B);\n  \\fill (A) circle (2pt) node[below] {A};\n  \\fill (B) circle (2pt) node[above] {B};\n\\end{tikzpicture}`,
+    },
+    {
+      label: "Style",
+      icon: Palette,
+      description: "Custom styles",
+      insert: `\\begin{tikzpicture}[mybox/.style={draw, fill=yellow!20, thick, rounded corners}]\n  \\node[mybox] {Styled Node};\n\\end{tikzpicture}`,
+    },
+    {
+      label: "Arrow",
+      icon: ArrowRight,
+      description: "Arrow tips",
+      insert: `\\begin{tikzpicture}[>=Stealth]\n  \\draw[->] (0,0) -- (2,0);\n  \\draw[<->] (0,-0.5) -- (2,-0.5);\n  \\draw[|->] (0,-1) -- (2,-1);\n\\end{tikzpicture}`,
+    },
+    {
+      label: "Loop",
+      icon: Repeat,
+      description: "Foreach loop",
+      insert: `\\begin{tikzpicture}\n  \\foreach \\x in {0,1,2,3}\n    \\draw[fill=red!\\x0] (\\x,0) circle (0.4);\n\\end{tikzpicture}`,
+    },
+  ],
+  diagrams: [
+    {
+      label: "Flow",
+      icon: Share2,
+      description: "Flowchart",
+      insert: `${COMMON_PREAMBLE}\n\\begin{tikzpicture}[node distance=1.5cm, >={Stealth[round]}, thick]\n  \\node[draw, rounded corners] (start) {Start};\n  \\node[draw, rectangle, below=of start] (step1) {Step 1};\n  \\node[draw, diamond, aspect=2, below=of step1] (choice) {?};\n  \\draw[->] (start) -- (step1);\n  \\draw[->] (step1) -- (choice);\n\\end{tikzpicture}`,
+    },
+    {
+      label: "Tree",
+      icon: Network,
+      description: "Hierarchy tree",
+      insert: `${COMMON_PREAMBLE}\n\\begin{tikzpicture}[level distance=1.5cm, sibling distance=1.5cm]\n  \\node {Root} child { node {L} } child { node {R} child { node {R1} } child { node {R2} } };\n\\end{tikzpicture}`,
+    },
+    {
+      label: "Table",
+      icon: Table,
+      description: "Matrix Table",
+      insert: `\\usetikzlibrary{matrix}\n\\begin{tikzpicture}\n  \\matrix [matrix of nodes, nodes={draw, minimum height=0.8cm, minimum width=1.5cm, anchor=center}, column sep=-\\pgflinewidth, row sep=-\\pgflinewidth, row 1/.style={nodes={fill=gray!20, font=\\bfseries}}] {\n    ID & Val \\\\\n    1 & A \\\\\n    2 & B \\\\\n  };\n\\end{tikzpicture}`,
+    },
+    {
+      label: "State",
+      icon: GitCommit,
+      description: "State machine",
+      insert: `\\begin{tikzpicture}[>=Stealth, node distance=2cm, thick]\n  \\node[draw, circle] (A) {A};\n  \\node[draw, circle, right=of A] (B) {B};\n  \\draw[->] (A) to[bend left] (B);\n  \\draw[->] (B) to[bend left] (A);\n  \\draw[->] (A) edge[loop above] (A);\n\\end{tikzpicture}`,
+    },
+    {
+      label: "MindMap",
+      icon: GitMerge,
+      description: "Central concept",
+      insert: `\\begin{tikzpicture}\n  \\node[draw, circle, fill=blue!10, minimum size=1.5cm] (center) {Idea};\n  \\foreach \\angle/\\text in {0/A, 90/B, 180/C, 270/D}\n    \\node[draw, circle, fill=yellow!10] at (\\angle:2cm) {\\text} edge (center);\n\\end{tikzpicture}`,
+    },
+    {
+      label: "Time",
+      icon: Clock,
+      description: "Timeline",
+      insert: `\\begin{tikzpicture}\n  \\draw[->, thick] (0,0) -- (5,0);\n  \\foreach \\x/\\label in {0/Start, 2/Mid, 4/End}\n    \\draw (\\x,0.1) -- (\\x,-0.1) node[below] {\\label};\n\\end{tikzpicture}`,
+    },
+    {
+      label: "Venn",
+      icon: Combine,
+      description: "Venn diagram",
+      insert: `\\begin{tikzpicture}\n  \\draw[fill=red, opacity=0.3] (0,0) circle (1.2);\n  \\draw[fill=blue, opacity=0.3] (1.5,0) circle (1.2);\n  \\node at (0.75,0) {A $\\cap$ B};\n\\end{tikzpicture}`,
+    },
+    {
+      label: "UML",
+      icon: Layout,
+      description: "Class diagram",
+      insert: `\\begin{tikzpicture}\n  \\node[draw, rectangle split, rectangle split parts=2] (class) {\n    \\textbf{User}\n    \\nodepart{second} name: String \\\\ age: Int\n  };\n\\end{tikzpicture}`,
+    },
+    {
+      label: "Seq",
+      icon: List,
+      description: "Sequence diagram",
+      insert: `\\begin{tikzpicture}\n  \\draw (0,0) node[above]{A} -- (0,-3);\n  \\draw (3,0) node[above]{B} -- (3,-3);\n  \\draw[->] (0,-1) -- (3,-1) node[midway, above] {msg 1};\n  \\draw[->, dashed] (3,-2) -- (0,-2) node[midway, above] {reply};\n\\end{tikzpicture}`,
+    },
+    {
+      label: "Graph",
+      icon: Share,
+      description: "Network graph",
+      insert: `\\begin{tikzpicture}[auto, node distance=2cm]\n  \\node[draw, circle] (1) {1};\n  \\node[draw, circle, below right=of 1] (2) {2};\n  \\node[draw, circle, below left=of 1] (3) {3};\n  \\draw (1) -- (2);\n  \\draw (1) -- (3);\n  \\draw (2) -- (3);\n\\end{tikzpicture}`,
+    },
+  ],
+  advanced: [
+    {
+      label: "Plot",
+      icon: Activity,
+      description: "Function plot",
+      insert: `\\begin{tikzpicture}\n  \\draw[->] (-0.5,0) -- (3,0) node[right] {$x$};\n  \\draw[->] (0,-0.5) -- (0,3) node[above] {$y$};\n  \\draw[domain=0:2, smooth, variable=\\x, blue, thick] plot (\\x, {\\x*\\x});\n\\end{tikzpicture}`,
+    },
+    {
+      label: "Circuit",
+      icon: Cpu,
+      description: "Electrical circuit",
+      insert: `\\begin{tikzpicture}[thick, scale=1.2]\n  \\draw (0,0) -- (0,2) -- (1,2);\n  \\draw (1,2) -- (1.2,2.2) -- (1.4,1.8) -- (1.6,2.2) -- (1.8,1.8) -- (2,2);\n  \\draw (2,2) -- (3,2) -- (3,0) -- (0,0);\n  \\draw (1.5, 2.5) node {$R$};\n  \\draw (-0.2, 0.8) -- (0.2, 0.8);\n  \\draw (-0.2, 1.2) -- (0.2, 1.2);\n  \\node at (-0.5, 1) {$V$};\n\\end{tikzpicture}`,
+    },
+    {
+      label: "3D Box",
+      icon: Box,
+      description: "Isometric view",
+      insert: `\\begin{tikzpicture}[x={(-0.5cm,-0.5cm)}, y={(1cm,0cm)}, z={(0cm,1cm)}]\n  \\draw[thick] (0,0,0) -- (2,0,0) -- (2,2,0) -- (0,2,0) -- cycle;\n  \\draw[thick] (0,0,2) -- (2,0,2) -- (2,2,2) -- (0,2,2) -- cycle;\n  \\draw[thick] (0,0,0) -- (0,0,2);\n  \\draw[thick] (2,0,0) -- (2,0,2);\n  \\draw[thick] (2,2,0) -- (2,2,2);\n  \\draw[thick] (0,2,0) -- (0,2,2);\n\\end{tikzpicture}`,
+    },
+    {
+      label: "Polar",
+      icon: Aperture,
+      description: "Polar coordinates",
+      insert: `\\begin{tikzpicture}\n  \\draw[->] (-2,0) -- (2,0);\n  \\draw[->] (0,-2) -- (0,2);\n  \\draw[red, thick, domain=0:360, samples=100] plot ({cos(\\x)*1.5}, {sin(\\x)*1.5});\n\\end{tikzpicture}`,
+    },
+    {
+      label: "Physics",
+      icon: Anchor,
+      description: "Pendulum",
+      insert: `\\begin{tikzpicture}\n  \\fill[pattern=north east lines] (-1,0) rectangle (1,0.2);\n  \\draw[thick] (-1,0) -- (1,0);\n  \\draw (0,0) -- (300:3cm) coordinate (bob);\n  \\fill (bob) circle (0.2);\n  \\draw[dashed] (0,0) -- (0,-3);\n  \\draw (0,-1) arc (270:300:1);\n  \\node at (0.3,-1.2) {$\\theta$};\n\\end{tikzpicture}`,
+    },
+    {
+      label: "Optics",
+      icon: Eye,
+      description: "Lens and rays",
+      insert: `\\begin{tikzpicture}\n  \\draw[thick, <->] (0,-2) -- (0,2);\n  \\draw[dashed] (-3,0) -- (3,0);\n  \\draw[red] (-2,1) -- (0,1) -- (2,-1);\n  \\draw[red] (-2,1) -- (0,0) -- (2,-1);\n  \\draw[fill] (-2,1) circle (1pt) node[above] {Obj};\n  \\draw[fill] (2,-1) circle (1pt) node[below] {Img};\n\\end{tikzpicture}`,
+    },
+    {
+      label: "Fractal",
+      icon: Triangle,
+      description: "Sierpinski triangle",
+      insert: `\\begin{tikzpicture}[scale=3]\n  \\draw (0,0) -- (1,0) -- (0.5,0.866) -- cycle;\n  \\foreach \\i in {0,1,2} {\n    \\begin{scope}[shift={(0,0)}, scale=0.5]\n       \\draw[fill=white] (0.5,0) -- (0.75,0.433) -- (0.25,0.433) -- cycle;\n    \\end{scope}\n  }\n\\end{tikzpicture}`,
+    },
+    {
+      label: "Bar",
+      icon: BarChart,
+      description: "Bar chart",
+      insert: `\\begin{tikzpicture}\n  \\draw (0,0) -- (4,0);\n  \\draw (0,0) -- (0,3);\n  \\foreach \\x/\\h in {0.5/1, 1.5/2.5, 2.5/1.5, 3.5/0.5}\n    \\draw[fill=blue] (\\x-0.25,0) rectangle (\\x+0.25,\\h);\n\\end{tikzpicture}`,
+    },
+    {
+      label: "Pie",
+      icon: PieChart,
+      description: "Pie chart",
+      insert: `\\begin{tikzpicture}\n  \\draw[fill=red!30] (0,0) -- (0:1.5) arc (0:120:1.5) -- cycle;\n  \\draw[fill=green!30] (0,0) -- (120:1.5) arc (120:200:1.5) -- cycle;\n  \\draw[fill=blue!30] (0,0) -- (200:1.5) arc (200:360:1.5) -- cycle;\n\\end{tikzpicture}`,
+    },
+    {
+      label: "Orbit",
+      icon: Orbit,
+      description: "Solar system",
+      insert: `\\begin{tikzpicture}\n  \\draw[fill=yellow] (0,0) circle (0.5);\n  \\draw[dashed] (0,0) circle (1.5);\n  \\draw[dashed] (0,0) circle (2.5);\n  \\fill[blue] (45:1.5) circle (0.1) node[right] {Earth};\n  \\fill[red] (120:2.5) circle (0.15) node[above] {Mars};\n\\end{tikzpicture}`,
+    },
+  ],
 };
 
 // --- HELPERS ---
 let tikzLoadingPromise: Promise<void> | null = null;
 
 const loadTikZJax = () => {
-  if (typeof window === 'undefined') return Promise.resolve();
+  if (typeof window === "undefined") return Promise.resolve();
   if (tikzLoadingPromise) return tikzLoadingPromise;
 
   tikzLoadingPromise = new Promise<void>((resolve, reject) => {
@@ -232,18 +453,18 @@ const loadTikZJax = () => {
       resolve();
       return;
     }
-    const link = document.createElement('link');
-    link.rel = 'stylesheet';
-    link.href = 'https://tikzjax.com/v1/fonts.css';
+    const link = document.createElement("link");
+    link.rel = "stylesheet";
+    link.href = "https://tikzjax.com/v1/fonts.css";
     document.head.appendChild(link);
 
-    const script = document.createElement('script');
-    script.src = 'https://tikzjax.com/v1/tikzjax.js';
+    const script = document.createElement("script");
+    script.src = "https://tikzjax.com/v1/tikzjax.js";
     script.async = true;
     script.onload = () => setTimeout(() => resolve(), 500);
     script.onerror = (e) => {
       tikzLoadingPromise = null;
-      reject(new Error('Failed to load TikZJax'));
+      reject(new Error("Failed to load TikZJax"));
     };
     document.head.appendChild(script);
   });
@@ -251,79 +472,117 @@ const loadTikZJax = () => {
 };
 
 const highlightLaTeX = (code: string, theme: EditorTheme) => {
-  if (!code) return '';
-  
-  const colors = theme === 'dark' ? {
-    comment: 'text-gray-500 italic',
-    structure: 'text-purple-400 font-bold',
-    command: 'text-blue-400',
-    primary: 'text-emerald-400 font-bold',
-    property: 'text-sky-300',
-    shape: 'text-amber-300',
-    color: 'text-pink-400',
-    number: 'text-orange-300',
-    bracket: 'text-yellow-500',
-    paren: 'text-yellow-300',
-    operator: 'text-gray-400', 
-    text: 'text-gray-300'
-  } : {
-    comment: 'text-gray-500 italic',
-    structure: 'text-purple-700 font-bold',
-    command: 'text-blue-700',
-    primary: 'text-emerald-700 font-bold',
-    property: 'text-sky-700',
-    shape: 'text-amber-700',
-    color: 'text-pink-600',
-    number: 'text-orange-600',
-    bracket: 'text-yellow-600',
-    paren: 'text-yellow-600',
-    operator: 'text-gray-500',
-    text: 'text-gray-900'
-  };
+  if (!code) return "";
 
-  const regex = /(%.*$)|(\\(?:usetikzlibrary|usepackage|documentclass|begin|end|newcommand|def|tikzset)\b)|(\\[a-zA-Z@]+)|(\b(?:draw|fill|filldraw|path|node|coordinate|clip|scope|shade|shadedraw|matrix|grid|graph|plot|foreach)\b)|(\b(?:style|nodes|row|column|sep|minimum|height|width|anchor|align|inner|outer|scale|shift|rotate|x|y|z|opacity|line|thick|thin|ultra|very|semithick|dashed|dotted|solid|double|rounded|corners|sharp|arrow|arrows|shapes|decoration|postaction|preaction|pattern|samples|domain|variable|at|to|cycle|in|of|font|text)\b)|(\b(?:circle|rectangle|ellipse|arc|edge|child|level|sibling|sin|cos|tan|exp|ln|north|south|east|west|center|mid|base|left|right|above|below)\b)|(\b(?:red|green|blue|cyan|magenta|yellow|black|white|gray|orange|purple|brown|teal|violet|pink)\b)|(\d+(?:\.\d+)?)|([\{\}\[\]])|([\(\)])|(--|->|<-|\|-|\||\+|=|:|\.\.)|(.)/gm;
+  const colors =
+    theme === "dark"
+      ? {
+          comment: "text-gray-500 italic",
+          structure: "text-purple-400 font-bold",
+          command: "text-blue-400",
+          primary: "text-emerald-400 font-bold",
+          property: "text-sky-300",
+          shape: "text-amber-300",
+          color: "text-pink-400",
+          number: "text-orange-300",
+          bracket: "text-yellow-500",
+          paren: "text-yellow-300",
+          operator: "text-gray-400",
+          text: "text-gray-300",
+        }
+      : {
+          comment: "text-gray-500 italic",
+          structure: "text-purple-700 font-bold",
+          command: "text-blue-700",
+          primary: "text-emerald-700 font-bold",
+          property: "text-sky-700",
+          shape: "text-amber-700",
+          color: "text-pink-600",
+          number: "text-orange-600",
+          bracket: "text-yellow-600",
+          paren: "text-yellow-600",
+          operator: "text-gray-500",
+          text: "text-gray-900",
+        };
 
-  return code.replace(regex, (match, comment, structure, command, primary, property, shape, color, number, bracket, paren, operator, other) => {
-    const esc = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-    
-    if (comment) return `<span class="${colors.comment}">${esc(match)}</span>`;
-    if (structure) return `<span class="${colors.structure}">${esc(match)}</span>`;
-    if (command) return `<span class="${colors.command}">${esc(match)}</span>`;
-    if (primary) return `<span class="${colors.primary}">${esc(match)}</span>`;
-    if (property) return `<span class="${colors.property}">${esc(match)}</span>`;
-    if (shape) return `<span class="${colors.shape}">${esc(match)}</span>`;
-    if (color) return `<span class="${colors.color}">${esc(match)}</span>`;
-    if (number) return `<span class="${colors.number}">${esc(match)}</span>`;
-    if (bracket) return `<span class="${colors.bracket}">${esc(match)}</span>`;
-    if (paren) return `<span class="${colors.paren}">${esc(match)}</span>`;
-    if (operator) return `<span class="${colors.operator}">${esc(match)}</span>`;
-    return `<span class="${colors.text}">${esc(match)}</span>`;
-  });
+  const regex =
+    /(%.*$)|(\\(?:usetikzlibrary|usepackage|documentclass|begin|end|newcommand|def|tikzset)\b)|(\\[a-zA-Z@]+)|(\b(?:draw|fill|filldraw|path|node|coordinate|clip|scope|shade|shadedraw|matrix|grid|graph|plot|foreach)\b)|(\b(?:style|nodes|row|column|sep|minimum|height|width|anchor|align|inner|outer|scale|shift|rotate|x|y|z|opacity|line|thick|thin|ultra|very|semithick|dashed|dotted|solid|double|rounded|corners|sharp|arrow|arrows|shapes|decoration|postaction|preaction|pattern|samples|domain|variable|at|to|cycle|in|of|font|text)\b)|(\b(?:circle|rectangle|ellipse|arc|edge|child|level|sibling|sin|cos|tan|exp|ln|north|south|east|west|center|mid|base|left|right|above|below)\b)|(\b(?:red|green|blue|cyan|magenta|yellow|black|white|gray|orange|purple|brown|teal|violet|pink)\b)|(\d+(?:\.\d+)?)|([\{\}\[\]])|([\(\)])|(--|->|<-|\|-|\||\+|=|:|\.\.)|(.)/gm;
+
+  return code.replace(
+    regex,
+    (
+      match,
+      comment,
+      structure,
+      command,
+      primary,
+      property,
+      shape,
+      color,
+      number,
+      bracket,
+      paren,
+      operator,
+      other
+    ) => {
+      const esc = (s: string) =>
+        s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+
+      if (comment)
+        return `<span class="${colors.comment}">${esc(match)}</span>`;
+      if (structure)
+        return `<span class="${colors.structure}">${esc(match)}</span>`;
+      if (command)
+        return `<span class="${colors.command}">${esc(match)}</span>`;
+      if (primary)
+        return `<span class="${colors.primary}">${esc(match)}</span>`;
+      if (property)
+        return `<span class="${colors.property}">${esc(match)}</span>`;
+      if (shape) return `<span class="${colors.shape}">${esc(match)}</span>`;
+      if (color) return `<span class="${colors.color}">${esc(match)}</span>`;
+      if (number) return `<span class="${colors.number}">${esc(match)}</span>`;
+      if (bracket)
+        return `<span class="${colors.bracket}">${esc(match)}</span>`;
+      if (paren) return `<span class="${colors.paren}">${esc(match)}</span>`;
+      if (operator)
+        return `<span class="${colors.operator}">${esc(match)}</span>`;
+      return `<span class="${colors.text}">${esc(match)}</span>`;
+    }
+  );
 };
 
 // --- CODE EDITOR COMPONENT ---
 const SHARED_STYLES: React.CSSProperties = {
-  fontFamily: 'Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace',
-  fontSize: '13px',
-  lineHeight: '20px',
-  letterSpacing: '0px',
-  padding: '16px',
+  fontFamily:
+    'Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace',
+  fontSize: "13px",
+  lineHeight: "20px",
+  letterSpacing: "0px",
+  padding: "16px",
   margin: 0,
-  border: 'none',
-  outline: 'none',
-  whiteSpace: 'pre', 
-  overflow: 'auto',
+  border: "none",
+  outline: "none",
+  whiteSpace: "pre",
+  overflow: "auto",
   tabSize: 2,
-  backgroundColor: 'transparent',
+  backgroundColor: "transparent",
 };
 
-const CodeEditor = React.forwardRef<HTMLTextAreaElement, { value: string, onChange: (val: string) => void, onKeyDown?: React.KeyboardEventHandler, theme: EditorTheme }>(({ value, onChange, onKeyDown, theme }, ref) => {
+const CodeEditor = React.forwardRef<
+  HTMLTextAreaElement,
+  {
+    value: string;
+    onChange: (val: string) => void;
+    onKeyDown?: React.KeyboardEventHandler;
+    theme: EditorTheme;
+  }
+>(({ value, onChange, onKeyDown, theme }, ref) => {
   const internalRef = useRef<HTMLTextAreaElement>(null);
   const preRef = useRef<HTMLPreElement>(null);
   const gutterRef = useRef<HTMLDivElement>(null);
 
   useLayoutEffect(() => {
-    if (typeof ref === 'function') ref(internalRef.current);
+    if (typeof ref === "function") ref(internalRef.current);
     else if (ref) ref.current = internalRef.current;
   }, [ref]);
 
@@ -336,48 +595,60 @@ const CodeEditor = React.forwardRef<HTMLTextAreaElement, { value: string, onChan
     }
   };
 
-  const lineCount = useMemo(() => value.split('\n').length, [value]);
-  const lines = useMemo(() => Array.from({ length: lineCount }, (_, i) => i + 1), [lineCount]);
+  const lineCount = useMemo(() => value.split("\n").length, [value]);
+  const lines = useMemo(
+    () => Array.from({ length: lineCount }, (_, i) => i + 1),
+    [lineCount]
+  );
 
-  const bgClass = theme === 'dark' ? 'bg-[#1e1e1e]' : 'bg-white';
-  const gutterBgClass = theme === 'dark' ? 'bg-[#252526] border-[#333]' : 'bg-gray-50 border-gray-200';
-  const gutterTextClass = theme === 'dark' ? 'text-gray-500' : 'text-gray-400';
-  const caretClass = theme === 'dark' ? 'caret-white' : 'caret-black';
+  const bgClass = theme === "dark" ? "bg-[#1e1e1e]" : "bg-white";
+  const gutterBgClass =
+    theme === "dark"
+      ? "bg-[#252526] border-[#333]"
+      : "bg-gray-50 border-gray-200";
+  const gutterTextClass = theme === "dark" ? "text-gray-500" : "text-gray-400";
+  const caretClass = theme === "dark" ? "caret-white" : "caret-black";
 
   return (
-    <div className={`relative w-full h-full flex ${bgClass} overflow-hidden font-mono text-sm transition-colors duration-200`}>
+    <div
+      className={`relative w-full h-full flex ${bgClass} overflow-hidden font-mono text-sm transition-colors duration-200`}
+    >
       <style>{`
         .math-editor-textarea::selection { background-color: rgba(59, 130, 246, 0.3) !important; }
       `}</style>
-      
-      <div 
-        ref={gutterRef} 
-        className={`flex-shrink-0 w-10 ${gutterBgClass} ${gutterTextClass} text-right pr-2 select-none overflow-hidden border-r`} 
-        style={{ 
-          paddingTop: SHARED_STYLES.padding, 
+
+      <div
+        ref={gutterRef}
+        className={`flex-shrink-0 w-10 ${gutterBgClass} ${gutterTextClass} text-right pr-2 select-none overflow-hidden border-r`}
+        style={{
+          paddingTop: SHARED_STYLES.padding,
           paddingBottom: SHARED_STYLES.padding,
           fontFamily: SHARED_STYLES.fontFamily,
           fontSize: SHARED_STYLES.fontSize,
-          lineHeight: SHARED_STYLES.lineHeight
+          lineHeight: SHARED_STYLES.lineHeight,
         }}
       >
-        {lines.map(line => <div key={line}>{line}</div>)}
+        {lines.map((line) => (
+          <div key={line}>{line}</div>
+        ))}
         <div className="h-full"></div>
       </div>
 
       <div className="relative flex-1 h-full min-w-0">
-        <pre 
-          ref={preRef} 
-          aria-hidden="true" 
-          className="absolute inset-0 pointer-events-none" 
-          style={{ 
-            ...SHARED_STYLES, 
-            color: 'transparent',
-            zIndex: 0
-          }} 
-          dangerouslySetInnerHTML={{ __html: highlightLaTeX(value, theme) + '<br>' }} 
+        <pre
+          ref={preRef}
+          aria-hidden="true"
+          className="absolute inset-0 pointer-events-none"
+          style={{
+            ...SHARED_STYLES,
+            color: "transparent",
+            zIndex: 0,
+          }}
+          dangerouslySetInnerHTML={{
+            __html: highlightLaTeX(value, theme) + "<br>",
+          }}
         />
-        
+
         <textarea
           ref={internalRef}
           value={value}
@@ -388,10 +659,10 @@ const CodeEditor = React.forwardRef<HTMLTextAreaElement, { value: string, onChan
           onClick={(e) => e.stopPropagation()}
           spellCheck={false}
           className={`math-editor-textarea absolute inset-0 w-full h-full bg-transparent text-transparent ${caretClass} resize-none`}
-          style={{ 
-            ...SHARED_STYLES, 
-            color: 'transparent',
-            zIndex: 10
+          style={{
+            ...SHARED_STYLES,
+            color: "transparent",
+            zIndex: 10,
           }}
           placeholder="Type LaTeX..."
         />
@@ -399,74 +670,120 @@ const CodeEditor = React.forwardRef<HTMLTextAreaElement, { value: string, onChan
     </div>
   );
 });
-CodeEditor.displayName = 'CodeEditor';
+CodeEditor.displayName = "CodeEditor";
 
-const RibbonButton = ({ item, onClick, theme, mode }: { item: SymbolItem; onClick: () => void; theme: EditorTheme; mode: BlockMode }) => {
+const RibbonButton = ({
+  item,
+  onClick,
+  theme,
+  mode,
+}: {
+  item: SymbolItem;
+  onClick: () => void;
+  theme: EditorTheme;
+  mode: BlockMode;
+}) => {
   const ref = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    if (mode === 'math' && ref.current && item.display) {
+    if (mode === "math" && ref.current && item.display) {
       try {
-        katex.render(item.display, ref.current, { throwOnError: false, displayMode: false });
+        katex.render(item.display, ref.current, {
+          throwOnError: false,
+          displayMode: false,
+        });
       } catch (e) {
         ref.current.innerText = item.label;
       }
     }
   }, [item, mode]);
 
-  const btnClass = theme === 'dark' 
-    ? 'bg-[#252526] border-[#333] hover:bg-[#2d2d2d] text-gray-300 hover:text-white' 
-    : 'bg-white border-gray-200 hover:bg-blue-50 text-gray-700 hover:text-blue-700';
+  const btnClass =
+    theme === "dark"
+      ? "bg-[#252526] border-[#333] hover:bg-[#2d2d2d] text-gray-300 hover:text-white"
+      : "bg-white border-gray-200 hover:bg-blue-50 text-gray-700 hover:text-blue-700";
 
   return (
     <button
-      onClick={(e) => { e.preventDefault(); e.stopPropagation(); onClick(); }}
+      onClick={(e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        onClick();
+      }}
       className={`flex-shrink-0 flex items-center gap-2 px-2 py-1.5 border rounded-md transition-all duration-200 group ${btnClass}`}
       type="button"
       title={item.description || item.label}
-      onMouseDown={(e) => { e.preventDefault(); e.stopPropagation(); }}
+      onMouseDown={(e) => {
+        e.preventDefault();
+        e.stopPropagation();
+      }}
     >
-      {mode === 'math' ? (
+      {mode === "math" ? (
         <div ref={ref} className="pointer-events-none transform scale-90" />
       ) : (
         item.icon && <item.icon size={14} className="pointer-events-none" />
       )}
-      <span className="text-[10px] font-medium whitespace-nowrap">{item.label}</span>
+      <span className="text-[10px] font-medium whitespace-nowrap">
+        {item.label}
+      </span>
     </button>
   );
 };
 
-const MathEditorPopover = ({ 
-  code, setCode, onSave, onClose, initialMode, 
-  currentFontSize, onFontSizeChange, anchorRef, resizeVersion,
-  currentTikZWidth, onTikZSizeChange,
-  layout, onLayoutChange
-}: { 
-  code: string; setCode: (t: string) => void; onSave: () => void; onClose: () => void; initialMode: BlockMode;
-  currentFontSize: number; onFontSizeChange: (size: number) => void; anchorRef: React.RefObject<HTMLDivElement | null>;
+const MathEditorPopover = ({
+  code,
+  setCode,
+  onSave,
+  onClose,
+  initialMode,
+  currentFontSize,
+  onFontSizeChange,
+  anchorRef,
+  resizeVersion,
+  currentTikZWidth,
+  onTikZSizeChange,
+  layout,
+  onLayoutChange,
+}: {
+  code: string;
+  setCode: (t: string) => void;
+  onSave: () => void;
+  onClose: () => void;
+  initialMode: BlockMode;
+  currentFontSize: number;
+  onFontSizeChange: (size: number) => void;
+  anchorRef: React.RefObject<HTMLDivElement | null>;
   resizeVersion: number;
-  currentTikZWidth?: number; onTikZSizeChange?: (delta: number) => void;
-  layout: BlockLayout; onLayoutChange: (l: BlockLayout) => void;
+  currentTikZWidth?: number;
+  onTikZSizeChange?: (delta: number) => void;
+  layout: BlockLayout;
+  onLayoutChange: (l: BlockLayout) => void;
 }) => {
   const [mode, setMode] = useState<BlockMode>(initialMode);
-  const [activeCategory, setActiveCategory] = useState<Category>(mode === 'math' ? 'basic' : 'essentials');
-  const [theme, setTheme] = useState<EditorTheme>('light');
+  const [activeCategory, setActiveCategory] = useState<Category>(
+    mode === "math" ? "basic" : "essentials"
+  );
+  const [theme, setTheme] = useState<EditorTheme>("light");
   const [position, setPosition] = useState({ top: 0, left: 0 });
   const [mounted, setMounted] = useState(false);
-  const [portalContainer, setPortalContainer] = useState<HTMLElement | null>(null);
+  const [portalContainer, setPortalContainer] = useState<HTMLElement | null>(
+    null
+  );
   const [editorHeight, setEditorHeight] = useState(200);
   const [isResizing, setIsResizing] = useState(false);
   const startYRef = useRef(0);
   const startHeightRef = useRef(0);
-  
+
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const popoverRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     setMounted(true);
     if (anchorRef.current) {
-        const scrollParent = anchorRef.current.closest('.overflow-y-auto') as HTMLElement;
-        setPortalContainer(scrollParent || document.body);
+      const scrollParent = anchorRef.current.closest(
+        ".overflow-y-auto"
+      ) as HTMLElement;
+      setPortalContainer(scrollParent || document.body);
     }
   }, [anchorRef]);
 
@@ -475,22 +792,24 @@ const MathEditorPopover = ({
     const handleMouseMove = (e: MouseEvent) => {
       if (!isResizing) return;
       const delta = e.clientY - startYRef.current;
-      setEditorHeight(Math.max(100, Math.min(600, startHeightRef.current + delta)));
+      setEditorHeight(
+        Math.max(100, Math.min(600, startHeightRef.current + delta))
+      );
     };
 
     const handleMouseUp = () => {
       setIsResizing(false);
-      document.body.style.cursor = '';
-      document.body.style.userSelect = '';
+      document.body.style.cursor = "";
+      document.body.style.userSelect = "";
     };
 
     if (mounted) {
-      document.addEventListener('mousemove', handleMouseMove);
-      document.addEventListener('mouseup', handleMouseUp);
+      document.addEventListener("mousemove", handleMouseMove);
+      document.addEventListener("mouseup", handleMouseUp);
     }
     return () => {
-      document.removeEventListener('mousemove', handleMouseMove);
-      document.removeEventListener('mouseup', handleMouseUp);
+      document.removeEventListener("mousemove", handleMouseMove);
+      document.removeEventListener("mouseup", handleMouseUp);
     };
   }, [mounted, isResizing]);
 
@@ -499,8 +818,8 @@ const MathEditorPopover = ({
     setIsResizing(true);
     startYRef.current = e.clientY;
     startHeightRef.current = editorHeight;
-    document.body.style.cursor = 'ns-resize';
-    document.body.style.userSelect = 'none';
+    document.body.style.cursor = "ns-resize";
+    document.body.style.userSelect = "none";
   };
 
   useLayoutEffect(() => {
@@ -510,28 +829,17 @@ const MathEditorPopover = ({
       const anchorRect = anchorRef.current!.getBoundingClientRect();
       const containerRect = portalContainer.getBoundingClientRect();
       const popoverRect = popoverRef.current!.getBoundingClientRect();
-      
-      // --- CHANGED LOGIC HERE ---
-      
-      // OLD: Calculated center based on the MathBlock (anchorRect)
-      // let left = anchorRect.left - containerRect.left + (anchorRect.width / 2) - (popoverRect.width / 2);
-      
-      // NEW: Calculate center based on the Container (Main Editor)
-      // This ensures the popup stays in the center of the screen even if the block moves left/right
-      let left = (containerRect.width / 2) - (popoverRect.width / 2);
-      
-      // Ensure it doesn't go off screen
+
+      let left = containerRect.width / 2 - popoverRect.width / 2;
+
       const padding = 20;
       if (left < padding) left = padding;
       if (left + popoverRect.width > containerRect.width - padding) {
         left = containerRect.width - popoverRect.width - padding;
       }
 
-      // Vertical position still respects the block location so you know what you are editing
-      let top = anchorRect.bottom - containerRect.top + portalContainer.scrollTop + 10;
-
-      // Optional: Check if top goes off bottom of screen, flip to top? 
-      // For now, we keep it simple as per request.
+      let top =
+        anchorRect.bottom - containerRect.top + portalContainer.scrollTop + 10;
 
       setPosition({ top, left });
     };
@@ -539,19 +847,18 @@ const MathEditorPopover = ({
     updatePosition();
 
     const resizeObserver = new ResizeObserver(() => {
-        updatePosition();
+      updatePosition();
     });
     resizeObserver.observe(anchorRef.current);
-    // Also observe container to keep centered if window resizes
     resizeObserver.observe(portalContainer);
 
-    window.addEventListener('scroll', updatePosition, true);
-    window.addEventListener('resize', updatePosition);
-    
+    window.addEventListener("scroll", updatePosition, true);
+    window.addEventListener("resize", updatePosition);
+
     return () => {
       resizeObserver.disconnect();
-      window.removeEventListener('scroll', updatePosition, true);
-      window.removeEventListener('resize', updatePosition);
+      window.removeEventListener("scroll", updatePosition, true);
+      window.removeEventListener("resize", updatePosition);
     };
   }, [anchorRef, mounted, resizeVersion, portalContainer]);
 
@@ -559,16 +866,16 @@ const MathEditorPopover = ({
     const handleClickOutside = (event: MouseEvent) => {
       const target = event.target as HTMLElement;
       if (
-        popoverRef.current && 
+        popoverRef.current &&
         !popoverRef.current.contains(target) &&
-        !target.closest('.math-toolbar') &&
-        !target.closest('.math-resize-overlay')
+        !target.closest(".math-toolbar") &&
+        !target.closest(".math-resize-overlay")
       ) {
         onClose();
       }
     };
-    document.addEventListener('mousedown', handleClickOutside);
-    return () => document.removeEventListener('mousedown', handleClickOutside);
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
   }, [onClose]);
 
   useLayoutEffect(() => {
@@ -576,16 +883,19 @@ const MathEditorPopover = ({
   }, []);
 
   useEffect(() => {
-    setActiveCategory(mode === 'math' ? 'basic' : 'essentials');
+    setActiveCategory(mode === "math" ? "basic" : "essentials");
   }, [mode]);
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
-    e.stopPropagation(); 
-    if (e.key === 'Enter' && !e.shiftKey) { 
-      e.preventDefault(); 
-      onSave(); 
+    e.stopPropagation();
+    if (e.key === "Enter" && !e.shiftKey) {
+      e.preventDefault();
+      onSave();
     }
-    if (e.key === 'Escape') { e.preventDefault(); onClose(); }
+    if (e.key === "Escape") {
+      e.preventDefault();
+      onClose();
+    }
   };
 
   const insertSymbol = (item: SymbolItem) => {
@@ -593,17 +903,20 @@ const MathEditorPopover = ({
     if (!textarea) return;
     const start = textarea.selectionStart;
     const end = textarea.selectionEnd;
-    
+
     let insertText = item.insert;
-    
-    if (mode === 'tikz' && (code.trim() === '' || code.includes('\\begin{tikzpicture}'))) {
-       setCode(insertText);
-       setTimeout(() => textarea.focus(), 0);
-       return;
+
+    if (
+      mode === "tikz" &&
+      (code.trim() === "" || code.includes("\\begin{tikzpicture}"))
+    ) {
+      setCode(insertText);
+      setTimeout(() => textarea.focus(), 0);
+      return;
     }
 
     const newCode = code.substring(0, start) + insertText + code.substring(end);
-    
+
     setCode(newCode);
     const newCursorPos = start + insertText.length + (item.offset || 0);
     setTimeout(() => {
@@ -612,59 +925,98 @@ const MathEditorPopover = ({
     }, 0);
   };
 
-  const modalBgClass = theme === 'dark' ? 'bg-[#1e1e1e] border-[#333]' : 'bg-white border-gray-200';
-  const headerBgClass = theme === 'dark' ? 'bg-[#252526] border-[#333]' : 'bg-white border-gray-100';
-  const paletteBgClass = theme === 'dark' ? 'bg-[#1e1e1e] border-[#333]' : 'bg-gray-50/50 border-gray-100';
-  const footerBgClass = theme === 'dark' ? 'bg-[#252526] border-[#333]' : 'bg-gray-50 border-gray-200';
-  const subTextClass = theme === 'dark' ? 'text-gray-400' : 'text-gray-500';
-  const buttonHoverClass = theme === 'dark' ? 'hover:bg-[#333]' : 'hover:bg-gray-50';
+  const modalBgClass =
+    theme === "dark"
+      ? "bg-[#1e1e1e] border-[#333]"
+      : "bg-white border-gray-200";
+  const headerBgClass =
+    theme === "dark"
+      ? "bg-[#252526] border-[#333]"
+      : "bg-white border-gray-100";
+  const paletteBgClass =
+    theme === "dark"
+      ? "bg-[#1e1e1e] border-[#333]"
+      : "bg-gray-50/50 border-gray-100";
+  const footerBgClass =
+    theme === "dark"
+      ? "bg-[#252526] border-[#333]"
+      : "bg-gray-50 border-gray-200";
+  const subTextClass = theme === "dark" ? "text-gray-400" : "text-gray-500";
+  const buttonHoverClass =
+    theme === "dark" ? "hover:bg-[#333]" : "hover:bg-gray-50";
 
-  const categories = mode === 'math' ? MATH_CATEGORIES : TIKZ_CATEGORIES;
-  const items = mode === 'math' ? MATH_SYMBOLS[activeCategory] : TIKZ_TEMPLATES[activeCategory];
+  const categories = mode === "math" ? MATH_CATEGORIES : TIKZ_CATEGORIES;
+  const items =
+    mode === "math"
+      ? MATH_SYMBOLS[activeCategory]
+      : TIKZ_TEMPLATES[activeCategory];
 
   if (!mounted || !portalContainer) return null;
 
   return createPortal(
-    <div 
+    <div
       ref={popoverRef}
       className="absolute z-[9999]"
-      style={{ 
-        top: position.top, 
+      style={{
+        top: position.top,
         left: position.left,
-        width: '850px', 
-        maxWidth: '90vw', 
-        cursor: 'default',
+        width: "850px",
+        maxWidth: "90vw",
+        cursor: "default",
       }}
-      onMouseDown={(e) => e.stopPropagation()} 
+      onMouseDown={(e) => e.stopPropagation()}
       onClick={(e) => e.stopPropagation()}
     >
-      <div className={`rounded-xl shadow-2xl border overflow-hidden flex flex-col ${modalBgClass}`}>
-        
+      <div
+        className={`rounded-xl shadow-2xl border overflow-hidden flex flex-col ${modalBgClass}`}
+      >
         {/* Header */}
-        <div className={`flex items-center justify-between px-4 pt-3 pb-2 border-b ${headerBgClass}`}>
+        <div
+          className={`flex items-center justify-between px-4 pt-3 pb-2 border-b ${headerBgClass}`}
+        >
           <div className="flex items-center gap-3 flex-1 min-w-0">
             <div className="flex bg-gray-100/10 p-0.5 rounded-lg border border-gray-200/20 flex-shrink-0">
-              <button 
-                onClick={() => setMode('math')} 
+              <button
+                onClick={() => setMode("math")}
                 title="Equation Mode"
-                className={`flex items-center justify-center p-1.5 rounded-md transition-all ${mode === 'math' ? 'bg-blue-600 text-white shadow-sm' : `${subTextClass} hover:text-gray-300`}`}
+                className={`flex items-center justify-center p-1.5 rounded-md transition-all ${
+                  mode === "math"
+                    ? "bg-blue-600 text-white shadow-sm"
+                    : `${subTextClass} hover:text-gray-300`
+                }`}
               >
                 <Calculator size={17} />
               </button>
-              <button 
-                onClick={() => setMode('tikz')} 
+              <button
+                onClick={() => setMode("tikz")}
                 title="Diagram Mode"
-                className={`flex items-center justify-center p-1.5 rounded-md transition-all ${mode === 'tikz' ? 'bg-blue-600 text-white shadow-sm' : `${subTextClass} hover:text-gray-300`}`}
+                className={`flex items-center justify-center p-1.5 rounded-md transition-all ${
+                  mode === "tikz"
+                    ? "bg-blue-600 text-white shadow-sm"
+                    : `${subTextClass} hover:text-gray-300`
+                }`}
               >
                 <PenTool size={17} />
               </button>
             </div>
-            <div className={`h-4 w-px flex-shrink-0 ${theme === 'dark' ? 'bg-[#444]' : 'bg-gray-200'}`}></div>
+            <div
+              className={`h-4 w-px flex-shrink-0 ${
+                theme === "dark" ? "bg-[#444]" : "bg-gray-200"
+              }`}
+            ></div>
             <div className="flex gap-1 overflow-x-auto no-scrollbar flex-1 min-w-0">
               {categories.map((cat) => {
                 const Icon = cat.icon;
                 return (
-                  <button key={cat.id} onClick={() => setActiveCategory(cat.id)} className={`flex-shrink-0 flex items-center gap-2 px-2 py-1 text-xs font-semibold rounded-lg transition-all ${activeCategory === cat.id ? 'bg-blue-50 text-blue-600 ring-1 ring-blue-200' : `${subTextClass} ${buttonHoverClass}`}`}>
+                  <button
+                    key={cat.id}
+                    onClick={() => setActiveCategory(cat.id)}
+                    className={`flex-shrink-0 flex items-center gap-2 px-2 py-1 text-xs font-semibold rounded-lg transition-all ${
+                      activeCategory === cat.id
+                        ? "bg-blue-50 text-blue-600 ring-1 ring-blue-200"
+                        : `${subTextClass} ${buttonHoverClass}`
+                    }`}
+                  >
                     <Icon size={14} /> {cat.label}
                   </button>
                 );
@@ -672,93 +1024,191 @@ const MathEditorPopover = ({
             </div>
           </div>
           <div className="flex items-center gap-2 pl-2 border-l border-gray-200/20 flex-shrink-0">
-             {/* Font Size Controls */}
-             {mode === 'math' && (
-               <div className="flex items-center gap-1 mr-2">
-                 <button onClick={() => onFontSizeChange(currentFontSize - 1)} className={`p-1.5 ${subTextClass} ${buttonHoverClass} rounded-lg transition-colors`} title="Decrease Font Size">
-                   <Minus size={14} />
-                 </button>
-                 <span className={`text-[10px] font-mono w-6 text-center ${theme === 'dark' ? 'text-gray-300' : 'text-gray-600'}`}>{Math.round(currentFontSize)}</span>
-                 <button onClick={() => onFontSizeChange(currentFontSize + 1)} className={`p-1.5 ${subTextClass} ${buttonHoverClass} rounded-lg transition-colors`} title="Increase Font Size">
-                   <Plus size={14} />
-                 </button>
-               </div>
-             )}
-
-             {/* TikZ Size Controls */}
-             {mode === 'tikz' && onTikZSizeChange && currentTikZWidth !== undefined && (
-               <div className="flex items-center gap-1 mr-2">
-                 <button onClick={() => onTikZSizeChange(-20)} className={`p-1.5 ${subTextClass} ${buttonHoverClass} rounded-lg transition-colors`} title="Decrease Size">
-                   <Minus size={14} />
-                 </button>
-                 <span className={`text-[10px] font-mono w-10 text-center ${theme === 'dark' ? 'text-gray-300' : 'text-gray-600'}`}>{Math.round(currentTikZWidth)}px</span>
-                 <button onClick={() => onTikZSizeChange(20)} className={`p-1.5 ${subTextClass} ${buttonHoverClass} rounded-lg transition-colors`} title="Increase Size">
-                   <Plus size={14} />
-                 </button>
-               </div>
-             )}
-             
-             {/* Layout Toggle */}
-             <div className="flex bg-gray-100/10 p-0.5 rounded-lg border border-gray-200/20 mr-2">
-                <button 
-                    onClick={() => onLayoutChange('vertical')} 
-                    className={`p-1.5 rounded-md transition-all ${layout === 'vertical' ? 'bg-blue-600 text-white shadow-sm' : `${subTextClass} hover:text-gray-300`}`}
-                    title="Vertical Layout"
+            {/* Font Size Controls */}
+            {mode === "math" && (
+              <div className="flex items-center gap-1 mr-2">
+                <button
+                  onClick={() => onFontSizeChange(currentFontSize - 1)}
+                  className={`p-1.5 ${subTextClass} ${buttonHoverClass} rounded-lg transition-colors`}
+                  title="Decrease Font Size"
                 >
-                    <Rows size={14} />
+                  <Minus size={14} />
                 </button>
-                <button 
-                    onClick={() => onLayoutChange('horizontal')} 
-                    className={`p-1.5 rounded-md transition-all ${layout === 'horizontal' ? 'bg-blue-600 text-white shadow-sm' : `${subTextClass} hover:text-gray-300`}`}
-                    title="Horizontal Layout"
+                <span
+                  className={`text-[10px] font-mono w-6 text-center ${
+                    theme === "dark" ? "text-gray-300" : "text-gray-600"
+                  }`}
                 >
-                    <Columns size={14} />
+                  {Math.round(currentFontSize)}
+                </span>
+                <button
+                  onClick={() => onFontSizeChange(currentFontSize + 1)}
+                  className={`p-1.5 ${subTextClass} ${buttonHoverClass} rounded-lg transition-colors`}
+                  title="Increase Font Size"
+                >
+                  <Plus size={14} />
                 </button>
-             </div>
+              </div>
+            )}
 
-             <button onClick={() => setTheme(theme === 'dark' ? 'light' : 'dark')} className={`p-1.5 ${subTextClass} ${buttonHoverClass} rounded-lg transition-colors`}>{theme === 'dark' ? <Sun size={14} /> : <Moon size={14} />}</button>
+            {/* TikZ Size Controls */}
+            {mode === "tikz" &&
+              onTikZSizeChange &&
+              currentTikZWidth !== undefined && (
+                <div className="flex items-center gap-1 mr-2">
+                  <button
+                    onClick={() => onTikZSizeChange(-10)}
+                    className={`p-1.5 ${subTextClass} ${buttonHoverClass} rounded-lg transition-colors`}
+                    title="Decrease Size"
+                  >
+                    <Minus size={14} />
+                  </button>
+                  <span
+                    className={`text-[10px] font-mono w-10 text-center ${
+                      theme === "dark" ? "text-gray-300" : "text-gray-600"
+                    }`}
+                  >
+                    {Math.round(currentTikZWidth)}px
+                  </span>
+                  <button
+                    onClick={() => onTikZSizeChange(10)}
+                    className={`p-1.5 ${subTextClass} ${buttonHoverClass} rounded-lg transition-colors`}
+                    title="Increase Size"
+                  >
+                    <Plus size={14} />
+                  </button>
+                </div>
+              )}
+
+            {/* Layout Toggle */}
+            <div className="flex bg-gray-100/10 p-0.5 rounded-lg border border-gray-200/20 mr-2">
+              <button
+                onClick={() => onLayoutChange("vertical")}
+                className={`p-1.5 rounded-md transition-all ${
+                  layout === "vertical"
+                    ? "bg-blue-600 text-white shadow-sm"
+                    : `${subTextClass} hover:text-gray-300`
+                }`}
+                title="Vertical Layout"
+              >
+                <Rows size={14} />
+              </button>
+              <button
+                onClick={() => onLayoutChange("horizontal")}
+                className={`p-1.5 rounded-md transition-all ${
+                  layout === "horizontal"
+                    ? "bg-blue-600 text-white shadow-sm"
+                    : `${subTextClass} hover:text-gray-300`
+                }`}
+                title="Horizontal Layout"
+              >
+                <Columns size={14} />
+              </button>
+            </div>
+
+            <button
+              onClick={() => setTheme(theme === "dark" ? "light" : "dark")}
+              className={`p-1.5 ${subTextClass} ${buttonHoverClass} rounded-lg transition-colors`}
+            >
+              {theme === "dark" ? <Sun size={14} /> : <Moon size={14} />}
+            </button>
           </div>
         </div>
 
         {/* Palette (Horizontal Ribbon) */}
-        <div className={`p-2 border-b ${paletteBgClass} overflow-x-auto no-scrollbar`}>
+        <div
+          className={`p-2 border-b ${paletteBgClass} overflow-x-auto no-scrollbar`}
+        >
           <div className="flex gap-2 min-w-max">
             {items?.map((item, idx) => (
-              <RibbonButton key={idx} item={item} onClick={() => insertSymbol(item)} theme={theme} mode={mode} />
+              <RibbonButton
+                key={idx}
+                item={item}
+                onClick={() => insertSymbol(item)}
+                theme={theme}
+                mode={mode}
+              />
             ))}
           </div>
         </div>
 
         {/* Editor */}
-        <div style={{ height: editorHeight }} className={`${theme === 'dark' ? 'bg-[#1e1e1e]' : 'bg-white'} relative`}>
-          <CodeEditor ref={textareaRef} value={code} onChange={setCode} onKeyDown={handleKeyDown} theme={theme} />
+        <div
+          style={{ height: editorHeight }}
+          className={`${
+            theme === "dark" ? "bg-[#1e1e1e]" : "bg-white"
+          } relative`}
+        >
+          <CodeEditor
+            ref={textareaRef}
+            value={code}
+            onChange={setCode}
+            onKeyDown={handleKeyDown}
+            theme={theme}
+          />
         </div>
 
         {/* Resize Handle */}
-        <div 
+        <div
           onMouseDown={handleResizeStart}
           className={`
             h-6 w-full cursor-ns-resize flex items-center justify-center 
             border-t border-b
-            ${theme === 'dark' ? 'border-[#333] bg-[#252526] hover:bg-[#2d2d2d]' : 'border-gray-200 bg-gray-50 hover:bg-gray-100'}
-            ${isResizing ? (theme === 'dark' ? 'bg-[#2d2d2d]' : 'bg-blue-50/50') : ''}
+            ${
+              theme === "dark"
+                ? "border-[#333] bg-[#252526] hover:bg-[#2d2d2d]"
+                : "border-gray-200 bg-gray-50 hover:bg-gray-100"
+            }
+            ${
+              isResizing
+                ? theme === "dark"
+                  ? "bg-[#2d2d2d]"
+                  : "bg-blue-50/50"
+                : ""
+            }
             transition-colors z-10 relative group
           `}
           title="Drag to resize editor"
         >
-          <div className={`
+          <div
+            className={`
             w-16 h-1 rounded-full 
-            ${theme === 'dark' ? 'bg-gray-600 group-hover:bg-blue-500' : 'bg-gray-300 group-hover:bg-blue-400'} 
+            ${
+              theme === "dark"
+                ? "bg-gray-600 group-hover:bg-blue-500"
+                : "bg-gray-300 group-hover:bg-blue-400"
+            } 
             transition-colors absolute
-          `} />
+          `}
+          />
         </div>
 
         {/* Footer */}
-        <div className={`flex items-center justify-between px-4 py-3 ${footerBgClass}`}>
+        <div
+          className={`flex items-center justify-between px-4 py-3 ${footerBgClass}`}
+        >
           <div className="flex flex-col gap-1">
-            <div className={`text-[10px] ${subTextClass} flex items-center gap-1.5`}><span className={`font-mono border px-1.5 py-0.5 rounded text-[10px] shadow-sm min-w-[32px] text-center ${theme === 'dark' ? 'bg-[#333] border-[#444] text-gray-300' : 'bg-white border-gray-200 text-gray-500'}`}>Enter</span><span>to save</span></div>
+            <div
+              className={`text-[10px] ${subTextClass} flex items-center gap-1.5`}
+            >
+              <span
+                className={`font-mono border px-1.5 py-0.5 rounded text-[10px] shadow-sm min-w-[32px] text-center ${
+                  theme === "dark"
+                    ? "bg-[#333] border-[#444] text-gray-300"
+                    : "bg-white border-gray-200 text-gray-500"
+                }`}
+              >
+                Enter
+              </span>
+              <span>to save</span>
+            </div>
           </div>
-          <button onClick={onSave} className="flex items-center gap-2 px-4 py-2 text-xs font-semibold text-white bg-blue-600 hover:bg-blue-700 rounded-lg shadow-sm transition-all hover:shadow hover:-translate-y-0.5 active:translate-y-0"><Check size={14} /> Done</button>
+          <button
+            onClick={onSave}
+            className="flex items-center gap-2 px-4 py-2 text-xs font-semibold text-white bg-blue-600 hover:bg-blue-700 rounded-lg shadow-sm transition-all hover:shadow hover:-translate-y-0.5 active:translate-y-0"
+          >
+            <Check size={14} /> Done
+          </button>
         </div>
       </div>
     </div>,
@@ -767,45 +1217,57 @@ const MathEditorPopover = ({
 };
 
 // --- ISOLATED TIKZ RENDERER ---
-const TikZRenderer = ({ code, isLoaded, onSuccess, alignment }: { code: string, isLoaded: boolean, onSuccess?: (dimensions: { width: number, height: number, aspectRatio: number }) => void, alignment?: Alignment }) => {
+const TikZRenderer = ({
+  code,
+  isLoaded,
+  onSuccess,
+  alignment,
+}: {
+  code: string;
+  isLoaded: boolean;
+  onSuccess?: (dimensions: {
+    width: number;
+    height: number;
+    aspectRatio: number;
+  }) => void;
+  alignment?: Alignment;
+}) => {
   const outputRef = useRef<HTMLDivElement>(null);
   const [error, setError] = useState<string | null>(null);
   const [isCompiling, setIsCompiling] = useState(true);
 
-  // Helper to get SVG alignment string
   const getAspectRatioValue = useCallback((align?: Alignment) => {
     switch (align) {
-      case 'left': return 'xMinYMid meet';
-      case 'right': return 'xMaxYMid meet';
-      default: return 'xMidYMid meet';
+      case "left":
+        return "xMinYMid meet";
+      case "right":
+        return "xMaxYMid meet";
+      default:
+        return "xMidYMid meet";
     }
   }, []);
 
-  // 1. Handle Alignment Changes dynamically without re-rendering the whole script
   useEffect(() => {
-    const svg = outputRef.current?.querySelector('svg');
+    const svg = outputRef.current?.querySelector("svg");
     if (svg) {
-      svg.setAttribute('preserveAspectRatio', getAspectRatioValue(alignment));
+      svg.setAttribute("preserveAspectRatio", getAspectRatioValue(alignment));
     }
   }, [alignment, getAspectRatioValue]);
 
-  // 2. Main Rendering Logic
   useEffect(() => {
-    // Regex check for completeness
     const isComplete = /\\end\{tikzpicture\}/.test(code);
-    
+
     if (!isLoaded || !outputRef.current) return;
 
-    // If incomplete, just show compiling state and wait
     if (!isComplete) {
-        setIsCompiling(true);
-        setError(null);
-        return;
+      setIsCompiling(true);
+      setError(null);
+      return;
     }
-    
+
     setError(null);
     setIsCompiling(true);
-    outputRef.current.innerHTML = '';
+    outputRef.current.innerHTML = "";
 
     const timeoutId = setTimeout(() => {
       if (isCompiling) {
@@ -815,91 +1277,97 @@ const TikZRenderer = ({ code, isLoaded, onSuccess, alignment }: { code: string, 
     }, 5000);
 
     try {
-      const script = document.createElement('script');
-      script.type = 'text/tikz';
+      const script = document.createElement("script");
+      script.type = "text/tikz";
       script.textContent = code;
       outputRef.current.appendChild(script);
 
-      // Replace the TikZRenderer component's observer logic (around line 680-750)
+      const observer = new MutationObserver((mutations) => {
+        const svg = outputRef.current?.querySelector("svg");
+        if (svg) {
+          clearTimeout(timeoutId);
 
-const observer = new MutationObserver((mutations) => {
-  const svg = outputRef.current?.querySelector('svg');
-  if (svg) {
-    clearTimeout(timeoutId);
-    
-    const widthStr = svg.getAttribute('width');
-    const heightStr = svg.getAttribute('height');
-    let aspectRatio = 1;
-    let naturalWidth = 300;
-    let naturalHeight = 200;
+          const widthStr = svg.getAttribute("width");
+          const heightStr = svg.getAttribute("height");
+          let aspectRatio = 1;
+          let naturalWidth = 300;
+          let naturalHeight = 200;
 
-    // Helper to parse units to pixels
-    const parseUnit = (val: string): number | null => {
-      if (!val) return null;
-      const num = parseFloat(val);
-      if (isNaN(num)) return null;
-      if (val.endsWith('pt')) return num * 1.3333;
-      if (val.endsWith('mm')) return num * 3.7795;
-      if (val.endsWith('cm')) return num * 37.795;
-      if (val.endsWith('in')) return num * 96;
-      return num; // assume px
-    };
+          const parseUnit = (val: string): number | null => {
+            if (!val) return null;
+            const num = parseFloat(val);
+            if (isNaN(num)) return null;
+            if (val.endsWith("pt")) return num * 1.3333;
+            if (val.endsWith("mm")) return num * 3.7795;
+            if (val.endsWith("cm")) return num * 37.795;
+            if (val.endsWith("in")) return num * 96;
+            return num;
+          };
 
-    const w = parseUnit(widthStr || '');
-    const h = parseUnit(heightStr || '');
+          const w = parseUnit(widthStr || "");
+          const h = parseUnit(heightStr || "");
 
-    if (w && h) {
-       naturalWidth = w;
-       naturalHeight = h;
-       aspectRatio = h / w;
-    }
-    
-    // **FIX: Expand viewBox to prevent clipping**
-    const viewBox = svg.getAttribute('viewBox');
-    if (viewBox) {
-      const [minX, minY, width, height] = viewBox.split(' ').map(parseFloat);
-      
-      // Add padding (5% on each side, minimum 2 units)
-      const paddingX = Math.max(width * 0.05, 2);
-      const paddingY = Math.max(height * 0.05, 2);
-      
-      const newViewBox = `${minX - paddingX} ${minY - paddingY} ${width + paddingX * 2} ${height + paddingY * 2}`;
-      svg.setAttribute('viewBox', newViewBox);
-      
-      // Recalculate dimensions with padding
-      naturalWidth = width + paddingX * 2;
-      naturalHeight = height + paddingY * 2;
-      aspectRatio = naturalHeight / naturalWidth;
-    } else if (w && h) {
-      // If no viewBox exists, create one with padding
-      const paddingX = Math.max(w * 0.05, 2);
-      const paddingY = Math.max(h * 0.05, 2);
-      svg.setAttribute('viewBox', `${-paddingX} ${-paddingY} ${w + paddingX * 2} ${h + paddingY * 2}`);
-    }
-    
-    svg.setAttribute('width', '100%');
-    svg.setAttribute('height', '100%');
-    svg.setAttribute('preserveAspectRatio', getAspectRatioValue(alignment));
-    svg.style.display = 'block'; 
-    
-    const svgClone = svg.cloneNode(true) as SVGElement;
-    
-    outputRef.current!.innerHTML = '';
-    outputRef.current!.appendChild(svgClone);
+          if (w && h) {
+            naturalWidth = w;
+            naturalHeight = h;
+            aspectRatio = h / w;
+          }
 
-    setIsCompiling(false);
-    observer.disconnect();
-    
-    if (onSuccess) onSuccess({ width: naturalWidth, height: naturalHeight, aspectRatio });
-  }
-});
-      
+          const viewBox = svg.getAttribute("viewBox");
+          if (viewBox) {
+            const [minX, minY, width, height] = viewBox
+              .split(" ")
+              .map(parseFloat);
+            const paddingX = Math.max(width * 0.05, 2);
+            const paddingY = Math.max(height * 0.05, 2);
+            const newViewBox = `${minX - paddingX} ${minY - paddingY} ${
+              width + paddingX * 2
+            } ${height + paddingY * 2}`;
+            svg.setAttribute("viewBox", newViewBox);
+            naturalWidth = width + paddingX * 2;
+            naturalHeight = height + paddingY * 2;
+            aspectRatio = naturalHeight / naturalWidth;
+          } else if (w && h) {
+            const paddingX = Math.max(w * 0.05, 2);
+            const paddingY = Math.max(h * 0.05, 2);
+            svg.setAttribute(
+              "viewBox",
+              `${-paddingX} ${-paddingY} ${w + paddingX * 2} ${
+                h + paddingY * 2
+              }`
+            );
+          }
+
+          svg.setAttribute("width", "100%");
+          svg.setAttribute("height", "100%");
+          svg.setAttribute(
+            "preserveAspectRatio",
+            getAspectRatioValue(alignment)
+          );
+          svg.style.display = "block";
+
+          const svgClone = svg.cloneNode(true) as SVGElement;
+
+          outputRef.current!.innerHTML = "";
+          outputRef.current!.appendChild(svgClone);
+
+          setIsCompiling(false);
+          observer.disconnect();
+
+          if (onSuccess)
+            onSuccess({
+              width: naturalWidth,
+              height: naturalHeight,
+              aspectRatio,
+            });
+        }
+      });
+
       observer.observe(outputRef.current, { childList: true, subtree: true });
-      
-      if (window.dispatchEvent) {
-         window.dispatchEvent(new Event('load'));
-      }
 
+      if (window.dispatchEvent) {
+        window.dispatchEvent(new Event("load"));
+      }
     } catch (err) {
       clearTimeout(timeoutId);
       setIsCompiling(false);
@@ -910,7 +1378,7 @@ const observer = new MutationObserver((mutations) => {
     return () => {
       clearTimeout(timeoutId);
     };
-  }, [code, isLoaded, onSuccess, getAspectRatioValue]); // Removed 'alignment' from here to prevent full re-render
+  }, [code, isLoaded, onSuccess, getAspectRatioValue]);
 
   if (error) {
     return (
@@ -922,7 +1390,7 @@ const observer = new MutationObserver((mutations) => {
   }
 
   return (
-    <div className="relative w-full h-full"> 
+    <div className="relative w-full h-full">
       {isCompiling && (
         <div className="absolute inset-0 flex flex-col items-center justify-center bg-gray-50/90 backdrop-blur-sm z-20 rounded-lg border border-gray-100">
           <div className="relative mb-3">
@@ -931,38 +1399,52 @@ const observer = new MutationObserver((mutations) => {
               <PenTool size={14} className="text-blue-600 opacity-50" />
             </div>
           </div>
-          <span className="text-xs font-medium text-gray-500 animate-pulse">Rendering Diagram...</span>
+          <span className="text-xs font-medium text-gray-500 animate-pulse">
+            Rendering Diagram...
+          </span>
         </div>
       )}
-      {/* CSS Flex alignment is still useful for the container, though SVG attributes do the heavy lifting */}
-      <div 
-        ref={outputRef} 
-        className={`w-full h-full flex items-center ${alignment === 'left' ? 'justify-start' : alignment === 'right' ? 'justify-end' : 'justify-center'}`} 
+      <div
+        ref={outputRef}
+        className={`w-full h-full flex items-center ${
+          alignment === "left"
+            ? "justify-start"
+            : alignment === "right"
+            ? "justify-end"
+            : "justify-center"
+        }`}
       />
     </div>
   );
 };
 
 // --- ISOLATED KATEX RENDERER ---
-const KaTeXRenderer = ({ code, fontSize, alignment }: { code: string, fontSize: number, alignment?: Alignment }) => {
+const KaTeXRenderer = ({
+  code,
+  fontSize,
+  alignment,
+}: {
+  code: string;
+  fontSize: number;
+  alignment?: Alignment;
+}) => {
   const containerRef = useRef<HTMLDivElement>(null);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     if (!containerRef.current) return;
     setError(null);
-    
+
     let cleanCode = code.trim();
-    
+
     if (!cleanCode) {
-      containerRef.current.innerHTML = '';
+      containerRef.current.innerHTML = "";
       return;
     }
-    
-    // Sanitize
-    cleanCode = cleanCode.replace(/[\u200B-\u200D\uFEFF\u0300-\u036F]/g, '');
-    cleanCode = cleanCode.normalize('NFC');
-    
+
+    cleanCode = cleanCode.replace(/[\u200B-\u200D\uFEFF\u0300-\u036F]/g, "");
+    cleanCode = cleanCode.normalize("NFC");
+
     try {
       katex.render(cleanCode, containerRef.current, {
         throwOnError: false,
@@ -970,194 +1452,230 @@ const KaTeXRenderer = ({ code, fontSize, alignment }: { code: string, fontSize: 
         strict: false,
         trust: true,
         fleqn: false,
-        errorColor: '#dc2626',
+        errorColor: "#dc2626",
         macros: {
           "\\RR": "\\mathbb{R}",
           "\\NN": "\\mathbb{N}",
           "\\ZZ": "\\mathbb{Z}",
           "\\QQ": "\\mathbb{Q}",
-          "\\CC": "\\mathbb{C}"
-        }
+          "\\CC": "\\mathbb{C}",
+        },
       });
-      
-      const hasError = containerRef.current.querySelector('.katex-error');
+
+      const hasError = containerRef.current.querySelector(".katex-error");
       if (hasError) {
-        // If error, check if it looks like an incomplete command (heuristic)
-        const isLikelyIncomplete = cleanCode.endsWith('\\') || cleanCode.match(/\\[a-zA-Z]+$/) || cleanCode.split('{').length !== cleanCode.split('}').length;
-        
+        const isLikelyIncomplete =
+          cleanCode.endsWith("\\") ||
+          cleanCode.match(/\\[a-zA-Z]+$/) ||
+          cleanCode.split("{").length !== cleanCode.split("}").length;
+
         if (isLikelyIncomplete) {
-           // Don't set error state for incomplete typing, just show placeholder in container
-           containerRef.current.innerHTML = '<span style="color: #9ca3af; font-style: italic; font-size: 0.875rem;">typing...</span>';
+          containerRef.current.innerHTML =
+            '<span style="color: #9ca3af; font-style: italic; font-size: 0.875rem;">typing...</span>';
         } else {
-           setError(hasError.textContent || "Invalid LaTeX syntax");
-           // Keep the container empty or show previous valid state if possible? 
-           // For now, clear it to avoid confusion
-           containerRef.current.innerHTML = '';
+          setError(hasError.textContent || "Invalid LaTeX syntax");
+          containerRef.current.innerHTML = "";
         }
       }
     } catch (err: any) {
       const errorMsg = err.message || "Invalid LaTeX syntax";
       setError(errorMsg);
-      containerRef.current.innerHTML = ''; 
+      containerRef.current.innerHTML = "";
     }
   }, [code, fontSize]);
 
   return (
-    <div 
-      className={`w-full flex items-center py-2 relative ${alignment === 'left' ? 'justify-start' : alignment === 'right' ? 'justify-end' : 'justify-center'}`}
+    <div
+      className={`w-full flex items-center py-2 relative ${
+        alignment === "left"
+          ? "justify-start"
+          : alignment === "right"
+          ? "justify-end"
+          : "justify-center"
+      }`}
       style={{ fontSize: `${fontSize}px` }}
     >
       {alignment && (
         <style>{`
           .katex-display {
              text-align: ${alignment} !important;
-             margin-left: ${alignment === 'left' ? '0' : 'auto'} !important;
-             margin-right: ${alignment === 'right' ? '0' : 'auto'} !important;
+             margin-left: ${alignment === "left" ? "0" : "auto"} !important;
+             margin-right: ${alignment === "right" ? "0" : "auto"} !important;
           }
         `}</style>
       )}
-      
+
       {error && (
         <div className="absolute inset-0 z-10 flex items-center justify-center bg-white/90">
           <div className="text-center py-2 px-4 bg-red-50 border border-red-100 rounded shadow-sm">
             <span className="inline-flex items-center text-red-600 text-xs font-medium">
               <AlertCircle size={12} className="mr-1" /> Invalid Equation
             </span>
-            <div className="text-[10px] text-gray-500 mt-1 font-mono max-w-xs mx-auto truncate">{error}</div>
+            <div className="text-[10px] text-gray-500 mt-1 font-mono max-w-xs mx-auto truncate">
+              {error}
+            </div>
           </div>
         </div>
       )}
-      
-      <div ref={containerRef} className={error ? 'opacity-20 blur-sm' : ''} />
+
+      <div ref={containerRef} className={error ? "opacity-20 blur-sm" : ""} />
     </div>
   );
 };
 
 // --- MAIN COMPONENT ---
-export const MathBlock: React.FC<MathBlockProps> = ({ initialTex, fontSize, onUpdate, onRemove }) => {
-  const [isEditing, setIsEditing] = useState(initialTex === '');
+export const MathBlock: React.FC<MathBlockProps> = ({
+  initialTex,
+  fontSize,
+  onUpdate,
+  onRemove,
+}) => {
+  const [isEditing, setIsEditing] = useState(initialTex === "");
   const [code, setCode] = useState(initialTex);
   const [isTikZLoaded, setIsTikZLoaded] = useState(false);
-  
-  const [currentFontSize, setCurrentFontSize] = useState(fontSize || 24); 
+
+  const [currentFontSize, setCurrentFontSize] = useState(fontSize || 24);
   const [currentTikZWidth, setCurrentTikZWidth] = useState(300);
-  const [tikZAspectRatio, setTikZAspectRatio] = useState(0.66); 
-  
-  const [layout, setLayout] = useState<BlockLayout>('vertical');
-  const [alignment, setAlignment] = useState<Alignment>('center');
+  const [tikZAspectRatio, setTikZAspectRatio] = useState(0.66);
+
+  const [layout, setLayout] = useState<BlockLayout>("vertical");
+  const [alignment, setAlignment] = useState<Alignment>("center");
 
   const [resizeVersion, setResizeVersion] = useState(0);
 
   const containerRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    loadTikZJax().then(() => setIsTikZLoaded(true)).catch(console.error);
+    loadTikZJax()
+      .then(() => setIsTikZLoaded(true))
+      .catch(console.error);
   }, []);
 
-  // Initialize layout and alignment from DOM if present
   useEffect(() => {
     if (containerRef.current) {
-        const wrapper = containerRef.current.closest('.math-wrapper') as HTMLElement;
-        if (wrapper) {
-            if (wrapper.dataset.layout) {
-                setLayout(wrapper.dataset.layout as BlockLayout);
-            }
-            if (wrapper.dataset.float) {
-                setAlignment(wrapper.dataset.float as Alignment);
-            }
+      const wrapper = containerRef.current.closest(
+        ".math-wrapper"
+      ) as HTMLElement;
+      if (wrapper) {
+        if (wrapper.dataset.layout) {
+          setLayout(wrapper.dataset.layout as BlockLayout);
         }
+        if (wrapper.dataset.float) {
+          setAlignment(wrapper.dataset.float as Alignment);
+        }
+      }
     }
   }, []);
 
-  // Persist layout to DOM
   useEffect(() => {
     if (containerRef.current) {
-        const wrapper = containerRef.current.closest('.math-wrapper') as HTMLElement;
-        if (wrapper) {
-            wrapper.dataset.layout = layout;
-        }
+      const wrapper = containerRef.current.closest(
+        ".math-wrapper"
+      ) as HTMLElement;
+      if (wrapper) {
+        wrapper.dataset.layout = layout;
+      }
     }
   }, [layout]);
 
-  // Watch for alignment changes from MathResizer
   useEffect(() => {
     if (!containerRef.current) return;
-    const wrapper = containerRef.current.closest('.math-wrapper') as HTMLElement;
+    const wrapper = containerRef.current.closest(
+      ".math-wrapper"
+    ) as HTMLElement;
     if (!wrapper) return;
 
     const observer = new MutationObserver((mutations) => {
       mutations.forEach((mutation) => {
-        if (mutation.type === 'attributes' && mutation.attributeName === 'data-float') {
+        if (
+          mutation.type === "attributes" &&
+          mutation.attributeName === "data-float"
+        ) {
           const newFloat = wrapper.dataset.float;
-          if (newFloat === 'left' || newFloat === 'right' || newFloat === 'center') {
+          if (
+            newFloat === "left" ||
+            newFloat === "right" ||
+            newFloat === "center"
+          ) {
             setAlignment(newFloat);
           } else {
-            setAlignment('center'); // Default for 'none' or other values
+            setAlignment("center");
           }
         }
       });
     });
 
-    observer.observe(wrapper, { attributes: true, attributeFilter: ['data-float'] });
+    observer.observe(wrapper, {
+      attributes: true,
+      attributeFilter: ["data-float"],
+    });
     return () => observer.disconnect();
   }, []);
 
   const segments = useMemo(() => {
     if (!code) return [];
-    
-    const tikzRegex = /\\begin\{tikzpicture\}[\s\S]*?(?:\\end\{tikzpicture\}|$)/g;
+
+    const tikzRegex =
+      /\\begin\{tikzpicture\}[\s\S]*?(?:\\end\{tikzpicture\}|$)/g;
     const matches = [...code.matchAll(tikzRegex)];
-    
+
     if (matches.length === 0) {
       const trimmed = code.trim();
       if (!trimmed) return [];
-      return [{ type: 'math', content: trimmed }];
+      return [{ type: "math", content: trimmed }];
     }
-    
-    const segments: { type: 'tikz' | 'math', content: string }[] = [];
+
+    const segments: { type: "tikz" | "math"; content: string }[] = [];
     let lastIndex = 0;
-    
+
     for (const match of matches) {
       let preContent = code.substring(lastIndex, match.index!);
-      
-      // Look for TikZ-specific preamble commands at the end of the pre-content
-      const preambleRegex = /((?:\\usetikzlibrary\{[^}]+\}|\\tikzset\{[^}]+\})\s*)+$/;
+
+      const preambleRegex =
+        /((?:\\usetikzlibrary\{[^}]+\}|\\tikzset\{[^}]+\})\s*)+$/;
       const preambleMatch = preContent.match(preambleRegex);
-      
+
       let tikzContent = match[0];
-      
+
       if (preambleMatch) {
         const preamble = preambleMatch[0];
         tikzContent = preamble + tikzContent;
-        preContent = preContent.substring(0, preContent.length - preamble.length);
+        preContent = preContent.substring(
+          0,
+          preContent.length - preamble.length
+        );
       }
-      
+
       const mathContent = preContent.trim();
       if (mathContent) {
-        segments.push({ type: 'math', content: mathContent });
+        segments.push({ type: "math", content: mathContent });
       }
-      
-      segments.push({ type: 'tikz', content: tikzContent });
+
+      segments.push({ type: "tikz", content: tikzContent });
       lastIndex = match.index! + match[0].length;
     }
-    
+
     if (lastIndex < code.length) {
       const mathContent = code.substring(lastIndex).trim();
       if (mathContent) {
-        segments.push({ type: 'math', content: mathContent });
+        segments.push({ type: "math", content: mathContent });
       }
     }
-    
+
     return segments;
   }, [code]);
 
   const initialMode: BlockMode = useMemo(() => {
-    return (code.includes('\\begin{tikzpicture') || code.includes('\\tikz')) ? 'tikz' : 'math';
+    return code.includes("\\begin{tikzpicture") || code.includes("\\tikz")
+      ? "tikz"
+      : "math";
   }, [code]);
 
   useEffect(() => {
     if (containerRef.current) {
-      const wrapper = containerRef.current.closest('.math-wrapper') as HTMLElement;
+      const wrapper = containerRef.current.closest(
+        ".math-wrapper"
+      ) as HTMLElement;
       if (wrapper) {
         wrapper.dataset.renderMode = initialMode;
       }
@@ -1167,99 +1685,213 @@ export const MathBlock: React.FC<MathBlockProps> = ({ initialTex, fontSize, onUp
   useEffect(() => {
     const container = containerRef.current;
     if (!container) return;
-    
+
     const handleEdit = () => setIsEditing(true);
     const handleDelete = () => onRemove();
     const handleUpdateFontSize = (e: CustomEvent<{ fontSize: number }>) => {
-        setCurrentFontSize(e.detail.fontSize);
+      setCurrentFontSize(e.detail.fontSize);
     };
     const handleUpdateTikZSize = (e: CustomEvent<{ width: number }>) => {
+      if (layout === "horizontal" && segments.length > 1) {
+        // In horizontal mixed mode, the resizer sends the total wrapper width.
+        // We need to deduce the TikZ width by subtracting math width.
+        const mathSegment =
+          containerRef.current?.querySelector(".math-segment");
+        const mathWidth = mathSegment
+          ? mathSegment.getBoundingClientRect().width
+          : 0;
+        const gap = 48; // 3rem
+        const padding = 32;
+        const newTikZWidth = e.detail.width - mathWidth - gap - padding;
+        setCurrentTikZWidth(Math.max(50, newTikZWidth));
+      } else {
         setCurrentTikZWidth(e.detail.width);
+      }
     };
 
-    container.addEventListener('editMath', handleEdit);
-    container.addEventListener('deleteMath', handleDelete);
-    container.addEventListener('updateMath', handleUpdateFontSize as EventListener);
-    container.addEventListener('updateTikZSize', handleUpdateTikZSize as EventListener);
+    container.addEventListener("editMath", handleEdit);
+    container.addEventListener("deleteMath", handleDelete);
+    container.addEventListener(
+      "updateMath",
+      handleUpdateFontSize as EventListener
+    );
+    container.addEventListener(
+      "updateTikZSize",
+      handleUpdateTikZSize as EventListener
+    );
 
-    const resizeObserver = new ResizeObserver(() => setResizeVersion(v => v + 1));
+    const resizeObserver = new ResizeObserver(() =>
+      setResizeVersion((v) => v + 1)
+    );
     resizeObserver.observe(container);
 
     return () => {
-      container.removeEventListener('editMath', handleEdit);
-      container.removeEventListener('deleteMath', handleDelete);
-      container.removeEventListener('updateMath', handleUpdateFontSize as EventListener);
-      container.removeEventListener('updateTikZSize', handleUpdateTikZSize as EventListener);
+      container.removeEventListener("editMath", handleEdit);
+      container.removeEventListener("deleteMath", handleDelete);
+      container.removeEventListener(
+        "updateMath",
+        handleUpdateFontSize as EventListener
+      );
+      container.removeEventListener(
+        "updateTikZSize",
+        handleUpdateTikZSize as EventListener
+      );
       resizeObserver.disconnect();
     };
-  }, [onRemove]);
+  }, [onRemove, layout, segments]);
 
   useEffect(() => {
     if (containerRef.current) {
       containerRef.current.dataset.fontSize = String(currentFontSize);
+      // Persist TikZ width to dataset to avoid losing state on re-mounts
+      containerRef.current.dataset.tikzWidth = String(currentTikZWidth);
     }
-  }, [currentFontSize]);
+  }, [currentFontSize, currentTikZWidth]);
 
   // --- AUTO-RESIZE & AUTO-SCALE ---
-  // Replace the existing auto-resize useEffect (around line 850-880) with this improved version:
+  useEffect(() => {
+    if (!containerRef.current) return;
+    const wrapper = containerRef.current.closest(
+      ".math-wrapper"
+    ) as HTMLElement;
+    if (!wrapper || wrapper.dataset.resizing === "true") return;
 
-// --- AUTO-RESIZE & AUTO-SCALE ---
-useEffect(() => {
-  if (!containerRef.current) return;
-  const wrapper = containerRef.current.closest('.math-wrapper') as HTMLElement;
-  if (!wrapper || wrapper.dataset.resizing === 'true') return;
+    if (!wrapper || wrapper.dataset.resizing === "true") return;
 
-  // FIX: Only reset height for Math mode. TikZ mode manages height via aspect ratio.
-  if (initialMode === 'math') {
-    wrapper.style.height = 'auto';
-    
-    // 2. Check for width AND height overflow and scale down font if needed
-    const checkOverflow = () => {
-      if (containerRef.current) {
-        const contentWidth = containerRef.current.scrollWidth;
-        const containerWidth = containerRef.current.clientWidth;
-        const contentHeight = containerRef.current.scrollHeight;
-        const containerHeight = containerRef.current.clientHeight;
-        
-        let scaleFactor = 1;
-        
-        // Check width overflow
-        if (contentWidth > containerWidth && currentFontSize > 10) {
-          const widthRatio = containerWidth / contentWidth;
-          scaleFactor = Math.min(scaleFactor, widthRatio);
-        }
-        
-        // Check height overflow (for tall content like algorithms)
-        if (contentHeight > containerHeight && containerHeight > 0 && currentFontSize > 10) {
-          const heightRatio = containerHeight / contentHeight;
-          scaleFactor = Math.min(scaleFactor, heightRatio);
-        }
-        
-        // Apply scaling if needed
-        if (scaleFactor < 1) {
-          const newSize = Math.max(10, Math.floor(currentFontSize * scaleFactor * 0.95)); // 0.95 buffer
-          if (newSize !== currentFontSize) {
-            setCurrentFontSize(newSize);
-            containerRef.current.dataset.fontSize = String(newSize);
+    if (initialMode === "math") {
+      wrapper.style.height = "auto";
+
+      const checkOverflow = () => {
+        if (containerRef.current) {
+          const contentWidth = containerRef.current.scrollWidth;
+          const containerWidth = containerRef.current.clientWidth;
+          const contentHeight = containerRef.current.scrollHeight;
+          const containerHeight = containerRef.current.clientHeight;
+
+          let scaleFactor = 1;
+
+          if (contentWidth > containerWidth && currentFontSize > 10) {
+            const widthRatio = containerWidth / contentWidth;
+            scaleFactor = Math.min(scaleFactor, widthRatio);
           }
+
+          if (
+            contentHeight > containerHeight &&
+            containerHeight > 0 &&
+            currentFontSize > 10
+          ) {
+            const heightRatio = containerHeight / contentHeight;
+            scaleFactor = Math.min(scaleFactor, heightRatio);
+          }
+
+          if (scaleFactor < 1) {
+            const newSize = Math.max(
+              10,
+              Math.floor(currentFontSize * scaleFactor * 0.95)
+            );
+            if (newSize !== currentFontSize) {
+              setCurrentFontSize(newSize);
+              containerRef.current.dataset.fontSize = String(newSize);
+            }
+          }
+        }
+      };
+
+      const timer = setTimeout(checkOverflow, 100);
+      return () => clearTimeout(timer);
+    }
+  }, [segments, code, initialMode, currentFontSize]);
+
+  // --- DYNAMIC CONTAINER RESIZING ---
+  // --- DYNAMIC CONTAINER RESIZING ---
+  useEffect(() => {
+    const wrapper = containerRef.current?.closest(
+      ".math-wrapper"
+    ) as HTMLElement;
+    if (!wrapper || !containerRef.current) return;
+
+    // *** CRITICAL: Skip during manual resize ***
+    if (wrapper.dataset.resizing === "true") return;
+
+    const updateWrapperSize = () => {
+      // Measure Math Segments
+      const mathSegments = Array.from(
+        containerRef.current!.querySelectorAll(".math-segment")
+      );
+      let mathWidth = 0;
+      let mathHeight = 0;
+
+      mathSegments.forEach((seg) => {
+        const content = seg.firstElementChild as HTMLElement;
+        if (content) {
+          mathWidth = Math.max(mathWidth, content.scrollWidth);
+          mathHeight = Math.max(mathHeight, content.scrollHeight);
+        }
+      });
+
+      // Calculate TikZ Dimensions
+      const hasTikZ = segments.some((s) => s.type === "tikz");
+      const tikzW = hasTikZ ? currentTikZWidth : 0;
+      const tikzH = hasTikZ ? currentTikZWidth * tikZAspectRatio : 0;
+
+      // Calculate Target Dimensions
+      let targetWidth = 0;
+      let targetHeight = 0;
+      const gap = layout === "horizontal" ? 48 : 8;
+      const padding = 32;
+
+      if (layout === "horizontal") {
+        if (hasTikZ && mathSegments.length > 0) {
+          targetWidth = tikzW + mathWidth + gap + padding;
+          targetHeight = Math.max(tikzH, mathHeight) + padding;
+        } else if (hasTikZ) {
+          targetWidth = tikzW + padding;
+          targetHeight = tikzH + padding;
+        } else {
+          targetWidth = Math.max(300, mathWidth + padding);
+          targetHeight = mathHeight + padding;
+        }
+      } else {
+        // Vertical
+        if (hasTikZ && mathSegments.length > 0) {
+          targetWidth = Math.max(tikzW, mathWidth) + padding;
+          targetHeight = tikzH + mathHeight + gap + padding;
+        } else if (hasTikZ) {
+          targetWidth = tikzW + padding;
+          targetHeight = tikzH + padding;
+        } else {
+          targetWidth = Math.max(300, mathWidth + padding);
+          targetHeight = mathHeight + padding;
+        }
+      }
+
+      // Apply dimensions smoothly
+      if (targetWidth > 0 && targetHeight > 0) {
+        const currentW = parseFloat(wrapper.style.width || "0");
+        const currentH = parseFloat(wrapper.style.height || "0");
+
+        // Only update if significantly different (avoid micro-adjustments)
+        if (Math.abs(currentW - targetWidth) > 2) {
+          wrapper.style.width = `${targetWidth}px`;
+        }
+        if (Math.abs(currentH - targetHeight) > 2) {
+          wrapper.style.height = `${targetHeight}px`;
+          wrapper.style.minHeight = `${targetHeight}px`;
         }
       }
     };
 
-    // Run check with a longer delay to allow KaTeX rendering to complete
-    const timer = setTimeout(checkOverflow, 100);
+    const timer = setTimeout(updateWrapperSize, 100);
     return () => clearTimeout(timer);
-  }
-}, [segments, code, initialMode, currentFontSize]); // Added 'code' and 'currentFontSize' as dependencies
-
+  }, [layout, currentTikZWidth, tikZAspectRatio, currentFontSize, segments]);
 
   const handleSave = () => {
-  if (code.trim() === '') onRemove();
-  else {
-    onUpdate(code);
-    setIsEditing(false);
-  }
-};
+    if (code.trim() === "") onRemove();
+    else {
+      onUpdate(code);
+      setIsEditing(false);
+    }
+  };
 
   const handleFontSizeChange = (newSize: number) => {
     const size = Math.max(8, Math.min(72, newSize));
@@ -1270,205 +1902,230 @@ useEffect(() => {
   };
 
   useEffect(() => {
-    if (initialMode === 'tikz' && containerRef.current) {
-      const wrapper = containerRef.current.closest('.math-wrapper') as HTMLElement;
+    if (initialMode === "tikz" && containerRef.current) {
+      // Try to recover from dataset first to prevent feedback loops in mixed mode
+      const savedWidth = containerRef.current.dataset.tikzWidth;
+      if (savedWidth) {
+        setCurrentTikZWidth(parseFloat(savedWidth));
+        return;
+      }
+
+      const wrapper = containerRef.current.closest(
+        ".math-wrapper"
+      ) as HTMLElement;
       if (wrapper) {
-        if (wrapper.style.width && wrapper.style.width !== 'auto') {
-           setCurrentTikZWidth(parseFloat(wrapper.style.width));
+        // Only use wrapper width if we are NOT in mixed mode
+        const isMixed = segments.length > 1;
+
+        if (!isMixed && wrapper.style.width && wrapper.style.width !== "auto") {
+          setCurrentTikZWidth(parseFloat(wrapper.style.width));
         } else {
-           setCurrentTikZWidth(300);
+          setCurrentTikZWidth(300);
         }
       }
     }
-  }, [initialMode, isEditing]);
+  }, [initialMode, isEditing, segments.length]);
 
-  const handleTikZSuccess = useCallback((dimensions: { width: number, height: number, aspectRatio: number }) => {
-    const { width, height, aspectRatio } = dimensions;
-    setTikZAspectRatio(aspectRatio);
-    
-    const wrapper = containerRef.current?.closest('.math-wrapper') as HTMLElement;
-    if (!wrapper) return;
+  useEffect(() => {
+    const container = containerRef.current;
+    if (!container) return;
 
-    if (segments.length === 1 && segments[0].type === 'tikz') {
-        const currentWidthStr = wrapper.style.width;
-        
-        // We consider it "default" if:
-        // 1. No width set
-        // 2. Width is 'auto'
-        // 3. Width is exactly '300px' (the old hardcoded default) - this helps fix existing "too big" diagrams
-        // 4. Width is '500px' (another potential default)
-        const isDefault = !currentWidthStr || currentWidthStr === 'auto' || currentWidthStr === '300px' || currentWidthStr === '500px';
-        
-        if (isDefault) {
-           // Force 300x300 default as requested to prevent "too big" diagrams
-           const targetWidth = 300;
-           const targetHeight = 300;
+    const handlePreviewUpdate = (
+      e: CustomEvent<{ fontSize: number; width: number }>
+    ) => {
+      // Update state immediately for visual feedback (no history save)
+      setCurrentFontSize(e.detail.fontSize);
+      if (initialMode === "tikz") {
+        setCurrentTikZWidth(e.detail.width);
+      }
+    };
 
-           wrapper.style.width = `${targetWidth}px`;
-           wrapper.style.height = `${targetHeight}px`;
-           wrapper.style.margin = '12px auto';
-           wrapper.dataset.float = 'center';
-           wrapper.style.display = 'block';
-           
-           setCurrentTikZWidth(targetWidth);
-        } else {
-           // Respect user's custom width, but update height to match new aspect ratio
-           const currentWidthVal = parseFloat(currentWidthStr);
-           const newHeight = currentWidthVal * aspectRatio;
-           wrapper.style.height = `${newHeight}px`;
-           
-           setCurrentTikZWidth(currentWidthVal);
-        }
-    } 
-    else if (segments.length > 1) {
-        // Mixed content logic...
-        // Ensure it respects the 300px width constraint if set by useLayoutEffect
-        const currentWidthStr = wrapper.style.width;
-        if (currentWidthStr === '300px') {
-             // If we forced 300px width, we should probably let height be auto to fit text + diagram,
-             // OR force 300px height if that was the intent. 
-             // Given "dimensions should be 300px height and width", we enforce 300px height too.
-             if (!wrapper.style.height || wrapper.style.height === 'auto') {
-                 wrapper.style.height = '300px';
-             }
-        } else if (wrapper.style.height && parseFloat(wrapper.style.height) < 200) {
-            wrapper.style.height = 'auto';
-            wrapper.style.minHeight = '300px';
-        }
-    }
-  }, [segments]);
+    container.addEventListener(
+      "updateMathPreview",
+      handlePreviewUpdate as EventListener
+    );
+
+    return () => {
+      container.removeEventListener(
+        "updateMathPreview",
+        handlePreviewUpdate as EventListener
+      );
+    };
+  }, [initialMode]);
+
+  const handleTikZSuccess = useCallback(
+    (dimensions: { width: number; height: number; aspectRatio: number }) => {
+      const { aspectRatio } = dimensions;
+      setTikZAspectRatio(aspectRatio);
+    },
+    []
+  );
 
   const handleTikZSizeChange = (delta: number) => {
-    const wrapper = containerRef.current?.closest('.math-wrapper') as HTMLElement;
-    if (!wrapper) return;
-
-    // Use current rendered width as base to avoid jumps
-    const currentRect = wrapper.getBoundingClientRect();
-    const baseWidth = currentRect.width;
-
-    const newWidth = Math.max(50, Math.min(800, baseWidth + delta));
-    
+    // Use state, not DOM width, to ensure consistency
+    const newWidth = Math.max(50, Math.min(800, currentTikZWidth + delta));
     setCurrentTikZWidth(newWidth);
-    
-    wrapper.style.width = `${newWidth}px`;
-    wrapper.style.height = `${newWidth * tikZAspectRatio}px`;
+    // The dynamic resizing useEffect will handle the wrapper dimensions
   };
 
-  // --- NEW: USE LAYOUT EFFECT TO FORCE INITIAL WIDTH ---
   useLayoutEffect(() => {
-    const wrapper = containerRef.current?.closest('.math-wrapper') as HTMLElement;
+    const wrapper = containerRef.current?.closest(
+      ".math-wrapper"
+    ) as HTMLElement;
     if (wrapper) {
-      if (!wrapper.dataset.float || wrapper.dataset.float === 'center') {
-        wrapper.dataset.float = 'center';
-        wrapper.style.float = 'none';
-        wrapper.style.margin = '12px auto';
-        wrapper.style.display = 'block';
+      if (!wrapper.dataset.float || wrapper.dataset.float === "center") {
+        wrapper.dataset.float = "center";
+        wrapper.style.float = "none";
+        wrapper.style.margin = "12px auto";
+        wrapper.style.display = "block";
       }
 
-      if (segments.length === 1 && segments[0].type === 'tikz') {
-        if (!wrapper.style.width || wrapper.style.width === 'auto') {
-          wrapper.style.width = '300px'; // Force 300px default
+      if (segments.length === 1 && segments[0].type === "tikz") {
+        if (!wrapper.style.width || wrapper.style.width === "auto") {
+          wrapper.style.width = "300px";
         }
-        if (!wrapper.style.height || wrapper.style.height === 'auto') {
-          wrapper.style.height = '300px'; // Force 300px default height
-        }
-      } else if (segments.length > 1) {
-        // Mixed content: Also force 300px default dimensions
-        if (!wrapper.style.width || wrapper.style.width === 'auto' || wrapper.style.width === '500px') {
-          wrapper.style.width = '300px';
-        }
-        if (!wrapper.style.height || wrapper.style.height === 'auto') {
-          wrapper.style.height = '300px'; 
+        if (!wrapper.style.height || wrapper.style.height === "auto") {
+          wrapper.style.height = "300px";
         }
       }
     }
   }, [segments]);
-  
 
   return (
-    <div 
-    ref={containerRef} 
-    className="relative w-full h-full group math-block-container"
-    style={{
-      minHeight: '3rem',
-      height: '100%',
-      width: '100%',
-      display: 'flex',
-      flexDirection: 'column',
-      overflow: 'hidden' // Prevent content from overflowing the resizer
-    }}
-  >
-      
+    <div
+      ref={containerRef}
+      className="relative w-full h-full group math-block-container"
+      style={{
+        minHeight: "3rem",
+        height: "100%",
+        width: "100%",
+        display: "flex",
+        flexDirection: "column",
+        overflow: "hidden",
+      }}
+    >
       {/* RENDER VIEW */}
       <div
-        className={`math-rendered transition-all rounded-lg cursor-pointer ${isEditing ? '' : 'hover:bg-blue-50/50 hover:ring-2 hover:ring-blue-100'}`}
+        className={`math-rendered rounded-lg cursor-pointer ${
+          isEditing
+            ? ""
+            : "hover:bg-blue-50/50 hover:ring-2 hover:ring-blue-100"
+        }`}
         title="Click to edit"
-        onClick={(e) => { e.stopPropagation(); setIsEditing(true); }}
-        style={{ 
-            minHeight: '3rem',
-            display: 'flex',
-            flexDirection: layout === 'horizontal' ? 'row' : 'column', 
-            width: '100%',
-            height: '100%',
-            position: 'relative',
-            gap: layout === 'horizontal' ? '1rem' : '0.5rem',
-            alignItems: layout === 'horizontal' ? 'center' : 'stretch',
-            justifyContent: alignment === 'left' ? 'flex-start' : alignment === 'right' ? 'flex-end' : 'center',
-            padding: '8px',
-            overflow: 'hidden' // Contain content within boundaries
+        onClick={(e) => {
+          e.stopPropagation();
+          setIsEditing(true);
+        }}
+        style={{
+          minHeight: "3rem",
+          display: "flex",
+          flexDirection: layout === "horizontal" ? "row" : "column",
+          width: "100%",
+          height: "100%",
+          position: "relative",
+          gap: layout === "horizontal" ? "3rem" : "0.5rem",
+          alignItems: layout === "horizontal" ? "center" : "stretch",
+          justifyContent:
+            alignment === "left"
+              ? "flex-start"
+              : alignment === "right"
+              ? "flex-end"
+              : "center",
+          padding: "12px",
+          overflow: "visible", // Changed from 'hidden' to prevent clipping
+          // *** NEW: Prevent layout shift during resize ***
+          contain: "layout", // CSS containment for stability
+          willChange: "auto", // Let browser optimize
         }}
       >
         {segments.length === 0 ? (
-           <span className="text-gray-300 italic select-none m-auto">Empty Equation Block</span>
+          <span className="text-gray-300 italic select-none m-auto">
+            Empty Equation Block
+          </span>
         ) : (
-           segments.map((seg, idx) => (
+          segments.map((seg, idx) => (
             <React.Fragment key={idx}>
-              {seg.type === 'tikz' ? (
-                <div 
-                  className="tikz-segment" 
-                  style={{ 
+              {seg.type === "tikz" ? (
+                <div
+                  className="tikz-segment"
+                  style={{
                     flexGrow: 0,
-                    flexShrink: 1,
-                    flexBasis: 'auto',
-                    position: 'relative',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: alignment === 'left' ? 'flex-start' : alignment === 'right' ? 'flex-end' : 'center',
-                    width: layout === 'horizontal' ? `${currentTikZWidth}px` : '100%',
-                    height: layout === 'horizontal' ? `${currentTikZWidth * tikZAspectRatio}px` : '100%',
+                    flexShrink: 0,
+                    flexBasis: "auto",
+                    position: "relative",
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent:
+                      alignment === "left"
+                        ? "flex-start"
+                        : alignment === "right"
+                        ? "flex-end"
+                        : "center",
+                    width: `${currentTikZWidth}px`,
+                    height: `${currentTikZWidth * tikZAspectRatio}px`,
                     minHeight: 0,
                     minWidth: 0,
-                    maxWidth: '100%',
-                    maxHeight: '100%',
-                    overflow: 'hidden'
+                    maxWidth: "100%",
+                    maxHeight: "100%",
+                    overflow: "visible", // Changed from 'hidden'
+                    // *** NEW: Prevent shift ***
+                    contain: "layout size",
                   }}
                 >
-                  <TikZRenderer code={seg.content} isLoaded={isTikZLoaded} onSuccess={handleTikZSuccess} alignment={alignment} />
+                  <TikZRenderer
+                    code={seg.content}
+                    isLoaded={isTikZLoaded}
+                    onSuccess={handleTikZSuccess}
+                    alignment={alignment}
+                  />
                 </div>
               ) : (
-                <div className="math-segment" style={{ 
-                  flexGrow: layout === 'horizontal' ? 1 : 0,
-                  flexShrink: 1,
-                  flexBasis: 'auto',
-                  display: 'flex',
-                  justifyContent: alignment === 'left' ? 'flex-start' : alignment === 'right' ? 'flex-end' : 'center',
-                  alignItems: 'center',
-                  padding: '4px 0',
-                  minWidth: 0,
-                  minHeight: 0,
-                  maxWidth: '100%',
-                  maxHeight: '100%',
-                  overflow: 'hidden'
-                }}>
-                  <div style={{ 
-                    maxWidth: '100%', 
-                    maxHeight: '100%',
-                    overflow: 'hidden',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: alignment === 'left' ? 'flex-start' : alignment === 'right' ? 'flex-end' : 'center'
-                  }}>
-                    <KaTeXRenderer code={seg.content} fontSize={currentFontSize} alignment={alignment} />
+                <div
+                  className="math-segment"
+                  style={{
+                    flexGrow: layout === "horizontal" ? 1 : 0,
+                    flexShrink: 0,
+                    flexBasis: "auto",
+                    display: "flex",
+                    justifyContent:
+                      alignment === "left"
+                        ? "flex-start"
+                        : alignment === "right"
+                        ? "flex-end"
+                        : "center",
+                    alignItems: "center",
+                    padding: "4px 0",
+                    minWidth: 0,
+                    minHeight: 0,
+                    maxWidth: "100%",
+                    maxHeight: "100%",
+                    overflow: "visible", // Changed from 'hidden'
+                    // *** NEW: Prevent shift ***
+                    contain: "layout",
+                  }}
+                >
+                  <div
+                    style={{
+                      maxWidth: "100%",
+                      maxHeight: "100%",
+                      overflow: "visible", // Changed from 'hidden'
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent:
+                        alignment === "left"
+                          ? "flex-start"
+                          : alignment === "right"
+                          ? "flex-end"
+                          : "center",
+                      // *** NEW: Prevent layout shift ***
+                      contain: "layout",
+                    }}
+                  >
+                    <KaTeXRenderer
+                      code={seg.content}
+                      fontSize={currentFontSize}
+                      alignment={alignment}
+                    />
                   </div>
                 </div>
               )}
@@ -1479,7 +2136,7 @@ useEffect(() => {
 
       {/* EDITOR POPOVER */}
       {isEditing && (
-        <MathEditorPopover 
+        <MathEditorPopover
           code={code}
           setCode={setCode}
           onSave={handleSave}

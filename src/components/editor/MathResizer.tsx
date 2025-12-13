@@ -364,126 +364,120 @@ export const MathResizer: React.FC<MathResizerProps> = ({
     };
 
     const handleResizeStart = (e: MouseEvent) => {
-      const target = e.target as HTMLElement;
-      const resizeHandle = target.closest('[data-resize-handle]');
-      const currentSelection = selectionRef.current;
-      
-      if (resizeHandle && currentSelection) {
-        e.preventDefault();
-        setIsResizing(true);
-        resizeHandleRef.current = resizeHandle.getAttribute('data-resize-handle');
-        
-        const rect = currentSelection.getBoundingClientRect();
-        
-        let fontSize = 24; 
-        const innerContainer = currentSelection.querySelector('.math-block-container') as HTMLElement;
-        
-        if (innerContainer && innerContainer.dataset.fontSize) {
-            fontSize = parseFloat(innerContainer.dataset.fontSize);
-        } else if (currentSelection.dataset.fontSize) {
-            fontSize = parseFloat(currentSelection.dataset.fontSize);
-        }
-        
-        resizeStart.current = { 
-            fontSize, 
-            width: rect.width,
-            height: rect.height,
-            x: e.clientX,
-            y: e.clientY,
-            aspectRatio: rect.width / rect.height
-        };
-      }
-    };
+  const target = e.target as HTMLElement;
+  const resizeHandle = target.closest('[data-resize-handle]');
+  const currentSelection = selectionRef.current;
+  
+  if (resizeHandle && currentSelection) {
+    e.preventDefault();
+    setIsResizing(true);
+    resizeHandleRef.current = resizeHandle.getAttribute('data-resize-handle');
     
-    const handleMouseMove = (e: MouseEvent) => {
-      if (!isResizingRef.current || !selectionRef.current) return;
-      
-      const handle = resizeHandleRef.current || '';
-      const { x, y, width, height, fontSize, aspectRatio } = resizeStart.current;
-      const dx = e.clientX - x;
-      const dy = e.clientY - y;
-      const mode = selectionRef.current.dataset.renderMode || 'math';
-
-      let newW = width;
-      let newH = height;
-      
-      if (handle.includes('e')) newW = width + dx;
-      if (handle.includes('w')) newW = width - dx;
-      if (handle.includes('s')) newH = height + dy;
-      if (handle.includes('n')) newH = height - dy;
-
-      if (mode === 'math') {
-          if (handle === 'e' || handle === 'w') {
-              newH = newW / aspectRatio;
-          }
-          if (handle === 'n' || handle === 's') {
-              newW = newH * aspectRatio;
-          }
-      }
-
-      if (mode === 'tikz') {
-          if (handle.includes('e') || handle.includes('w')) {
-              newH = newW / aspectRatio;
-          } 
-          else if (handle === 'n' || handle === 's') {
-              newW = newH * aspectRatio;
-          }
-      }
-      
-      newW = Math.max(50, Math.min(newW, MAX_EDITABLE_WIDTH));
-      newH = Math.max(20, newH);
-      
-      requestAnimationFrame(() => {
-        if (!selectionRef.current) return;
-        
-        selectionRef.current.dataset.resizing = 'true';
-        
-        selectionRef.current.style.width = `${newW}px`;
-
-        selectionRef.current.style.height = `${newH}px`;
-        selectionRef.current.style.minHeight = '0px'; // Reset any previous min-height
-        
-        // Let height be determined by content for mixed layouts to prevent clipping
-        const hasMixedContent = selectionRef.current.querySelectorAll('.tikz-segment, .math-segment').length > 1;
-        
-        if (!hasMixedContent || mode === 'tikz') {
-            selectionRef.current.style.height = `${newH}px`;
-        } else {
-            // For mixed content, set min-height but allow growth
-            selectionRef.current.style.minHeight = `${newH}px`;
-            selectionRef.current.style.height = 'auto';
-        }
-
-        const scale = newH / height;
-        const effectiveScale = hasMixedContent ? Math.sqrt(scale) : scale;
-
-        const newFS = Math.max(8, Math.min(120, fontSize * effectiveScale));
-        
-        selectionRef.current.style.fontSize = `${newFS}px`;
-        selectionRef.current.dataset.fontSize = String(newFS);
-        
-        pendingResizeValues.current = { width: newW, height: newH, fontSize: newFS };
-
-        if (mode === 'tikz') {
-            const svg = selectionRef.current.querySelector('svg');
-            if (svg) {
-                svg.style.width = '100%';
-                svg.style.height = '100%';
-                if (!svg.hasAttribute('preserveAspectRatio')) {
-                   svg.setAttribute('preserveAspectRatio', 'xMidYMid meet');
-                }
-                let parent = svg.parentElement;
-                while (parent && parent !== selectionRef.current && selectionRef.current.contains(parent)) {
-                    parent.style.width = '100%';
-                    parent.style.height = '100%';
-                    parent.style.maxWidth = 'none';
-                    parent.style.maxHeight = 'none';
-                    parent = parent.parentElement;
-                }
-            }
-        }
-      });
+    // *** NEW: Get actual computed dimensions BEFORE any changes ***
+    const rect = currentSelection.getBoundingClientRect();
+    const computedStyle = window.getComputedStyle(currentSelection);
+    
+    // Store the ACTUAL rendered dimensions including padding
+    const actualWidth = rect.width;
+    const actualHeight = rect.height;
+    
+    // *** NEW: Lock dimensions immediately to prevent shift ***
+    currentSelection.style.width = `${actualWidth}px`;
+    currentSelection.style.height = `${actualHeight}px`;
+    currentSelection.dataset.resizing = 'true';
+    
+    let fontSize = 24; 
+    const innerContainer = currentSelection.querySelector('.math-block-container') as HTMLElement;
+    
+    if (innerContainer && innerContainer.dataset.fontSize) {
+        fontSize = parseFloat(innerContainer.dataset.fontSize);
+    } else if (currentSelection.dataset.fontSize) {
+        fontSize = parseFloat(currentSelection.dataset.fontSize);
+    }
+    
+    resizeStart.current = { 
+        fontSize, 
+        width: actualWidth,  // Use actual rendered width
+        height: actualHeight, // Use actual rendered height
+        x: e.clientX,
+        y: e.clientY,
+        aspectRatio: actualWidth / actualHeight // Use actual aspect ratio
     };
+  }
+};
+    
+    // In MathResizer.tsx, replace the handleMouseMove function:
+
+const handleMouseMove = (e: MouseEvent) => {
+  if (!isResizingRef.current || !selectionRef.current) return;
+  
+  const handle = resizeHandleRef.current || '';
+  const { x, y, width, height, fontSize, aspectRatio } = resizeStart.current;
+  const dx = e.clientX - x;
+  const dy = e.clientY - y;
+  const mode = selectionRef.current.dataset.renderMode || 'math';
+
+  let newW = width;
+  let newH = height;
+  
+  // Calculate new dimensions based on handle
+  if (handle.includes('e')) {
+    newW = width + dx;
+    // *** FIX: Adjust height proportionally for horizontal handles ***
+    if (handle === 'e' || handle === 'w') {
+      newH = newW / aspectRatio;
+    }
+  }
+  if (handle.includes('w')) {
+    newW = width - dx;
+    // *** FIX: Adjust height proportionally for horizontal handles ***
+    if (handle === 'e' || handle === 'w') {
+      newH = newW / aspectRatio;
+    }
+  }
+  if (handle.includes('s')) newH = height + dy;
+  if (handle.includes('n')) newH = height - dy;
+
+  // Maintain aspect ratio for corner handles
+  if (handle === 'nw' || handle === 'ne' || handle === 'sw' || handle === 'se') {
+    if (Math.abs(dx) > Math.abs(dy)) {
+      newH = newW / aspectRatio;
+    } else {
+      newW = newH * aspectRatio;
+    }
+  }
+  
+  // Clamp dimensions
+  newW = Math.max(50, Math.min(newW, MAX_EDITABLE_WIDTH));
+  newH = Math.max(50, newH);
+  
+  // Calculate new font size
+  const scale = Math.sqrt((newW * newH) / (width * height));
+  const newFS = Math.max(8, Math.min(120, fontSize * scale));
+  
+  requestAnimationFrame(() => {
+    if (!selectionRef.current) return;
+    
+    // Apply dimensions
+    selectionRef.current.style.width = `${newW}px`;
+    selectionRef.current.style.height = `${newH}px`;
+    selectionRef.current.style.minHeight = `${newH}px`;
+    
+    // Store pending values
+    pendingResizeValues.current = { width: newW, height: newH, fontSize: newFS };
+    
+    // Update dataset
+    selectionRef.current.dataset.fontSize = String(newFS);
+    
+    // Dispatch updates
+    const innerContainer = selectionRef.current.querySelector('.math-block-container');
+    if (innerContainer) {
+      innerContainer.dispatchEvent(new CustomEvent('updateMathPreview', { 
+        detail: { fontSize: newFS, width: newW } 
+      }));
+    }
+  });
+};
     
     document.addEventListener('mousedown', handleResizeStart);
     document.addEventListener('click', handleActionClick, true);
